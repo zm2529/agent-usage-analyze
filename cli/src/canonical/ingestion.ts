@@ -47,15 +47,13 @@ export interface ObservationEraSeed {
   endsAt?: string;
 }
 
-export interface CanonicalEvent {
+interface CanonicalEventBase {
   id: string;
   nativeEventId: string;
   sequence: number;
   occurredAt: string;
-  kind: CanonicalEventKind;
   actor: EventActor;
   sensitivity: Sensitivity;
-  payload: Record<string, unknown>;
   parentEventId?: string;
   taskId?: string;
   threadId?: string;
@@ -70,15 +68,48 @@ export interface CanonicalEvent {
   payloadRef?: string;
 }
 
+export interface CanonicalEventPayloads {
+  'session-meta': { originator?: string; source?: string; model?: string; cliVersion?: string; taskRole?: 'root' | 'subagent' | 'reviewer' | 'worker' | 'unknown' };
+  'turn-context': { model?: string; effort?: string; sandbox?: string; approvalPolicy?: string };
+  'user-message': Record<string, never>;
+  'assistant-message': Record<string, never>;
+  'system-message': Record<string, never>;
+  'tool-call': { toolName?: string; callId?: string };
+  'tool-result': { callId?: string; status?: 'completed' | 'failed' | 'cancelled' | 'unknown' };
+  thinking: Record<string, never>;
+  compaction: { trigger?: 'automatic' | 'manual' | 'unknown' };
+  'task-started': { status?: 'started' | 'running' };
+  'task-completed': { status?: 'completed' | 'failed' | 'cancelled' | 'aborted'; reason?: 'normal' | 'user-cancelled' | 'tool-error' | 'turn-aborted' | 'unknown' };
+  'task-status': { status?: 'started' | 'running' | 'completed' | 'failed' | 'cancelled' | 'aborted' | 'unknown'; reason?: 'normal' | 'user-cancelled' | 'tool-error' | 'turn-aborted' | 'unknown' };
+  'subagent-spawned': { agentRole?: 'subagent' | 'reviewer' | 'worker' | 'unknown'; status?: 'started' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown' };
+  'token-snapshot': { inputTokens?: number; cachedInputTokens?: number; cacheCreationTokens?: number; outputTokens?: number; reasoningTokens?: number; compactionTokens?: number };
+  'file-change': { changeType?: 'added' | 'modified' | 'deleted' | 'renamed' | 'unknown'; pathHash?: string };
+  unknown: { envelopeType?: string };
+}
+
+export type CanonicalEvent = {
+  [K in CanonicalEventKind]: CanonicalEventBase & { kind: K; payload: CanonicalEventPayloads[K] }
+}[CanonicalEventKind];
+
 export interface IdentityEdge {
   kind: 'parent' | 'task-thread' | 'root-child' | 'turn-attempt';
   fromId: string;
   toId: string;
 }
 
+export type IngestionDiagnosticCode =
+  | 'fixture'
+  | 'adapter-parse-failed'
+  | 'ingestion-failed'
+  | 'unknown-envelope'
+  | 'truncated-tail'
+  | 'rewritten-source'
+  | 'token-reset'
+  | 'token-out-of-order';
+
 export interface IngestionDiagnostic {
   severity: 'info' | 'warning' | 'error';
-  code: string;
+  code: IngestionDiagnosticCode;
   count: number;
 }
 
@@ -156,9 +187,31 @@ const EVENT_PAYLOAD_FIELDS: Record<CanonicalEventKind, Record<string, PayloadVal
   'file-change': { changeType: 'string', pathHash: 'string' },
   unknown: { envelopeType: 'string' },
 };
+const PAYLOAD_STRING_VALUES: Partial<Record<CanonicalEventKind, Record<string, ReadonlySet<string>>>> = {
+  'session-meta': { taskRole: new Set(['root', 'subagent', 'reviewer', 'worker', 'unknown']) },
+  'tool-result': { status: new Set(['completed', 'failed', 'cancelled', 'unknown']) },
+  compaction: { trigger: new Set(['automatic', 'manual', 'unknown']) },
+  'task-started': { status: new Set(['started', 'running']) },
+  'task-completed': {
+    status: new Set(['completed', 'failed', 'cancelled', 'aborted']),
+    reason: new Set(['normal', 'user-cancelled', 'tool-error', 'turn-aborted', 'unknown']),
+  },
+  'task-status': {
+    status: new Set(['started', 'running', 'completed', 'failed', 'cancelled', 'aborted', 'unknown']),
+    reason: new Set(['normal', 'user-cancelled', 'tool-error', 'turn-aborted', 'unknown']),
+  },
+  'subagent-spawned': {
+    agentRole: new Set(['subagent', 'reviewer', 'worker', 'unknown']),
+    status: new Set(['started', 'running', 'completed', 'failed', 'cancelled', 'unknown']),
+  },
+  'file-change': { changeType: new Set(['added', 'modified', 'deleted', 'renamed', 'unknown']) },
+};
 const FORBIDDEN_ANALYSIS_KEY = /(analysis|score|rating|claim|causal|effectiveness|confidence)/i;
 const OPAQUE_PAYLOAD_REF = /^source:[A-Za-z0-9._:-]+(?:#[A-Za-z0-9._:=-]+)?$/;
-const DIAGNOSTIC_CODE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const DIAGNOSTIC_CODES = new Set<IngestionDiagnosticCode>([
+  'fixture', 'adapter-parse-failed', 'ingestion-failed', 'unknown-envelope',
+  'truncated-tail', 'rewritten-source', 'token-reset', 'token-out-of-order',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -190,6 +243,10 @@ function validatePayload(kind: CanonicalEventKind, payload: Record<string, unkno
     if (typeof value === 'string' && (value.length > 256 || value.includes('\n'))) {
       throw new Error(`Canonical ${kind} payload cannot contain raw content`);
     }
+    const allowedValues = PAYLOAD_STRING_VALUES[kind]?.[key];
+    if (allowedValues && typeof value === 'string' && !allowedValues.has(value)) {
+      throw new Error(`Canonical ${kind} payload field ${key} is not an allowed structural value`);
+    }
     if (typeof value === 'number' && (!Number.isSafeInteger(value) || value < 0)) {
       throw new Error(`Canonical ${kind} payload counters must be non-negative integers`);
     }
@@ -199,12 +256,17 @@ function validatePayload(kind: CanonicalEventKind, payload: Record<string, unkno
 function isCursor(value: unknown): value is SourceCursor {
   return isRecord(value)
     && typeof value.token === 'string'
+    && value.token.length > 0
     && typeof value.position === 'number'
     && Number.isSafeInteger(value.position)
     && value.position >= 0;
 }
 
-export function parseCanonicalBatch(value: unknown): CanonicalBatch {
+export class CanonicalBatchValidationError extends Error {
+  override readonly name = 'CanonicalBatchValidationError';
+}
+
+function parseCanonicalBatchValue(value: unknown): CanonicalBatch {
   if (!isRecord(value) || !isRecord(value.artifact) || !isRecord(value.era)) {
     throw new Error('Canonical batch must contain artifact and era records');
   }
@@ -246,6 +308,9 @@ export function parseCanonicalBatch(value: unknown): CanonicalBatch {
       || typeof value.era.startsAt !== 'string'
       || !isOptionalString(value.era.endsAt)) {
     throw new Error('Observation era does not match the runtime schema');
+  }
+  if (value.artifact.parserVersion !== value.era.parserVersion) {
+    throw new Error('Canonical batch artifact and era parser versions must match');
   }
   for (const key of ['discovered', 'parsed', 'skipped', 'failed', 'unknown']) {
     const count = value.coverage[key];
@@ -316,7 +381,7 @@ export function parseCanonicalBatch(value: unknown): CanonicalBatch {
     assertOnlyKeys(diagnostic, ['severity', 'code', 'count'], 'Ingestion diagnostic');
     if (!['info', 'warning', 'error'].includes(String(diagnostic.severity))
         || typeof diagnostic.code !== 'string'
-        || !DIAGNOSTIC_CODE.test(diagnostic.code)
+        || !DIAGNOSTIC_CODES.has(diagnostic.code as IngestionDiagnosticCode)
         || typeof diagnostic.count !== 'number'
         || !Number.isSafeInteger(diagnostic.count)
         || diagnostic.count < 0) {
@@ -324,6 +389,15 @@ export function parseCanonicalBatch(value: unknown): CanonicalBatch {
     }
   }
   return value as unknown as CanonicalBatch;
+}
+
+export function parseCanonicalBatch(value: unknown): CanonicalBatch {
+  try {
+    return parseCanonicalBatchValue(value);
+  } catch (error) {
+    if (error instanceof CanonicalBatchValidationError) throw error;
+    throw new CanonicalBatchValidationError(error instanceof Error ? error.message : 'Invalid canonical batch');
+  }
 }
 
 function cursorsEqual(left: SourceCursor | null, right: SourceCursor | null): boolean {
@@ -375,7 +449,7 @@ export async function ingestSourceAdapter(
       )) {
         throw new Error('Immutable source identity conflicts with changed locator or content hash');
       }
-      const currentCursor = storedSource?.token
+      const currentCursor = storedSource?.token !== null && storedSource?.token !== undefined
         ? { token: storedSource.token, position: storedSource.position }
         : null;
       try {
@@ -399,10 +473,10 @@ export async function ingestSourceAdapter(
           INSERT INTO ingestion_diagnostics (run_id, severity, code, count, detail)
           VALUES (?, 'error', 'adapter-parse-failed', 1, ?)
         `).run(runId, null);
-        if (error instanceof Error && (
+        if (error instanceof CanonicalBatchValidationError || (error instanceof Error && (
           error.message.includes('Stale source cursor')
           || error.message.includes('Canonical')
-        )) {
+        ))) {
           throw error;
         }
         continue;

@@ -4,6 +4,7 @@ import { runMigrations } from '../db/migrate.js';
 import {
   ingestSourceAdapter,
   readIngestionHealth,
+  parseCanonicalBatch,
   type CanonicalBatch,
   type SourceAdapter,
   type SourceArtifact,
@@ -169,6 +170,45 @@ describe('canonical ingestion', () => {
     db.close();
   });
 
+  it('requires one parser version within a canonical batch', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const adapter = new FixtureAdapter();
+    adapter.parse = async (_artifact, context) => ({
+      ...fixtureBatch(context.currentCursor),
+      era: { ...fixtureBatch(context.currentCursor).era, parserVersion: 'fixture-v2' },
+    });
+    await expect(ingestSourceAdapter(adapter, db)).rejects.toThrow(/parser versions must match/i);
+    db.close();
+  });
+
+  it('rejects an ambiguous empty cursor token', () => {
+    const batch = fixtureBatch();
+    batch.nextCursor = { token: '', position: 0 };
+    expect(() => parseCanonicalBatch(batch)).toThrow(/valid previousCursor and nextCursor/i);
+  });
+
+  it('rejects narrative structural values and unregistered diagnostic codes', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const narrative = new FixtureAdapter();
+    narrative.parse = async (_artifact, context) => {
+      const batch = fixtureBatch(context.currentCursor);
+      batch.events[0]!.payload = { status: 'score-95' } as never;
+      return batch;
+    };
+    await expect(ingestSourceAdapter(narrative, db)).rejects.toThrow(/allowed structural value/i);
+
+    const diagnostic = new FixtureAdapter();
+    diagnostic.parse = async (_artifact, context) => {
+      const batch = fixtureBatch(context.currentCursor);
+      batch.diagnostics = [{ severity: 'warning', code: 'sensitive-sentinel', count: 1 } as never];
+      return batch;
+    };
+    await expect(ingestSourceAdapter(diagnostic, db)).rejects.toThrow(/diagnostic/i);
+    db.close();
+  });
+
   it('does not let a stale batch move a source cursor backwards', async () => {
     const db = new Database(':memory:');
     runMigrations(db);
@@ -230,7 +270,7 @@ describe('canonical ingestion', () => {
     const conflicting = new FixtureAdapter();
     conflicting.parse = async (_artifact, context) => {
       const batch = fixtureBatch(context.currentCursor);
-      batch.events[0]!.payload = { status: 'completed' };
+      batch.events[0]!.payload = { status: 'running' };
       batch.nextCursor = { token: 'line:2', position: 2 };
       return batch;
     };
