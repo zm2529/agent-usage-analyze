@@ -21,6 +21,13 @@ import { showTelemetryNoticeIfNeeded } from './utils/telemetry.js';
 import { ingestFixtureCommand } from './commands/ingest-fixture.js';
 import { importCodexCommand } from './commands/import-codex.js';
 import { buildermarkGateCommand } from './commands/buildermark-gate.js';
+import {
+  gitAiProspectiveGateCommand,
+  gitAiSidecarBuildCommand,
+  gitAiSidecarConfigureCommand,
+  gitAiSidecarInspectCommand,
+  gitAiSidecarVerifyCommand,
+} from './commands/git-ai-sidecar.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
@@ -110,6 +117,41 @@ program
   .requiredOption('--repository <path>', 'Repository whose immutable commits the evidence references')
   .action((evidence: string, options: { repository: string }) => {
     const report = buildermarkGateCommand(evidence, options);
+    if (report.status === 'failed') process.exitCode = 2;
+  });
+
+const gitAiSidecar = program
+  .command('git-ai-sidecar')
+  .description('Build, configure, and inspect the pinned local Git AI sidecar');
+
+gitAiSidecar.command('verify')
+  .description('Verify every file in the frozen vendored Git AI source')
+  .action(() => { gitAiSidecarVerifyCommand(); });
+
+gitAiSidecar.command('build')
+  .description('Build the frozen sidecar with Cargo locked and offline')
+  .option('--allow-network', 'Explicitly allow Cargo to fetch only locked dependencies')
+  .action((options: { allowNetwork?: boolean }) => { gitAiSidecarBuildCommand(options); });
+
+gitAiSidecar.command('configure')
+  .description('Configure product-side consumption without installing repository hooks')
+  .requiredOption('--binary <path>', 'Absolute path to the frozen Git AI binary')
+  .option('--enable', 'Request consumption after the prospective gate passes')
+  .option('--notes-export <policy>', 'local-only or manual-external', 'local-only')
+  .action((options: { binary: string; enable?: boolean; notesExport: 'local-only' | 'manual-external' }) => {
+    gitAiSidecarConfigureCommand(options);
+  });
+
+gitAiSidecar.command('inspect')
+  .description('Inspect pinned version and optional read-only Git AI status JSON')
+  .option('--repository <path>', 'Disposable or explicitly selected repository for status inspection')
+  .action((options: { repository?: string }) => { gitAiSidecarInspectCommand(options); });
+
+program.command('git-ai-gate <evidence>')
+  .description('Run the disposable prospective Git AI safety matrix from sanitized local evidence JSON')
+  .requiredOption('--repository <path>', 'Disposable repository containing the referenced commits and local Notes')
+  .action((evidence: string, options: { repository: string }) => {
+    const report = gitAiProspectiveGateCommand(evidence, options);
     if (report.status === 'failed') process.exitCode = 2;
   });
 

@@ -1,0 +1,540 @@
+name: Release Build
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry Run (uncheck to create a release)'
+        required: false
+        default: true
+        type: boolean
+      release_production:
+        description: 'Release to latest (production) channel. For stable production releases only!'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  release-prod-approval:
+    name: Approve production release
+    if: inputs.release_production == true && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    environment: release-prod
+    permissions:
+      contents: read
+    steps:
+      - name: Verify production release target
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "::error::Production releases must run from ${DEFAULT_BRANCH}, not ${REF_NAME}."
+            exit 1
+          fi
+
+  build:
+    name: Build for ${{ matrix.target }}
+    needs: release-prod-approval
+    if: >-
+      !cancelled() &&
+      (inputs.release_production != true ||
+      inputs.dry_run == true ||
+      needs.release-prod-approval.result == 'success')
+    runs-on: ${{ matrix.os }}
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            artifact_name: git-ai-linux-x64
+            use_docker: true
+            docker_image: ubuntu:22.04@sha256:4f838adc7181d9039ac795a7d0aba05a9bd9ecd480d294483169c5def983b64d
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+            artifact_name: git-ai-linux-arm64
+            use_docker: true
+            docker_image: ubuntu:22.04@sha256:4f838adc7181d9039ac795a7d0aba05a9bd9ecd480d294483169c5def983b64d
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: git-ai-windows-x64
+            use_docker: false
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            artifact_name: git-ai-windows-arm64
+            use_docker: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: git-ai-macos-arm64
+            use_docker: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Get version from Cargo.toml
+        id: get-version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | cut -d'"' -f2)
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build in Docker (Linux)
+        if: matrix.use_docker == true
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            -e DEBIAN_FRONTEND=noninteractive \
+            -e SENTRY_OSS="${{ secrets.SENTRY_OSS }}" \
+            -e POSTHOG_API_KEY="${{ secrets.POSTHOG_API_KEY }}" \
+            -e OSS_BUILD="1" \
+            ${{ matrix.docker_image }} \
+            bash -c "
+              apt-get update && \
+              apt-get install -y curl build-essential pkg-config musl-tools && \
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0 --target ${{ matrix.target }} && \
+              . \$HOME/.cargo/env && \
+              cargo build --release --target ${{ matrix.target }} && \
+              strip target/${{ matrix.target }}/release/git-ai
+            "
+
+      - name: Install Rust toolchain (non-Docker)
+        if: matrix.use_docker == false
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: "1.93.0"
+          targets: ${{ matrix.target }}
+
+      - name: Cache dependencies (non-Docker)
+        if: matrix.use_docker == false
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - name: Build release binary (non-Docker, non-Windows-ARM64)
+        if: matrix.use_docker == false && matrix.os != 'windows-11-arm'
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_INCREMENTAL: 0
+          SENTRY_OSS: ${{ secrets.SENTRY_OSS }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          OSS_BUILD: "1"
+
+      - name: Build release binary (Windows ARM64 with LLVM strip)
+        if: matrix.os == 'windows-11-arm'
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_INCREMENTAL: 0
+          SENTRY_OSS: ${{ secrets.SENTRY_OSS }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          OSS_BUILD: "1"
+          RUSTFLAGS: "-C strip=symbols"
+
+      - name: Verify binary architecture (Linux)
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          file target/${{ matrix.target }}/release/git-ai
+          # Verify the binary is statically linked (musl)
+          if ldd target/${{ matrix.target }}/release/git-ai 2>&1 | grep -q 'not a dynamic executable\|statically linked'; then
+            echo "Binary is statically linked (musl) - no GLIBC dependency"
+          else
+            echo "::error::Binary is dynamically linked - expected static musl binary"
+            ldd target/${{ matrix.target }}/release/git-ai || true
+            exit 1
+          fi
+
+      - name: Verify binary architecture (Windows)
+        if: contains(matrix.os, 'windows')
+        shell: bash
+        run: |
+          file target/${{ matrix.target }}/release/git-ai.exe
+
+      - name: Strip binary (Windows x64)
+        if: matrix.os == 'windows-latest'
+        run: |
+          strip target/${{ matrix.target }}/release/git-ai.exe
+
+      - name: Strip binary (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          strip target/${{ matrix.target }}/release/git-ai
+
+      - name: Create release directory
+        run: |
+          mkdir -p release
+
+      - name: Copy binary to release directory
+        if: contains(matrix.os, 'windows')
+        run: |
+          cp target/${{ matrix.target }}/release/git-ai.exe release/${{ matrix.artifact_name }}.exe
+
+      - name: Copy binary to release directory (non-Windows)
+        if: ${{ !contains(matrix.os, 'windows') }}
+        run: |
+          cp target/${{ matrix.target }}/release/git-ai release/${{ matrix.artifact_name }}
+
+      - name: Upload artifact (Windows)
+        if: contains(matrix.os, 'windows')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release/${{ matrix.artifact_name }}.exe
+          retention-days: 30
+
+      - name: Upload artifact (non-Windows)
+        if: ${{ !contains(matrix.os, 'windows') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release/${{ matrix.artifact_name }}
+          retention-days: 30
+
+  build-macos-intel:
+    name: Build for macOS Intel
+    needs: release-prod-approval
+    if: >-
+      !cancelled() &&
+      (inputs.release_production != true ||
+      inputs.dry_run == true ||
+      needs.release-prod-approval.result == 'success')
+    runs-on: macos-15-intel
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Get version from Cargo.toml
+        id: get-version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | cut -d'"' -f2)
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: "1.93.0"
+          targets: x86_64-apple-darwin
+
+      - name: Cache dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-x86_64-apple-darwin-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-x86_64-apple-darwin-
+
+      - name: Build release binary
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+        env:
+          CARGO_INCREMENTAL: 0
+          SENTRY_OSS: ${{ secrets.SENTRY_OSS }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          OSS_BUILD: "1"
+
+      - name: Verify binary architecture
+        run: |
+          file target/x86_64-apple-darwin/release/git-ai
+          lipo -info target/x86_64-apple-darwin/release/git-ai
+
+      - name: Strip binary
+        run: |
+          strip target/x86_64-apple-darwin/release/git-ai
+
+      - name: Create release directory
+        run: |
+          mkdir -p release
+
+      - name: Copy binary to release directory
+        run: |
+          cp target/x86_64-apple-darwin/release/git-ai release/git-ai-macos-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: git-ai-macos-x64
+          path: release/git-ai-macos-x64
+          retention-days: 30
+
+  create-release:
+    name: Create Release
+    needs: [build, build-macos-intel, release-prod-approval]
+    runs-on: ubuntu-latest
+    if: >-
+      !cancelled() &&
+      inputs.dry_run != true &&
+      needs.build.result == 'success' &&
+      needs.build-macos-intel.result == 'success' &&
+      (inputs.release_production != true ||
+      needs.release-prod-approval.result == 'success')
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Determine release metadata
+        id: release-meta
+        shell: bash
+        env:
+          BASE_VERSION: ${{ needs.build.outputs.version }}
+          IS_PRODUCTION: ${{ inputs.release_production }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          if [[ "$IS_PRODUCTION" == 'true' ]]; then
+            RELEASE_TAG="$BASE_VERSION"
+            CHANNEL="latest"
+            PRERELEASE="false"
+            MAKE_LATEST="true"
+          else
+            RELEASE_TAG="${BASE_VERSION}-next-${SHORT_SHA}"
+            CHANNEL="next"
+            PRERELEASE="true"
+            MAKE_LATEST="false"
+          fi
+
+          echo "tag_name=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_name=Release $RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$MAKE_LATEST" >> "$GITHUB_OUTPUT"
+          echo "channel_label=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      - name: Create release directory
+        run: mkdir -p release
+
+      - name: Move artifacts to release directory
+        run: |
+          find artifacts -name "git-ai-*" -exec cp {} release/ \;
+
+      - name: List available artifacts
+        run: |
+          echo "Available artifacts:"
+          ls -la release/ || echo "No artifacts found"
+
+      - name: Create checksums
+        run: |
+          cd release
+          if ls git-ai-* 1> /dev/null 2>&1; then
+            sha256sum git-ai-* > SHA256SUMS
+          else
+            echo "No binaries found to create checksums for"
+            touch SHA256SUMS
+          fi
+
+      - name: Checkout code for install script
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          path: repo
+
+      - name: Generate version-pinned install script
+        run: |
+          VERSION="${{ steps.release-meta.outputs.tag_name }}"
+          REPO="${{ github.repository }}"
+          # Convert checksums to pipe-separated format for embedding
+          CHECKSUMS=$(tr '\n' '|' < release/SHA256SUMS | sed 's/|$//')
+          if [ -z "$CHECKSUMS" ]; then
+            CHECKSUMS="__CHECKSUMS_PLACEHOLDER__"
+          fi
+          # Replace placeholder values with release-specific values (pattern-based to be resilient to line changes)
+          awk -v repo="$REPO" -v version="$VERSION" -v checksums="$CHECKSUMS" '
+            /^REPO="__REPO_PLACEHOLDER__"/ { sub(/__REPO_PLACEHOLDER__/, repo) }
+            /^PINNED_VERSION="__VERSION_PLACEHOLDER__"/ { sub(/__VERSION_PLACEHOLDER__/, version) }
+            /^EMBEDDED_CHECKSUMS="__CHECKSUMS_PLACEHOLDER__"/ { sub(/__CHECKSUMS_PLACEHOLDER__/, checksums) }
+            { print }
+          ' repo/install.sh > release/install.sh
+          chmod +x release/install.sh
+          echo "Generated version-pinned install.sh for $VERSION from $REPO"
+          echo "Embedded checksums: $CHECKSUMS"
+
+      - name: Generate version-pinned install.ps1 script
+        run: |
+          VERSION="${{ steps.release-meta.outputs.tag_name }}"
+          REPO="${{ github.repository }}"
+          # Reuse checksums from earlier step
+          CHECKSUMS=$(tr '\n' '|' < release/SHA256SUMS | sed 's/|$//')
+          if [ -z "$CHECKSUMS" ]; then
+            CHECKSUMS="__CHECKSUMS_PLACEHOLDER__"
+          fi
+          # Replace placeholder values with release-specific values (pattern-based to be resilient to line changes)
+          awk -v repo="$REPO" -v version="$VERSION" -v checksums="$CHECKSUMS" '
+            /^[$]Repo = .__REPO_PLACEHOLDER__/ { sub(/__REPO_PLACEHOLDER__/, repo) }
+            /^[$]PinnedVersion = .__VERSION_PLACEHOLDER__/ { sub(/__VERSION_PLACEHOLDER__/, version) }
+            /^[$]EmbeddedChecksums = .__CHECKSUMS_PLACEHOLDER__/ { sub(/__CHECKSUMS_PLACEHOLDER__/, checksums) }
+            { print }
+          ' repo/install.ps1 > release/install.ps1
+          echo "Generated version-pinned install.ps1 for $VERSION from $REPO"
+
+      - name: Add install scripts to SHA256SUMS
+        run: |
+          cd release
+          sha256sum install.sh install.ps1 >> SHA256SUMS
+
+      - name: Generate attestations for release artifacts
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            release/git-ai-*
+            release/install.sh
+            release/install.ps1
+            release/SHA256SUMS
+
+      - name: Create Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        with:
+          tag_name: ${{ steps.release-meta.outputs.tag_name }}
+          name: ${{ steps.release-meta.outputs.release_name }}
+          generate_release_notes: true
+          body: |
+            ## git-ai ${{ steps.release-meta.outputs.tag_name }}
+
+            ### Release Channel
+            `${{ steps.release-meta.outputs.channel_label }}`
+
+            ${{ steps.release-meta.outputs.prerelease != 'true' && '---' || '' }}
+
+            ${{ steps.release-meta.outputs.prerelease != 'true' && '> **Detailed AI-generated changelog is being generated and will appear here shortly...**' || '' }}
+
+            ${{ steps.release-meta.outputs.prerelease != 'true' && '---' || '' }}
+
+            ### Installation
+            Install this specific version with checksum verification:
+
+            **macOS/Linux:**
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.release-meta.outputs.tag_name }}/install.sh | bash
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://github.com/${{ github.repository }}/releases/download/${{ steps.release-meta.outputs.tag_name }}/install.ps1 | iex
+            ```
+
+            ### Downloads
+            - **Linux (x64)**: `git-ai-linux-x64`
+            - **Linux (ARM64)**: `git-ai-linux-arm64`
+            - **Windows (x64)**: `git-ai-windows-x64.exe`
+            - **Windows (ARM64)**: `git-ai-windows-arm64.exe`
+            - **macOS (Intel)**: `git-ai-macos-x64`
+            - **macOS (Apple Silicon)**: `git-ai-macos-arm64`
+
+            ### SHA256 Checksums
+            ```
+            $(cat release/SHA256SUMS)
+            ```
+
+            ### Attestation Verification
+            Verify build provenance with the GitHub CLI:
+            ```bash
+            gh attestation verify git-ai-<platform> --repo ${{ github.repository }}
+            ```
+          files: |
+            release/git-ai-*
+            release/SHA256SUMS
+            release/install.sh
+            release/install.ps1
+          draft: false
+          prerelease: ${{ steps.release-meta.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.release-meta.outputs.make_latest }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate release bot token
+        if: inputs.release_production == true
+        id: release-bot-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: 3481373
+          private-key: ${{ secrets.GIT_AI_INTERNAL_RELEASE_BOT_PRIVATE_KEY }}
+
+      - name: Checkout code for version bump
+        if: inputs.release_production == true
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          token: ${{ steps.release-bot-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        if: inputs.release_production == true
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+
+      - name: Bump version in Cargo.toml
+        if: inputs.release_production == true
+        id: bump-version
+        run: |
+          # Extract current version
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | cut -d'"' -f2)
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Parse version components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          
+          # Bump patch version
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "New version: $NEW_VERSION"
+          
+          # Update Cargo.toml
+          sed -i.bak "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" Cargo.toml
+          rm Cargo.toml.bak
+          
+          # Update flake.nix version to match
+          sed -i.bak "s/version = \".*\"/version = \"${NEW_VERSION}\"/" flake.nix
+          rm flake.nix.bak
+          
+          # Update Cargo.lock
+          cargo check
+          
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Commit and push version bump
+        if: inputs.release_production == true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock flake.nix
+          git commit -m "chore: bump version to ${{ steps.bump-version.outputs.new_version }} [skip ci]"
+          git pull --rebase origin main
+          git push origin main
+
+      - name: Trigger release channel update
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.RELEASE_CHANNEL_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/next-element-inc/monorepo/actions/workflows/update-release-version.yaml/dispatches \
+            -d '{
+              "ref": "dev",
+              "inputs": {
+                "channel": "${{ steps.release-meta.outputs.channel_label }}",
+                "tag": "${{ steps.release-meta.outputs.tag_name }}"
+              }
+            }'

@@ -119,6 +119,46 @@ export interface BuildermarkGateState {
   stateError: 'corrupt-report' | null;
 }
 
+export type GitAiScenarioKind = 'clean' | 'pre-existing-dirty' | 'missing-baseline'
+  | 'partial-stage' | 'amend' | 'rebase' | 'linked-worktree'
+  | 'same-worktree-concurrent' | 'unsupported-client';
+export interface GitAiGateReport {
+  id: string;
+  status: 'passed' | 'failed';
+  sourceVersion: '1.6.16';
+  sourceCommit: string;
+  notesSchema: 'authorship/3.0.0';
+  notesExportPolicy: 'local-explicit';
+  candidateEvidence: number;
+  abstentions: number;
+  scenarios: Array<{
+    kind: GitAiScenarioKind;
+    support: 'supported' | 'limited' | 'abstained';
+    outcome: 'candidate' | 'abstained';
+    reason: string | null;
+  }>;
+  failureCodes: string[];
+  completedAt: string;
+  reportHash: string;
+}
+export interface GitAiSidecarState {
+  status: 'disabled' | 'testing' | 'passed' | 'failed';
+  gatePassed: boolean;
+  configured: boolean;
+  configuredEnabled: boolean;
+  binaryHealthy: boolean;
+  binaryVersion: string | null;
+  consumptionEnabled: boolean;
+  sourceVersion: '1.6.16';
+  sourceCommit: string;
+  notesSchema: 'authorship/3.0.0';
+  notesExportPolicy: 'local-only' | 'manual-external';
+  automaticRepositoryMutation: false;
+  latestRun: GitAiGateReport | null;
+  stateError: 'corrupt-report' | 'corrupt-config' | 'config-unavailable'
+    | 'sidecar-health-check-failed' | null;
+}
+
 export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
 export interface AnalysisClaim {
   id: string;

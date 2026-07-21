@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "agent-analytics.git-ai-prospective-gate-record.v1",
+  "recordedAt": "2026-07-21",
+  "sidecar": {
+    "name": "git-ai",
+    "version": "1.6.16",
+    "sourceCommit": "da79071f21f3b018aa7d4ee4e7d5fa8bf3555a88",
+    "sourceTree": "bdc44638c44dc0f7220f1d77f8d9c7da95da5944",
+    "notesSchema": "authorship/3.0.0",
+    "patchStack": []
+  },
+  "build": {
+    "sourceFilesVerified": 869,
+    "profile": "release",
+    "lockfileRequired": true,
+    "defaultNetworkPolicy": "offline",
+    "dependencyFetch": "explicit-locked-only",
+    "status": "passed"
+  },
+  "productPolicyMatrix": {
+    "status": "passed",
+    "scenarios": 9,
+    "candidateEvidence": 5,
+    "abstentions": 4,
+    "rewriteConfidence": "limited"
+  },
+  "upstreamRegressionChecks": [
+    {
+      "scenario": "clean",
+      "test": "test_commit_hunks_basic_ai_attribution",
+      "status": "passed"
+    },
+    {
+      "scenario": "pre-existing-dirty",
+      "test": "test_codex_preset_bash_recovery_minimizes_dirty_untracked_attribution",
+      "status": "passed",
+      "productPolicy": "abstain"
+    },
+    {
+      "scenario": "partial-stage",
+      "test": "test_partial_staging_filters_unstaged_lines",
+      "status": "passed",
+      "productPolicy": "limited"
+    },
+    {
+      "scenario": "amend",
+      "test": "test_amend_preserves_existing_attribution",
+      "status": "passed",
+      "productPolicy": "limited"
+    },
+    {
+      "scenario": "rebase",
+      "test": "test_rebase_preserves_attribution",
+      "status": "failed",
+      "failureClass": "upstream-attribution-not-preserved",
+      "productPolicy": "limited"
+    },
+    {
+      "scenario": "linked-worktree",
+      "test": "test_repository_paths_and_storage_are_worktree_aware_in_worktree_daemon_mode",
+      "status": "passed"
+    }
+  ],
+  "environmentLimits": [
+    {
+      "component": "git",
+      "version": "2.39.1",
+      "unsupportedFixture": "git-worktree-add-orphan",
+      "impact": "one additional upstream generated worktree variant was not used; the dedicated linked-worktree regression passed"
+    }
+  ],
+  "safety": {
+    "upstreamCommandsOffline": true,
+    "disposableRepositoriesOnly": true,
+    "automaticHooksModified": false,
+    "notesPushed": false,
+    "userRepositoryModified": false,
+    "rawPromptsPersisted": false,
+    "rawCodePersisted": false,
+    "lineRatioUsedAsQualityScore": false,
+    "runtimeHomeIsolated": true,
+    "ossTelemetryDisabled": true,
+    "binaryIdentityBound": true,
+    "gitTreeModeAndSymlinkVerified": true
+  }
+}

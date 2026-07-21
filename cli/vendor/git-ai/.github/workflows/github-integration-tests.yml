@@ -1,0 +1,68 @@
+name: Integration Tests - GitHub
+
+on:
+  workflow_dispatch:
+    inputs:
+      no-cleanup:
+        description: 'Skip cleanup (leave test repos for inspection)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  github-integration:
+    name: GitHub Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+
+      - name: Cache dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Authenticate GitHub CLI
+        env:
+          GH_INTEGRATION_TEST_TOKEN: ${{ secrets.GH_INTEGRATION_TEST_TOKEN }}
+        run: |
+          if [ -z "$GH_INTEGRATION_TEST_TOKEN" ]; then
+            echo "❌ GH_INTEGRATION_TEST_TOKEN secret is not set"
+            echo "Please add a Personal Access Token with 'repo', 'delete_repo', and 'read:org' scopes"
+            exit 1
+          fi
+          echo "$GH_INTEGRATION_TEST_TOKEN" | gh auth login --with-token
+          gh auth status
+
+      - name: Configure git credentials
+        env:
+          GH_INTEGRATION_TEST_TOKEN: ${{ secrets.GH_INTEGRATION_TEST_TOKEN }}
+        run: |
+          git config --global credential.helper store
+          echo "https://x-access-token:${GH_INTEGRATION_TEST_TOKEN}@github.com" > ~/.git-credentials
+
+      - name: Run GitHub integration tests
+        run: |
+          if [ "${{ inputs.no-cleanup }}" = "true" ]; then
+            export GIT_AI_TEST_NO_CLEANUP=1
+          fi
+          cargo test --test integration github_integration -- --ignored --nocapture
+        env:
+          GH_INTEGRATION_TEST_TOKEN: ${{ secrets.GH_INTEGRATION_TEST_TOKEN }}

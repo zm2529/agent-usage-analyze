@@ -34,7 +34,9 @@ export function DeliveryCandidateCard({
               <p>{record.eraCompatibility} · {record.eraIds.length > 0 ? record.eraIds.join(', ') : 'era unknown'}</p>
               {record.facts.map((fact) => <p key={`${record.id}:${fact.taskId}:${fact.factRef ?? fact.deliveryId}`}>
                 task <Link className="underline" to={`/tasks/${encodeURIComponent(fact.taskId)}`}>{fact.taskId}</Link>
-                {fact.factRef && <> · event <Link className="underline" to={eventAnchorHref(fact.taskId, fact.factRef)}>{fact.factRef}</Link></>}
+                {fact.factRef?.startsWith('git-ai-note:')
+                  ? <span> · Note digest {fact.factRef.slice('git-ai-note:'.length)}</span>
+                  : fact.factRef && <> · event <Link className="underline" to={eventAnchorHref(fact.taskId, fact.factRef)}>{fact.factRef}</Link></>}
               </p>)}
             </li>
           ))}

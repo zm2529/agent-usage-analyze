@@ -16,6 +16,8 @@
     "./canonical/patterns": "./dist/canonical/patterns.js",
     "./canonical/deliveries": "./dist/canonical/deliveries.js",
     "./canonical/buildermark-gate": "./dist/canonical/buildermark-gate.js",
+    "./canonical/git-ai-gate": "./dist/canonical/git-ai-gate.js",
+    "./sidecars/git-ai-manager": "./dist/sidecars/git-ai-manager.js",
     "./types": "./dist/types.js",
     "./utils/config": "./dist/utils/config.js",
     "./utils/browser": "./dist/utils/browser.js",
@@ -54,6 +56,7 @@
   },
   "files": [
     "dist",
+    "vendor",
     "dashboard-dist",
     "server-dist",
     "README.md",

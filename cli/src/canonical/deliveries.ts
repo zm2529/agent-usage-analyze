@@ -3,6 +3,7 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type Database from 'better-sqlite3';
 import { discoverGitCommits, repositoryIdentity } from './delivery-repository.js';
+import { gitAiConsumptionEnabled } from './git-ai-state.js';
 
 export type DeliveryKind = 'git-commit' | 'test-run' | 'local-artifact';
 
@@ -456,7 +457,9 @@ function readCandidateRows(
     FROM task_delivery_candidates candidate
     JOIN deliveries delivery ON delivery.id = candidate.delivery_id
     WHERE ${column} = ? ORDER BY delivery.occurred_at DESC, candidate.task_id`).all(value) as Array<Record<string, unknown>>;
-  return rows.map((row) => ({
+  const showGitAi = !rows.some((row) => row.algorithmVersion === 'git-ai-provenance-v1')
+    || gitAiConsumptionEnabled(db);
+  return rows.filter((row) => row.algorithmVersion !== 'git-ai-provenance-v1' || showGitAi).map((row) => ({
     id: String(row.id),
     taskId: String(row.taskId),
     delivery: mapDelivery({

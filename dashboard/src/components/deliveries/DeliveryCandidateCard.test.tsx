@@ -35,4 +35,28 @@ describe('DeliveryCandidateCard', () => {
     expect(screen.getByRole('link', { name: 'abc123' })).toHaveAttribute('href', '/deliveries/delivery%3A1');
     expect(screen.getByRole('link', { name: 'event:1' })).toHaveAttribute('href', '/tasks/task%3A1#event-event%3A1');
   });
+
+  it('renders Git AI provenance and abstain limitations as evidence rather than ownership', () => {
+    const provenance: TaskDeliveryCandidate = {
+      ...candidate,
+      algorithmVersion: 'git-ai-provenance-v1',
+      confidence: 0.95,
+      status: 'candidate',
+      evidence: [{
+        id: 'git-ai', evidenceType: 'git-ai-note-provenance', position: 'supports',
+        sourceCategory: 'deterministic', algorithmVersion: 'git-ai-provenance-v1',
+        coverage: 1, confidence: 0.95, eraCompatibility: 'compatible', eraIds: ['era:sidecar'],
+        humanStatus: 'unreviewed', facts: [{
+          deliveryId: 'delivery:1', taskId: 'task:1', factRef: 'git-ai-note:sha256:opaque',
+        }],
+      }],
+    };
+    render(<MemoryRouter><DeliveryCandidateCard candidate={provenance} /></MemoryRouter>);
+
+    expect(screen.getByText(/git-ai-note-provenance · supports · deterministic · 95%/)).toBeInTheDocument();
+    expect(screen.getByText(/compatible · era:sidecar/)).toBeInTheDocument();
+    expect(screen.getByText(/git-ai-provenance-v1/)).toBeInTheDocument();
+    expect(screen.getByText(/Note digest sha256:opaque/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'git-ai-note:sha256:opaque' })).not.toBeInTheDocument();
+  });
 });

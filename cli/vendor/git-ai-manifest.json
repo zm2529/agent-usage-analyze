@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "agent-analytics.managed-sidecar-source.v1",
+  "name": "git-ai",
+  "sourceRepository": "git-ai-project/git-ai",
+  "sourceCommit": "da79071f21f3b018aa7d4ee4e7d5fa8bf3555a88",
+  "sourceTree": "bdc44638c44dc0f7220f1d77f8d9c7da95da5944",
+  "sourceVersion": "1.6.16",
+  "license": "Apache-2.0",
+  "notesSchema": "authorship/3.0.0",
+  "fileManifest": "git-ai-files.sha256",
+  "fileManifestSha256": "7e97ddfb9be190641c722ca80504807fbc614ae69e19c68f8fb1e9fab33fdb08",
+  "patchStack": []
+}

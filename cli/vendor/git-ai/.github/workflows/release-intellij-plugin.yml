@@ -1,0 +1,110 @@
+# GitHub Actions Workflow for releasing the IntelliJ plugin to JetBrains Marketplace.
+# Running the publishPlugin task requires all the following secrets to be provided:
+# INTELLIJ_PUBLISH_TOKEN, INTELLIJ_PRIVATE_KEY, INTELLIJ_PRIVATE_KEY_PASSWORD, INTELLIJ_CERTIFICATE_CHAIN.
+# See https://plugins.jetbrains.com/docs/intellij/plugin-signing.html for more information.
+
+name: Release IntelliJ Plugin
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no actual publish)'
+        type: boolean
+        default: true
+
+defaults:
+  run:
+    working-directory: agent-support/intellij
+
+jobs:
+
+  # Prepare and publish the plugin to JetBrains Marketplace repository
+  release:
+    name: Publish Plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+
+      # Free GitHub Actions Environment Disk Space
+      - name: Maximize Build Space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          large-packages: false
+
+      # Check out the current repository
+      - name: Fetch Sources
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Set up the Java environment for the next steps
+      - name: Setup Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: zulu
+          java-version: 21
+
+      # Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+
+      # Build the plugin
+      - name: Build Plugin
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: ./gradlew buildPlugin
+
+      # Publish the plugin to JetBrains Marketplace
+      - name: Publish Plugin
+        if: ${{ !inputs.dry_run }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          PUBLISH_TOKEN: ${{ secrets.INTELLIJ_PUBLISH_TOKEN }}
+          CERTIFICATE_CHAIN: ${{ secrets.INTELLIJ_CERTIFICATE_CHAIN }}
+          PRIVATE_KEY: ${{ secrets.INTELLIJ_PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.INTELLIJ_PRIVATE_KEY_PASSWORD }}
+        run: ./gradlew publishPlugin
+
+      # Dry run message
+      - name: Dry Run Notice
+        if: ${{ inputs.dry_run }}
+        run: echo "Dry run mode - skipping actual publish to JetBrains Marketplace"
+
+      # Get current version for tagging
+      - name: Get Version
+        id: version
+        run: |
+          CURRENT_VERSION=$(grep '^pluginVersion = ' gradle.properties | cut -d' ' -f3)
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+      # Create git tag for the release
+      - name: Create Git Tag
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git tag -a "intellij-v${{ steps.version.outputs.current }}" -m "IntelliJ Plugin v${{ steps.version.outputs.current }}"
+          git push origin "intellij-v${{ steps.version.outputs.current }}"
+
+      # Bump version after successful publish
+      - name: Bump Version
+        if: ${{ !inputs.dry_run }}
+        run: |
+          CURRENT_VERSION=$(grep '^pluginVersion = ' gradle.properties | cut -d' ' -f3)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          sed -i "s/^pluginVersion = .*/pluginVersion = ${NEW_VERSION}/" gradle.properties
+          echo "Bumped version from $CURRENT_VERSION to $NEW_VERSION"
+
+      # Commit version bump
+      - name: Commit Version Bump
+        if: ${{ !inputs.dry_run }}
+        run: |
+          NEW_VERSION=$(grep '^pluginVersion = ' gradle.properties | cut -d' ' -f3)
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add gradle.properties
+          git commit -m "chore(intellij): bump version to ${NEW_VERSION}"
+          git push

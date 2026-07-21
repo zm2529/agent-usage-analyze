@@ -29,6 +29,7 @@ export interface MigrationResult {
  * Version 15: Add evidence-closed, versioned analysis claims
  * Version 16: Add immutable engineering deliveries
  * Version 17: Add isolated Buildermark helper gate reports
+ * Version 18: Add managed Git AI prospective sidecar gate reports
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -116,6 +117,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 17) {
     applyV17(db);
+  }
+
+  if (currentVersion < 18) {
+    applyV18(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -526,4 +531,25 @@ function applyV17(db: Database.Database): void {
       ON buildermark_gate_runs(sequence DESC);
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(17);
+}
+
+function applyV18(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS git_ai_gate_runs (
+      sequence             INTEGER PRIMARY KEY AUTOINCREMENT,
+      id                   TEXT NOT NULL UNIQUE,
+      status               TEXT NOT NULL CHECK (status IN ('testing', 'passed', 'failed')),
+      repository_identity  TEXT NOT NULL,
+      source_version       TEXT NOT NULL,
+      source_commit        TEXT NOT NULL,
+      notes_schema         TEXT NOT NULL,
+      report_json          TEXT,
+      failure_codes_json   TEXT NOT NULL DEFAULT '[]',
+      started_at           TEXT NOT NULL,
+      completed_at         TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_git_ai_gate_runs_started
+      ON git_ai_gate_runs(sequence DESC);
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(18);
 }
