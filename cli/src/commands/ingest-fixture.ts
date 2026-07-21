@@ -3,20 +3,14 @@ import { resolve } from 'node:path';
 import { getDb } from '../db/client.js';
 import {
   ingestSourceAdapter,
+  parseCanonicalBatch,
   type CanonicalBatch,
   type SourceAdapter,
   type SourceArtifact,
 } from '../canonical/ingestion.js';
 
 function readCanonicalBatch(filePath: string): CanonicalBatch {
-  const parsed = JSON.parse(readFileSync(resolve(filePath), 'utf8')) as Partial<CanonicalBatch>;
-  if (!parsed.artifact || !parsed.era || !Array.isArray(parsed.events) || !parsed.coverage) {
-    throw new Error('Fixture must contain artifact, era, events, and coverage');
-  }
-  if (typeof parsed.nextCursor !== 'string' || !Array.isArray(parsed.diagnostics)) {
-    throw new Error('Fixture must contain diagnostics and nextCursor');
-  }
-  return parsed as CanonicalBatch;
+  return parseCanonicalBatch(JSON.parse(readFileSync(resolve(filePath), 'utf8')));
 }
 
 export async function ingestFixtureCommand(filePath: string): Promise<void> {
@@ -26,8 +20,14 @@ export async function ingestFixtureCommand(filePath: string): Promise<void> {
     async discover(): Promise<SourceArtifact[]> {
       return [batch.artifact];
     },
-    async parse(): Promise<CanonicalBatch> {
-      return batch;
+    async parse(_artifact, context): Promise<CanonicalBatch> {
+      return {
+        ...batch,
+        previousCursor: context.currentCursor,
+        nextCursor: context.currentCursor && context.currentCursor.position > batch.nextCursor.position
+          ? context.currentCursor
+          : batch.nextCursor,
+      };
     },
   };
   const summary = await ingestSourceAdapter(adapter, getDb());

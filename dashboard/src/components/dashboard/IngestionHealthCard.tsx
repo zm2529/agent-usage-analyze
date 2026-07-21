@@ -11,6 +11,17 @@ export function IngestionHealthCard({ health }: { health: IngestionHealth }) {
         <CardTitle className="flex items-center gap-2 text-sm">
           <ShieldCheck className="h-4 w-4 text-emerald-600" />
           <span role="heading" aria-level={2}>Ingestion health</span>
+          <span className="ml-auto text-xs font-normal text-muted-foreground">
+            {health.status === 'never-run'
+              ? 'Not run'
+              : health.status === 'running'
+                ? 'Running'
+              : health.status === 'completed-with-errors'
+                ? 'Completed with errors'
+                : health.status === 'failed'
+                  ? 'Failed'
+                  : 'Completed'}
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3 text-xs sm:grid-cols-3">

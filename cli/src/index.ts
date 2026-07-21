@@ -127,7 +127,7 @@ program
   .description('Start the Agent Analytics dashboard server and open in browser')
   .option('-p, --port <number>', 'Port number', String(7890))
   .option('--no-open', 'Do not open browser automatically')
-  .option('--no-sync', 'Skip automatic session sync before starting')
+  .option('--sync', 'Explicitly sync the legacy Codex session projection before starting')
   .action(dashboardCommand);
 
 program.addCommand(resetCommand);
@@ -183,7 +183,7 @@ insightsCmd
 // Default action: running `agent-analytics` with no arguments opens the dashboard.
 // Dashboard auto-syncs sessions first, giving "1 command to value" on first run.
 program.action(async () => {
-  await dashboardCommand({ port: '7890', open: true, sync: true });
+  await dashboardCommand({ port: '7890', open: true, sync: false });
 });
 
 // Show one-time telemetry disclosure before any command runs

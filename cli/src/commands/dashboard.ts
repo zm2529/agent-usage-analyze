@@ -11,7 +11,7 @@ import { runSync } from './sync.js';
 interface DashboardOptions {
   port: string;
   open: boolean;
-  // Commander's --no-sync flag sets sync=false; default (no flag) is true
+  // Explicit opt-in only. Starting the dashboard must not scan real history.
   sync?: boolean;
 }
 
@@ -46,22 +46,16 @@ function isPortInUse(port: number): Promise<boolean> {
  * ESM import specifiers.
  */
 export async function dashboardCommand(options: DashboardOptions): Promise<void> {
-  // Auto-sync sessions before starting the dashboard so users see fresh data.
-  // Skipped with --no-sync. Uses quiet:false so sync progress is visible on first run.
-  if (options.sync !== false) {
+  // Legacy session projection is explicit opt-in while canonical Codex ingestion is built.
+  if (options.sync === true) {
     try {
       await runSync({ quiet: false });
       void identifyUser();
     } catch (err) {
       // Sync failure is non-fatal — dashboard still opens with whatever data exists
       console.warn(chalk.yellow(`  Sync warning: ${err instanceof Error ? err.message : String(err)}`));
-      console.warn(chalk.dim('  Use --no-sync to skip sync, or run `agent-analytics sync` separately.'));
+      console.warn(chalk.dim('  Run `agent-analytics sync --source codex-cli` separately if needed.'));
     }
-  } else {
-    // --no-sync: runSync is skipped so auto-detect doesn't run through that path.
-    // Still probe Ollama here so first-time users get configured even without syncing.
-    const { autoDetectOllama } = await import('../utils/ollama-detect.js');
-    await autoDetectOllama();
   }
 
   const port = parseInt(options.port, 10);

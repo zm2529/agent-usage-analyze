@@ -25,6 +25,7 @@
       "payload": { "taskId": "fixture-task" }
     }
   ],
+  "identityEdges": [],
   "diagnostics": [],
   "coverage": {
     "discovered": 1,
@@ -33,5 +34,6 @@
     "failed": 0,
     "unknown": 0
   },
-  "nextCursor": "line:1"
+  "previousCursor": null,
+  "nextCursor": { "token": "line:1", "position": 1 }
 }

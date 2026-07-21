@@ -1,146 +1,32 @@
 # Contributing to Agent Analytics
 
-Thanks for your interest in contributing! This guide covers everything you need to get started.
+Agent Analytics is a local-first, single-user Codex analysis product. Read `CONTEXT.md`, the active local ticket, and the V1 specification before changing domain behavior.
 
-## Prerequisites
+## Development
 
-- **Node.js** 18 or later
-- **pnpm** >= 9
+Requirements: Node.js 18 or later and pnpm 9 or later.
 
-## Getting Started
-
-```bash
-# Clone the repo
-git clone https://github.com/melagiri/agent-analytics.git
-cd agent-analytics
-
-# Install dependencies (workspace root)
+```sh
 pnpm install
-
-# Build all packages
-pnpm build
-
-# Link CLI for local testing
-cd cli && npm link
-```
-
-## Project Structure
-
-```
-agent-analytics/
-├── cli/              # Node.js CLI — parses sessions, syncs to SQLite
-│   └── src/
-│       ├── commands/ # CLI commands (init, sync, status, stats, dashboard, config, reset)
-│       ├── providers/# Source tool providers (claude-code, cursor, codex, copilot-cli)
-│       ├── parser/   # JSONL parsing and session title generation
-│       ├── db/       # SQLite schema, migrations, queries
-│       ├── utils/    # Config, device, paths
-│       ├── types.ts  # TypeScript type definitions
-│       └── index.ts  # CLI entry point
-├── dashboard/        # Vite + React SPA (embedded local dashboard)
-├── server/           # Hono API server (serves dashboard + REST API)
-└── docs/             # Product docs, plans, architecture
-```
-
-## Development Workflow
-
-### 1. Create a branch
-
-```bash
-git checkout -b feature/your-feature-name
-# or: fix/description, chore/description
-```
-
-Branch naming conventions:
-- `feature/*` — New features
-- `fix/*` — Bug fixes
-- `chore/*` — Maintenance, dependencies, config
-
-### 2. Make changes
-
-```bash
-# Watch mode for the CLI
-cd cli && pnpm dev
-
-# Watch mode for the dashboard
-cd dashboard && pnpm dev
-
-# Watch mode for the server
-cd server && pnpm dev
-```
-
-### 3. Verify your changes
-
-```bash
-# From the workspace root — builds all 3 packages
+pnpm test
 pnpm build
 ```
 
-### 4. Test locally
+Tests exercise public seams. Canonical ingestion tests enter through `SourceAdapter -> CanonicalBatch`; server tests use the Hono request interface; UI tests assert user-visible states. Use isolated data directories and disposable Git repositories. Tests and committed fixtures must not read or contain real prompts, code, thinking, tool payloads, credentials, or user history.
 
-```bash
-# Primary testing path — syncs sessions and opens the dashboard
-agent-analytics
+## Change discipline
 
-# Test individual commands
-agent-analytics sync --dry-run
-agent-analytics stats
-agent-analytics dashboard
-```
+- Work one local ticket at a time and keep later changes small and reversible.
+- The initial frozen MIT source import is the only expected wide bootstrap; subsequent changes should be narrow vertical slices.
+- Keep source adapters factual. Scoring, causal claims, and semantic judgments belong downstream and must cite evidence.
+- Preserve loopback-only serving, telemetry-off defaults, explicit external-provider consent, and fail-open advisory behavior.
+- Preserve the upstream license, copyright, frozen source reference, and modification notice.
+- Do not modify the `work/` candidate checkouts from the product repository.
 
-### 5. Submit a PR
+## Commit messages
 
-- Keep PRs focused — one feature or fix per PR
-- Write a clear description of what changed and why
-- Reference any related issues
-
-## Code Style
-
-- **TypeScript** with strict mode enabled
-- **ES Modules** (`import`/`export`, not `require`)
-- Match the existing style in surrounding code
-- Use `chalk` for colored terminal output, `ora` for spinners
-
-## What to Work On
-
-- Check [open issues](https://github.com/melagiri/agent-analytics/issues) for bugs and feature requests
-- Issues labeled `good first issue` are a great starting point
-- If you want to work on something not listed, open an issue first to discuss
-
-## Reporting Bugs
-
-When filing a bug report, include:
-
-1. What you expected to happen
-2. What actually happened
-3. Steps to reproduce
-4. Node.js version (`node --version`)
-5. OS and version
-
-## Suggesting Features
-
-Open an issue with:
-
-1. The problem you're trying to solve
-2. Your proposed solution
-3. Any alternatives you considered
-
-## Commit Messages
-
-Follow the existing convention:
-
-```
-type(scope): short description
-
-# Examples:
-feat(cli): add export command for session data
-fix(parser): handle empty JSONL files gracefully
-docs: update CLI README with troubleshooting section
-chore(cli): update better-sqlite3 dependency
-```
-
-Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`
+Use `feat`, `fix`, `docs`, `chore`, `refactor`, or `test` with a concise description. Commit only after targeted tests, relevant build/type checks, and the ticket review pass.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+Contributions are licensed under the repository MIT License.

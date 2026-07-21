@@ -5,6 +5,8 @@
 export type ExportTemplate = 'knowledge-base' | 'agent-rules';
 
 export interface IngestionHealth {
+  status: 'never-run' | 'running' | 'completed' | 'completed-with-errors' | 'failed';
+  diagnostics: Array<{ severity: string; code: string; count: number }>;
   coverage: {
     discovered: number;
     parsed: number;

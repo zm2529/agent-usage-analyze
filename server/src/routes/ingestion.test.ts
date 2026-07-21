@@ -43,9 +43,11 @@ class ApiFixtureAdapter implements SourceAdapter {
         occurredAt: artifact.observedAt, kind: 'task-started', actor: 'system',
         sensitivity: 'structural', payload: {},
       }],
+      identityEdges: [],
       diagnostics: [],
       coverage: { discovered: 1, parsed: 1, skipped: 0, failed: 0, unknown: 0 },
-      nextCursor: 'line:1',
+      previousCursor: null,
+      nextCursor: { token: 'line:1', position: 1 },
     };
   }
 }
@@ -69,10 +71,31 @@ describe('GET /api/ingestion/health', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
+      status: 'completed',
+      diagnostics: [],
       coverage: { discovered: 1, parsed: 1, skipped: 0, failed: 0, unknown: 0 },
       eventCount: 1,
       sourceCount: 1,
       eras: [{ id: 'era:api', mode: 'historical-backfill', parserVersion: 'api-v1' }],
     });
+  });
+
+  it('returns the newest failed run instead of stale successful health', async () => {
+    await ingestSourceAdapter(new ApiFixtureAdapter(), getDb());
+    const failing = new ApiFixtureAdapter();
+    failing.parse = async () => { throw new Error('raw private failure detail'); };
+    await ingestSourceAdapter(failing, getDb());
+
+    const response = await createApp().request('/api/ingestion/health');
+    const body = await response.json() as {
+      status: string;
+      diagnostics: Array<{ severity: string; code: string; count: number }>;
+    };
+
+    expect(body.status).toBe('failed');
+    expect(body.diagnostics).toEqual([
+      { severity: 'error', code: 'adapter-parse-failed', count: 1 },
+    ]);
+    expect(JSON.stringify(body)).not.toContain('raw private failure detail');
   });
 });

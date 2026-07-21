@@ -22,6 +22,7 @@ export interface MigrationResult {
  * Version 8: Add session_message_count to analysis_usage for resume detection
  * Version 9: Add analysis_queue table for async hook-triggered analysis
  * Version 10: Add canonical ingestion, observation era, coverage, and diagnostics tables
+ * Version 11: Add monotonic source cursors, canonical identity edges, and repository locators
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -81,6 +82,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 10) {
     applyV10(db);
+  }
+
+  if (currentVersion < 11) {
+    applyV11(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -288,4 +293,23 @@ function applyV10(db: Database.Database): void {
       ON ingestion_runs(adapter_name, started_at DESC);
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(10);
+}
+
+function applyV11(db: Database.Database): void {
+  db.exec(`ALTER TABLE source_artifacts ADD COLUMN cursor_position INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE canonical_events ADD COLUMN repo_root TEXT`);
+  db.exec(`ALTER TABLE canonical_events ADD COLUMN worktree_path TEXT`);
+  db.exec(`ALTER TABLE canonical_events ADD COLUMN git_branch TEXT`);
+  db.exec(`ALTER TABLE canonical_events ADD COLUMN payload_ref TEXT`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS canonical_identity_edges (
+      source_artifact_id TEXT NOT NULL REFERENCES source_artifacts(id),
+      kind               TEXT NOT NULL,
+      from_id            TEXT NOT NULL,
+      to_id              TEXT NOT NULL,
+      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (source_artifact_id, kind, from_id, to_id)
+    )
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(11);
 }

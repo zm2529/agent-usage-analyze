@@ -7,6 +7,8 @@ describe('IngestionHealthCard', () => {
     render(
       <IngestionHealthCard
         health={{
+          status: 'completed-with-errors',
+          diagnostics: [{ severity: 'warning', code: 'unknown-envelope', count: 1 }],
           coverage: { discovered: 4, parsed: 3, skipped: 0, failed: 0, unknown: 1 },
           eventCount: 18,
           sourceCount: 4,
@@ -20,5 +22,6 @@ describe('IngestionHealthCard', () => {
     expect(screen.getByText('1 unknown')).toBeInTheDocument();
     expect(screen.getByText('Historical backfill')).toBeInTheDocument();
     expect(screen.getByText('codex-v1')).toBeInTheDocument();
+    expect(screen.getByText('Completed with errors')).toBeInTheDocument();
   });
 });
