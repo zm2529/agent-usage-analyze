@@ -1,0 +1,34 @@
+{
+  "name": "@agent-analytics/server",
+  "version": "0.1.0",
+  "description": "Hono API server for Agent Analytics local dashboard",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@agent-analytics/cli": "workspace:*",
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.7.4",
+    "jsonrepair": "^3.13.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.30",
+    "better-sqlite3": "^12.6.2",
+    "typescript": "^5.9.3"
+  }
+}

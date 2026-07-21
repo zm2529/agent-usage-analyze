@@ -1,0 +1,95 @@
+{
+  "name": "@agent-analytics/cli",
+  "version": "0.1.0",
+  "description": "Local-first Codex work and delivery evidence analytics",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./db/client": "./dist/db/client.js",
+    "./db/queue": "./dist/db/queue.js",
+    "./db/read": "./dist/db/read.js",
+    "./db/write": "./dist/db/write.js",
+    "./db/schema": "./dist/db/schema.js",
+    "./canonical/ingestion": "./dist/canonical/ingestion.js",
+    "./types": "./dist/types.js",
+    "./utils/config": "./dist/utils/config.js",
+    "./utils/browser": "./dist/utils/browser.js",
+    "./constants/llm-providers": "./dist/constants/llm-providers.js",
+    "./utils/pricing": "./dist/utils/pricing.js",
+    "./utils/telemetry": "./dist/utils/telemetry.js",
+    "./analysis/prompts": "./dist/analysis/prompts.js",
+    "./analysis/prompt-types": "./dist/analysis/prompt-types.js",
+    "./analysis/prompt-constants": "./dist/analysis/prompt-constants.js",
+    "./analysis/message-format": "./dist/analysis/message-format.js",
+    "./analysis/response-parsers": "./dist/analysis/response-parsers.js",
+    "./analysis/normalize-utils": "./dist/analysis/normalize-utils.js",
+    "./analysis/friction-normalize": "./dist/analysis/friction-normalize.js",
+    "./analysis/pattern-normalize": "./dist/analysis/pattern-normalize.js",
+    "./analysis/prompt-quality-normalize": "./dist/analysis/prompt-quality-normalize.js",
+    "./analysis/runner-types": "./dist/analysis/runner-types.js",
+    "./analysis/native-runner": "./dist/analysis/native-runner.js",
+    "./analysis/analysis-db": "./dist/analysis/analysis-db.js",
+    "./analysis/analysis-usage-db": "./dist/analysis/analysis-usage-db.js",
+    "./analysis/provider-runner": "./dist/analysis/provider-runner.js",
+    "./analysis/schemas/session-analysis.json": "./dist/analysis/schemas/session-analysis.json",
+    "./analysis/schemas/prompt-quality.json": "./dist/analysis/schemas/prompt-quality.json"
+  },
+  "bin": {
+    "agent-analytics": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"const{cpSync,mkdirSync}=require('fs');mkdirSync('dist/analysis/schemas',{recursive:true});cpSync('src/analysis/schemas/session-analysis.json','dist/analysis/schemas/session-analysis.json');cpSync('src/analysis/schemas/prompt-quality.json','dist/analysis/schemas/prompt-quality.json');\"",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "prepublishOnly": "cd .. && pnpm -r build && cp -r dashboard/dist cli/dashboard-dist && cp -r server/dist cli/server-dist",
+    "postpublish": "rm -rf dashboard-dist server-dist"
+  },
+  "files": [
+    "dist",
+    "dashboard-dist",
+    "server-dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "cursor",
+    "codex",
+    "copilot",
+    "ai-coding",
+    "insights",
+    "analytics",
+    "sqlite",
+    "local-first"
+  ],
+  "author": "Agent Analytics contributors; derived from Code Insights by Srikanth Rao M",
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "better-sqlite3": "^12.6.2",
+    "chalk": "^5.4.1",
+    "commander": "^12.1.0",
+    "hono": "^4.7.4",
+    "inquirer": "^12.6.1",
+    "ora": "^8.2.0",
+    "jsonrepair": "^3.13.2",
+    "posthog-node": "^4.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.30",
+    "typescript": "^5.9.3"
+  }
+}

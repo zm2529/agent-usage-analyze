@@ -1,0 +1,19 @@
+{
+  "name": "agent-analytics-workspace",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter @agent-analytics/cli build && pnpm --filter @agent-analytics/server build && pnpm --filter @agent-analytics/dashboard build",
+    "dev": "pnpm --filter @agent-analytics/cli dev",
+    "test": "pnpm -r test",
+    "test:watch": "vitest",
+    "test:coverage": "pnpm --filter @agent-analytics/cli test:coverage && pnpm --filter @agent-analytics/server test:coverage"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.18",
+    "vitest": "^4.0.18"
+  }
+}

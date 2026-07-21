@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Analytics</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- FOUC prevention: apply theme class before React renders to avoid flash.
+         Wrapped in try/catch so it silently degrades to light mode in
+         restricted environments where localStorage access is blocked. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('agent-analytics-theme');
+          var isDark = stored === 'dark';
+          var isSystem = !stored || stored === 'system' || (stored !== 'light' && stored !== 'dark');
+          var resolved = isDark || (isSystem && window.matchMedia('(prefers-color-scheme: dark)').matches)
+            ? 'dark'
+            : 'light';
+        } catch (e) {
+          var resolved = 'light';
+        }
+        document.documentElement.classList.remove('light', 'dark');
+        document.documentElement.classList.add(resolved);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

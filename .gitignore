@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
+.env
+.scratch/
+work/
+

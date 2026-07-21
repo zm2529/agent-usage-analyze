@@ -1,0 +1,37 @@
+{
+  "artifact": {
+    "id": "fixture:cli-smoke",
+    "sourceKind": "synthetic-codex",
+    "locatorHash": "sha256:cli-smoke",
+    "observedAt": "2026-07-21T10:00:00.000Z"
+  },
+  "era": {
+    "id": "era:cli-smoke",
+    "name": "CLI smoke history",
+    "mode": "historical-backfill",
+    "parserVersion": "fixture-v1",
+    "capabilities": ["canonical-event"],
+    "startsAt": "2026-07-21T10:00:00.000Z"
+  },
+  "events": [
+    {
+      "id": "event:cli-smoke:0",
+      "nativeEventId": "0",
+      "sequence": 0,
+      "occurredAt": "2026-07-21T10:00:00.000Z",
+      "kind": "task-started",
+      "actor": "system",
+      "sensitivity": "structural",
+      "payload": { "taskId": "fixture-task" }
+    }
+  ],
+  "diagnostics": [],
+  "coverage": {
+    "discovered": 1,
+    "parsed": 1,
+    "skipped": 0,
+    "failed": 0,
+    "unknown": 0
+  },
+  "nextCursor": "line:1"
+}

@@ -1,0 +1,42 @@
+import type { SessionProvider } from './types.js';
+import { ClaudeCodeProvider } from './claude-code.js';
+import { CursorProvider } from './cursor.js';
+import { CodexProvider } from './codex.js';
+import { CopilotCliProvider } from './copilot-cli.js';
+import { CopilotProvider } from './copilot.js';
+
+const providers = new Map<string, SessionProvider>();
+
+// Register built-in providers
+const claudeCode = new ClaudeCodeProvider();
+providers.set(claudeCode.getProviderName(), claudeCode);
+
+const cursor = new CursorProvider();
+providers.set(cursor.getProviderName(), cursor);
+
+const codex = new CodexProvider();
+providers.set(codex.getProviderName(), codex);
+
+const copilotCli = new CopilotCliProvider();
+providers.set(copilotCli.getProviderName(), copilotCli);
+
+const copilot = new CopilotProvider();
+providers.set(copilot.getProviderName(), copilot);
+
+/**
+ * Get a provider by name
+ */
+export function getProvider(name: string): SessionProvider {
+  const provider = providers.get(name);
+  if (!provider) {
+    throw new Error(`Unknown provider: ${name}`);
+  }
+  return provider;
+}
+
+/**
+ * Get all registered providers
+ */
+export function getAllProviders(): SessionProvider[] {
+  return [...providers.values()];
+}

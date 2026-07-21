@@ -1,0 +1,2 @@
+{"type":"user","uuid":"u1","sessionId":"test-session","timestamp":"2026-01-15T10:00:00Z","message":{"role":"user","content":"Hello, help me fix the login bug"}}
+{"type":"assistant","uuid":"a1","sessionId":"test-session","timestamp":"2026-01-15T10:00:05Z","parentUuid":"u1","message":{"role":"assistant","content":"I will help you fix the login bug. Let me look at the code.","model":"claude-sonnet-4-5","usage":{"input_tokens":100,"output_tokens":50}}}
