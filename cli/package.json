@@ -14,6 +14,7 @@
     "./canonical/ingestion": "./dist/canonical/ingestion.js",
     "./canonical/tasks": "./dist/canonical/tasks.js",
     "./canonical/patterns": "./dist/canonical/patterns.js",
+    "./canonical/deliveries": "./dist/canonical/deliveries.js",
     "./types": "./dist/types.js",
     "./utils/config": "./dist/utils/config.js",
     "./utils/browser": "./dist/utils/browser.js",

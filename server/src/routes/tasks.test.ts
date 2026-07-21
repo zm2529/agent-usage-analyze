@@ -39,6 +39,7 @@ describe('work task API', () => {
         events: [], tokenDeltas: [],
         coverage: { discovered: 0, parsed: 0, skipped: 0, failed: 0, unknown: 0 },
         diagnostics: [],
+        deliveries: [],
       },
     });
   });

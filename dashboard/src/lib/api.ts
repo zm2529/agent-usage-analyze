@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison } from '@/lib/types';
+import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -149,6 +149,35 @@ export function fetchWorkTask(id: string) {
 export function fetchPatternTrends(currentStart: string, currentEnd: string) {
   const query = new URLSearchParams({ currentStart, currentEnd });
   return request<{ comparison: TrendComparison }>(`/patterns/trends?${query.toString()}`);
+}
+
+export function fetchDeliveries() {
+  return request<{ deliveries: Delivery[] }>('/deliveries');
+}
+
+export function discoverDeliveries() {
+  return request<{ repositories: number; deliveries: number; failed: number }>('/deliveries/discover', { method: 'POST' });
+}
+
+export function recordTaskArtifact(taskId: string, relativePath: string) {
+  return request<{ delivery: Delivery; candidate: TaskDeliveryCandidate }>('/deliveries/artifacts', {
+    method: 'POST', body: JSON.stringify({ taskId, relativePath }),
+  });
+}
+
+export function fetchDelivery(id: string) {
+  return request<{ delivery: DeliveryDetail }>(`/deliveries/${encodeURIComponent(id)}`);
+}
+
+export function appendDeliveryCorrection(
+  deliveryId: string,
+  candidateId: string,
+  decision: 'confirmed' | 'rejected' | 'pending',
+) {
+  return request<{ candidate: TaskDeliveryCandidate }>(
+    `/deliveries/${encodeURIComponent(deliveryId)}/candidates/${encodeURIComponent(candidateId)}/corrections`,
+    { method: 'POST', body: JSON.stringify({ decision }) },
+  );
 }
 
 // ── Analysis (Phase 4) ────────────────────────────────────────────────────────

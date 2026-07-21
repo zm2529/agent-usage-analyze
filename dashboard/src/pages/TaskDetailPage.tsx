@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router';
 import { useWorkTask } from '@/hooks/useWorkTasks';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { eventAnchorId } from '@/lib/event-links';
+import { DeliveryCandidateCard } from '@/components/deliveries/DeliveryCandidateCard';
 
 export default function TaskDetailPage() {
   const { id } = useParams();
@@ -32,6 +33,13 @@ export default function TaskDetailPage() {
             </CardContent>
           </Card>
         ))}
+      </section>
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Candidate deliveries</h2>
+        <div className="space-y-2">
+          {task.deliveries.length === 0 && <p className="text-sm text-muted-foreground">No delivery candidate is linked to this task.</p>}
+          {task.deliveries.map((candidate) => <DeliveryCandidateCard key={candidate.id} candidate={candidate} showDeliveryLink />)}
+        </div>
       </section>
       <section>
         <h2 className="mb-3 text-lg font-semibold">Timeline</h2>

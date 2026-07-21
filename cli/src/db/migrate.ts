@@ -27,6 +27,7 @@ export interface MigrationResult {
  * Version 13: Add work-task tree and segmented token delta projections
  * Version 14: Complete token counters and add durable per-source ingestion coverage
  * Version 15: Add evidence-closed, versioned analysis claims
+ * Version 16: Add immutable engineering deliveries
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -106,6 +107,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 15) {
     applyV15(db);
+  }
+
+  if (currentVersion < 16) {
+    applyV16(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -450,4 +455,48 @@ function applyV15(db: Database.Database): void {
       ON analysis_claims(window_start, window_end, pattern_key);
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(15);
+}
+
+function applyV16(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deliveries (
+      id                  TEXT PRIMARY KEY,
+      kind                TEXT NOT NULL CHECK (kind IN ('git-commit', 'test-run', 'local-artifact')),
+      repository_identity TEXT NOT NULL,
+      result_identity     TEXT NOT NULL,
+      occurred_at         TEXT NOT NULL,
+      metadata_json       TEXT NOT NULL DEFAULT '{}',
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(kind, repository_identity, result_identity)
+    );
+    CREATE INDEX IF NOT EXISTS idx_deliveries_repository_time
+      ON deliveries(repository_identity, occurred_at DESC);
+
+    CREATE TABLE IF NOT EXISTS task_delivery_candidates (
+      id                TEXT PRIMARY KEY,
+      task_id           TEXT NOT NULL,
+      delivery_id       TEXT NOT NULL REFERENCES deliveries(id),
+      algorithm_version TEXT NOT NULL,
+      coverage          REAL NOT NULL,
+      confidence        REAL NOT NULL,
+      machine_status    TEXT NOT NULL CHECK (machine_status IN ('candidate', 'abstained')),
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(task_id, delivery_id, algorithm_version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_delivery_candidates_task
+      ON task_delivery_candidates(task_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_delivery_candidates_delivery
+      ON task_delivery_candidates(delivery_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS task_delivery_corrections (
+      sequence     INTEGER PRIMARY KEY AUTOINCREMENT,
+      candidate_id TEXT NOT NULL REFERENCES task_delivery_candidates(id),
+      evidence_id  TEXT NOT NULL UNIQUE REFERENCES evidence_records(id),
+      decision     TEXT NOT NULL CHECK (decision IN ('confirmed', 'rejected', 'pending')),
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_delivery_corrections_candidate
+      ON task_delivery_corrections(candidate_id, sequence DESC);
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(16);
 }

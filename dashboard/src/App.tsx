@@ -14,11 +14,14 @@ import JournalPage from '@/pages/JournalPage';
 import PatternsPage from '@/pages/PatternsPage';
 import TasksPage from '@/pages/TasksPage';
 import TaskDetailPage from '@/pages/TaskDetailPage';
+import DeliveriesPage from '@/pages/DeliveriesPage';
+import DeliveryDetailPage from '@/pages/DeliveryDetailPage';
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/sessions': 'Sessions',
   '/tasks': 'Work tasks',
+  '/deliveries': 'Deliveries',
   '/insights': 'Insights',
   '/analytics': 'Analytics',
   '/patterns': 'Patterns',
@@ -75,6 +78,8 @@ export default function App() {
           <Route path="/sessions/:id" element={<SessionDetailPage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
+          <Route path="/deliveries" element={<DeliveriesPage />} />
+          <Route path="/deliveries/:id" element={<DeliveryDetailPage />} />
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/patterns" element={<PatternsPage />} />

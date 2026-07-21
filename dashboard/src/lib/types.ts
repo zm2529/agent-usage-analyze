@@ -51,6 +51,43 @@ export interface WorkTaskDetail {
   }>;
   coverage: { discovered: number; parsed: number; skipped: number; failed: number; unknown: number };
   diagnostics: Array<{ severity: string; code: string; count: number }>;
+  deliveries: TaskDeliveryCandidate[];
+}
+
+export type DeliveryKind = 'git-commit' | 'test-run' | 'local-artifact';
+export interface Delivery {
+  id: string;
+  kind: DeliveryKind;
+  repositoryIdentity: string;
+  resultIdentity: string;
+  occurredAt: string;
+  metadata: Record<string, unknown>;
+}
+export interface DeliveryEvidence {
+  id: string;
+  evidenceType: string;
+  position: 'supports' | 'opposes' | 'limits';
+  sourceCategory: 'deterministic' | 'human-corrected';
+  algorithmVersion: string;
+  coverage: number;
+  confidence: number;
+  eraCompatibility: 'compatible' | 'limited' | 'incomparable';
+  eraIds: string[];
+  humanStatus: 'unreviewed' | 'confirmed' | 'rejected' | 'corrected';
+  facts: Array<{ deliveryId: string; taskId: string; factRef?: string }>;
+}
+export interface TaskDeliveryCandidate {
+  id: string;
+  taskId: string;
+  delivery: Delivery;
+  algorithmVersion: string;
+  coverage: number;
+  confidence: number;
+  status: 'candidate' | 'abstained' | 'confirmed' | 'rejected' | 'pending';
+  evidence: DeliveryEvidence[];
+}
+export interface DeliveryDetail extends Delivery {
+  candidates: TaskDeliveryCandidate[];
 }
 
 export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
