@@ -12,13 +12,23 @@ export default function TaskDetailPage() {
       <div>
         <Link to="/tasks" className="text-sm text-muted-foreground hover:text-foreground">← Work tasks</Link>
         <h1 className="mt-2 font-mono text-xl font-semibold">{task.id}</h1>
-        <p className="text-sm text-muted-foreground">{task.coverage.parsed} parsed events · {task.coverage.unknown} unknown</p>
+        <p className="text-sm text-muted-foreground">
+          {task.coverage.discovered} sources · {task.coverage.parsed} parsed · {task.coverage.skipped} skipped · {task.coverage.failed} failed · {task.coverage.unknown} unknown
+        </p>
+        {task.diagnostics.map((diagnostic) => (
+          <p key={`${diagnostic.severity}:${diagnostic.code}`} className="text-xs text-muted-foreground">
+            {diagnostic.severity}: {diagnostic.code} × {diagnostic.count}
+          </p>
+        ))}
       </div>
       <section className="grid gap-3 md:grid-cols-2">
         {task.nodes.map((node) => (
           <Card key={node.id}>
             <CardHeader><CardTitle className="font-mono text-sm">{node.id}</CardTitle></CardHeader>
-            <CardContent className="text-sm">{node.role} · {node.status}<br />parent: {node.parentTaskId ?? 'root'}</CardContent>
+            <CardContent className="text-sm">
+              {node.role} · {node.status}<br />parent: {node.parentTaskId ?? 'root'}<br />
+              repo: {node.repository.root ?? 'unknown'}<br />worktree: {node.repository.worktree ?? 'unknown'}<br />branch: {node.repository.branch ?? 'unknown'}
+            </CardContent>
           </Card>
         ))}
       </section>
@@ -40,7 +50,7 @@ export default function TaskDetailPage() {
         <div className="space-y-2 font-mono text-xs">
           {task.tokenDeltas.map((delta) => (
             <div key={delta.eventId} className="rounded-lg border p-3">
-              {delta.status} · lane {delta.laneKey} · input {delta.inputTokens ?? 'unknown'} · cached {delta.cachedInputTokens ?? 'unknown'} · output {delta.outputTokens ?? 'unknown'} · reasoning {delta.reasoningTokens ?? 'unknown'}
+              {delta.status} · lane {delta.laneKey} · input {delta.inputTokens ?? 'unknown'} · cached input {delta.cachedInputTokens ?? 'unknown'} · cache creation {delta.cacheCreationTokens ?? 'unknown'} · output {delta.outputTokens ?? 'unknown'} · reasoning {delta.reasoningTokens ?? 'unknown'} · compaction {delta.compactionTokens ?? 'unknown'}
             </div>
           ))}
         </div>

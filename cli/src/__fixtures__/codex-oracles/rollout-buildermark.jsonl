@@ -1,0 +1,2 @@
+{"type":"input","thread_id":"buildermark-thread","working_dir":"/fixture/buildermark","timestamp":1000,"role":"user","content":"PRIVATE_SENTINEL"}
+{"type":"item.completed","thread_id":"buildermark-thread","working_dir":"/fixture/buildermark","timestamp":2000,"item":{"type":"agent_message","role":"assistant","content":[{"type":"text","text":"PRIVATE_SENTINEL"}]}}

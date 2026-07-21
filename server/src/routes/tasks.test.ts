@@ -36,7 +36,9 @@ describe('work task API', () => {
       task: {
         id: 'task-root',
         nodes: [expect.objectContaining({ id: 'task-root', parentTaskId: null })],
-        events: [], tokenDeltas: [], coverage: { parsed: 0, unknown: 0 },
+        events: [], tokenDeltas: [],
+        coverage: { discovered: 0, parsed: 0, skipped: 0, failed: 0, unknown: 0 },
+        diagnostics: [],
       },
     });
   });

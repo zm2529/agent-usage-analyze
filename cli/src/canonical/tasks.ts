@@ -1,5 +1,9 @@
 import type Database from 'better-sqlite3';
 
+export class IdentityConflictError extends Error {
+  override readonly name = 'IdentityConflictError';
+}
+
 export interface WorkTaskNode {
   id: string;
   rootTaskId: string;
@@ -20,8 +24,10 @@ export interface TaskTokenDelta {
   status: 'known' | 'unknown-baseline' | 'unknown-reset' | 'unknown-out-of-order' | 'unknown-missing';
   inputTokens: number | null;
   cachedInputTokens: number | null;
+  cacheCreationTokens: number | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
+  compactionTokens: number | null;
 }
 
 export interface WorkTaskDetail {
@@ -43,7 +49,8 @@ export interface WorkTaskDetail {
     payloadRef: string | null;
   }>;
   tokenDeltas: TaskTokenDelta[];
-  coverage: { parsed: number; unknown: number };
+  coverage: { discovered: number; parsed: number; skipped: number; failed: number; unknown: number };
+  diagnostics: Array<{ severity: string; code: string; count: number }>;
 }
 
 interface EventRow {
@@ -51,6 +58,7 @@ interface EventRow {
   sourceArtifactId: string;
   taskId: string;
   threadId: string;
+  turnId: string | null;
   eraId: string;
   occurredAt: string;
   kind: string;
@@ -78,6 +86,7 @@ function resolveRoot(id: string, parents: Map<string, string>): string {
     seen.add(current);
     current = parents.get(current)!;
   }
+  if (seen.has(current)) throw new IdentityConflictError('Task identity contains a parent cycle');
   return current;
 }
 
@@ -95,12 +104,17 @@ export function rebuildTaskProjection(db: Database.Database): void {
     WHERE kind = 'session-meta' AND task_id IS NOT NULL AND thread_id IS NOT NULL
     ORDER BY occurred_at, source_artifact_id, sequence
   `).all() as EventRow[];
-  const parents = new Map(
-    (db.prepare(`
+  const parents = new Map<string, string>();
+  for (const edge of db.prepare(`
       SELECT from_id AS parentId, to_id AS childId
       FROM canonical_identity_edges WHERE kind = 'root-child'
-    `).all() as Array<{ parentId: string; childId: string }>).map((edge) => [edge.childId, edge.parentId]),
-  );
+    `).all() as Array<{ parentId: string; childId: string }>) {
+    const prior = parents.get(edge.childId);
+    if (prior && prior !== edge.parentId) {
+      throw new IdentityConflictError('Task identity has more than one parent');
+    }
+    parents.set(edge.childId, edge.parentId);
+  }
   const statusRows = db.prepare(`
     SELECT task_id AS taskId, kind, occurred_at AS occurredAt, payload_json AS payloadJson
     FROM canonical_events
@@ -135,15 +149,23 @@ export function rebuildTaskProjection(db: Database.Database): void {
       worktree_path = COALESCE(excluded.worktree_path, work_tasks.worktree_path),
       git_branch = COALESCE(excluded.git_branch, work_tasks.git_branch)
   `);
+  const identities = new Map<string, { threadId: string; role: string; parent: string | null }>();
   for (const row of metaEvents) {
     const meta = payload(row);
+    const role = typeof meta.taskRole === 'string' ? meta.taskRole : 'unknown';
+    const identity = { threadId: row.threadId, role, parent: parents.get(row.taskId) ?? null };
+    const prior = identities.get(row.taskId);
+    if (prior && JSON.stringify(prior) !== JSON.stringify(identity)) {
+      throw new IdentityConflictError('Task identity metadata conflicts across sources');
+    }
+    identities.set(row.taskId, identity);
     const status = statuses.get(row.taskId) ?? { status: 'running', endedAt: null };
     insertTask.run(
       row.taskId,
       resolveRoot(row.taskId, parents),
       parents.get(row.taskId) ?? null,
       row.threadId,
-      typeof meta.taskRole === 'string' ? meta.taskRole : 'unknown',
+      role,
       status.status,
       row.occurredAt,
       status.endedAt,
@@ -156,7 +178,7 @@ export function rebuildTaskProjection(db: Database.Database): void {
 
   const tokenRows = db.prepare(`
     SELECT id, source_artifact_id AS sourceArtifactId,
-           task_id AS taskId, thread_id AS threadId, era_id AS eraId,
+           task_id AS taskId, thread_id AS threadId, turn_id AS turnId, era_id AS eraId,
            occurred_at AS occurredAt, kind, payload_json AS payloadJson,
            generation, attempt, sequence, repo_root AS repoRoot,
            worktree_path AS worktreePath, git_branch AS gitBranch
@@ -164,36 +186,42 @@ export function rebuildTaskProjection(db: Database.Database): void {
     WHERE kind = 'token-snapshot' AND task_id IS NOT NULL
     ORDER BY task_id, source_artifact_id, sequence
   `).all() as EventRow[];
-  type Counters = { inputTokens: number; cachedInputTokens: number; outputTokens: number; reasoningTokens: number };
+  type Counters = { inputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; outputTokens: number; reasoningTokens: number; compactionTokens: number };
   const previous = new Map<string, { counters: Counters; occurredAt: string; segment: number }>();
   const laneSegments = new Map<string, number>();
   const insertDelta = db.prepare(`
     INSERT INTO task_token_deltas (
       event_id, task_id, lane_key, segment, status,
-      input_tokens, cached_input_tokens, output_tokens, reasoning_tokens
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      input_tokens, cached_input_tokens, cache_creation_tokens,
+      output_tokens, reasoning_tokens, compaction_tokens
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const row of tokenRows) {
     const raw = payload(row);
-    const required = ['inputTokens', 'cachedInputTokens', 'outputTokens', 'reasoningTokens'] as const;
-    const lane = `${row.taskId}:${row.generation ?? 0}:${row.attempt ?? 0}`;
-    if (!required.every((key) => typeof raw[key] === 'number')) {
+    const required = ['inputTokens', 'cachedInputTokens', 'cacheCreationTokens', 'outputTokens', 'reasoningTokens', 'compactionTokens'] as const;
+    const hasLaneIdentity = row.generation !== null && row.attempt !== null;
+    const lane = hasLaneIdentity
+      ? `${row.taskId}:${row.generation}:${row.attempt}`
+      : `${row.taskId}:unknown:${row.turnId ?? 'no-turn'}`;
+    if (!hasLaneIdentity || !required.every((key) => typeof raw[key] === 'number')) {
       const segment = (laneSegments.get(lane) ?? 0) + 1;
       laneSegments.set(lane, segment);
       previous.delete(lane);
-      insertDelta.run(row.id, row.taskId, lane, segment, 'unknown-missing', null, null, null, null);
+      insertDelta.run(row.id, row.taskId, lane, segment, 'unknown-missing', null, null, null, null, null, null);
       continue;
     }
     const counters: Counters = {
       inputTokens: Number(raw.inputTokens),
       cachedInputTokens: Number(raw.cachedInputTokens),
+      cacheCreationTokens: Number(raw.cacheCreationTokens),
       outputTokens: Number(raw.outputTokens),
       reasoningTokens: Number(raw.reasoningTokens),
+      compactionTokens: Number(raw.compactionTokens),
     };
     const prior = previous.get(lane);
     let segment = laneSegments.get(lane) ?? 0;
     let status: TaskTokenDelta['status'] = 'unknown-baseline';
-    let deltas: Array<number | null> = [null, null, null, null];
+    let deltas: Array<number | null> = [null, null, null, null, null, null];
     if (prior && row.occurredAt < prior.occurredAt) {
       status = 'unknown-out-of-order';
       segment += 1;
@@ -207,8 +235,10 @@ export function rebuildTaskProjection(db: Database.Database): void {
       deltas = [
         counters.inputTokens - prior.counters.inputTokens,
         counters.cachedInputTokens - prior.counters.cachedInputTokens,
+        counters.cacheCreationTokens - prior.counters.cacheCreationTokens,
         counters.outputTokens - prior.counters.outputTokens,
         counters.reasoningTokens - prior.counters.reasoningTokens,
+        counters.compactionTokens - prior.counters.compactionTokens,
       ];
     }
     insertDelta.run(row.id, row.taskId, lane, segment, status, ...deltas);
@@ -267,15 +297,48 @@ export function readWorkTaskDetail(db: Database.Database, rootTaskId: string): W
   const tokenDeltas = db.prepare(`
     SELECT event_id AS eventId, task_id AS taskId, lane_key AS laneKey, segment, status,
            input_tokens AS inputTokens, cached_input_tokens AS cachedInputTokens,
-           output_tokens AS outputTokens, reasoning_tokens AS reasoningTokens
+           cache_creation_tokens AS cacheCreationTokens, output_tokens AS outputTokens,
+           reasoning_tokens AS reasoningTokens, compaction_tokens AS compactionTokens
     FROM task_token_deltas WHERE task_id IN (${placeholders})
     ORDER BY task_id, lane_key, segment, event_id
   `).all(...ids) as TaskTokenDelta[];
+  const stats = db.prepare(`
+    SELECT discovered_count AS discovered, parsed_count AS parsed,
+           skipped_count AS skipped, failed_count AS failed,
+           unknown_count AS unknown, diagnostics_json AS diagnosticsJson
+    FROM source_ingestion_stats
+    WHERE source_artifact_id IN (
+      SELECT DISTINCT source_artifact_id FROM canonical_events WHERE task_id IN (${placeholders})
+    )
+  `).all(...ids) as Array<{
+    discovered: number; parsed: number; skipped: number; failed: number;
+    unknown: number; diagnosticsJson: string;
+  }>;
+  const coverage = stats.reduce((total, row) => ({
+    discovered: total.discovered + 1,
+    parsed: total.parsed,
+    skipped: total.skipped + row.skipped,
+    failed: total.failed + row.failed,
+    unknown: total.unknown + row.unknown,
+  }), { discovered: 0, parsed: 0, skipped: 0, failed: 0, unknown: 0 });
+  coverage.parsed = events.length;
+  coverage.unknown = events.filter((event) => event.kind === 'unknown').length;
+  const diagnosticCounts = new Map<string, { severity: string; code: string; count: number }>();
+  for (const row of stats) {
+    let values: Array<{ severity: string; code: string; count: number }> = [];
+    try { values = JSON.parse(row.diagnosticsJson) as typeof values; } catch { /* safe empty fallback */ }
+    for (const value of values) {
+      const key = `${value.severity}:${value.code}`;
+      const prior = diagnosticCounts.get(key);
+      diagnosticCounts.set(key, { ...value, count: value.count + (prior?.count ?? 0) });
+    }
+  }
   return {
     id: rootTaskId,
     nodes,
     events,
     tokenDeltas,
-    coverage: { parsed: events.length, unknown: events.filter((event) => event.kind === 'unknown').length },
+    coverage,
+    diagnostics: [...diagnosticCounts.values()].sort((a, b) => a.code.localeCompare(b.code)),
   };
 }

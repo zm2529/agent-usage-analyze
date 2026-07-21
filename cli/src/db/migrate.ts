@@ -362,10 +362,23 @@ function applyV13(db: Database.Database): void {
       status              TEXT NOT NULL,
       input_tokens        INTEGER,
       cached_input_tokens INTEGER,
+      cache_creation_tokens INTEGER,
       output_tokens       INTEGER,
-      reasoning_tokens    INTEGER
+      reasoning_tokens    INTEGER,
+      compaction_tokens   INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_task_token_deltas_task ON task_token_deltas(task_id, lane_key, segment);
+
+    CREATE TABLE IF NOT EXISTS source_ingestion_stats (
+      source_artifact_id TEXT PRIMARY KEY REFERENCES source_artifacts(id) ON DELETE CASCADE,
+      discovered_count  INTEGER NOT NULL,
+      parsed_count      INTEGER NOT NULL,
+      skipped_count     INTEGER NOT NULL,
+      failed_count      INTEGER NOT NULL,
+      unknown_count     INTEGER NOT NULL,
+      diagnostics_json  TEXT NOT NULL DEFAULT '[]',
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(13);
 }

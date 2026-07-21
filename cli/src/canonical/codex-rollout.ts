@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type {
   CanonicalBatch,
   CanonicalEvent,
@@ -42,6 +42,22 @@ function walkRollouts(directory: string, files: string[], depth = 0): void {
   }
 }
 
+function nativeRolloutIdentity(path: string): string {
+  const buffer = readFileSync(path, 'utf8');
+  for (const rawLine of buffer.split('\n').slice(0, 64)) {
+    if (!rawLine.trim()) continue;
+    try {
+      const raw = asRecord(JSON.parse(rawLine));
+      const payload = asRecord(raw.payload);
+      const id = text(payload.id) ?? text(raw.thread_id);
+      if (id) return `${id}:${basename(path)}`;
+    } catch {
+      break;
+    }
+  }
+  return `filename:${basename(path)}`;
+}
+
 function normalizeRole(value: unknown, parentThreadId?: string): 'root' | 'subagent' | 'reviewer' | 'worker' | 'unknown' {
   if (!parentThreadId) return 'root';
   const role = String(value ?? '').toLowerCase();
@@ -74,9 +90,9 @@ function gitRoot(cwd?: string): string | undefined {
   try {
     return execFileSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1000,
-    }).trim() || cwd;
+    }).trim() || undefined;
   } catch {
-    return cwd;
+    return undefined;
   }
 }
 
@@ -92,6 +108,50 @@ interface ParseState {
   branch?: string;
   role: 'root' | 'subagent' | 'reviewer' | 'worker' | 'unknown';
   callEvents: Map<string, string>;
+}
+
+type SerializedParseState = Omit<ParseState, 'callEvents'> & { callEvents: Array<[string, string]> };
+
+function serializeState(state: ParseState): SerializedParseState {
+  return { ...state, callEvents: [...state.callEvents.entries()] };
+}
+
+function parseState(value: unknown): ParseState | null {
+  const record = asRecord(value);
+  if (!Array.isArray(record.callEvents)) return null;
+  return {
+    threadId: text(record.threadId),
+    taskId: text(record.taskId),
+    parentThreadId: text(record.parentThreadId),
+    turnId: text(record.turnId),
+    attempt: integer(record.attempt),
+    generation: integer(record.generation),
+    cwd: text(record.cwd),
+    repoRoot: text(record.repoRoot),
+    branch: text(record.branch),
+    role: ['root', 'subagent', 'reviewer', 'worker', 'unknown'].includes(String(record.role))
+      ? record.role as ParseState['role'] : 'unknown',
+    callEvents: new Map(record.callEvents.filter(
+      (entry): entry is [string, string] => Array.isArray(entry) && entry.length === 2
+        && typeof entry[0] === 'string' && typeof entry[1] === 'string',
+    )),
+  };
+}
+
+function encodeCursor(buffer: Buffer, position: number, state: ParseState): string {
+  const encodedState = Buffer.from(JSON.stringify(serializeState(state))).toString('base64url');
+  return `codex-v1:${hash(buffer.subarray(0, position))}:${encodedState}`;
+}
+
+function decodeCursor(token: string): { prefixHash: string; state: ParseState } | null {
+  const match = /^codex-v1:([a-f0-9]{64}):([A-Za-z0-9_-]+)$/.exec(token);
+  if (!match) return null;
+  try {
+    const state = parseState(JSON.parse(Buffer.from(match[2]!, 'base64url').toString('utf8')));
+    return state ? { prefixHash: match[1]!, state } : null;
+  } catch {
+    return null;
+  }
 }
 
 function eventTimestamp(value: unknown, fallback: string): string {
@@ -185,8 +245,8 @@ function mapEnvelope(
 
   if (envelope === 'turn_context') {
     state.turnId = text(body.turn_id) ?? state.turnId;
-    state.attempt = integer(body.attempt) ?? state.attempt ?? 0;
-    state.generation = integer(body.generation) ?? state.generation ?? 0;
+    state.attempt = integer(body.attempt);
+    state.generation = integer(body.generation);
     state.cwd = text(body.cwd) ?? state.cwd;
     state.repoRoot = gitRoot(state.cwd);
     if (state.turnId && state.threadId) edges.push({ kind: 'turn-attempt', fromId: state.turnId, toId: `${state.threadId}:${state.attempt}` });
@@ -245,8 +305,10 @@ function mapEnvelope(
         payload: defined({
           inputTokens: integer(total.input_tokens),
           cachedInputTokens: integer(total.cached_input_tokens),
+          cacheCreationTokens: integer(total.cache_creation_tokens),
           outputTokens: integer(total.output_tokens),
           reasoningTokens: integer(total.reasoning_output_tokens),
+          compactionTokens: integer(total.compaction_tokens),
         }),
       }, edges, unknown: false,
     };
@@ -261,13 +323,13 @@ function mapEnvelope(
     return { event: { ...common, kind: 'task-status', actor: 'system', sensitivity: 'structural', payload: { status: 'aborted', reason: 'turn-aborted' } }, edges, unknown: false };
   }
   if (envelope === 'compacted' || inner === 'context_compacted') {
-    return { event: { ...common, kind: 'compaction', actor: 'system', sensitivity: 'metadata', payload: { trigger: 'unknown' }, payloadRef }, edges, unknown: false };
+    return { event: { ...common, kind: 'compaction', actor: 'system', sensitivity: 'sensitive-content', payload: {}, payloadRef }, edges, unknown: false };
   }
   if (inner === 'patch_apply_end') {
     return { event: { ...common, kind: 'file-change', actor: 'tool', sensitivity: 'metadata', payload: { changeType: normalizeStatus(body.status) === 'completed' ? 'modified' : 'unknown' }, payloadRef }, edges, unknown: false };
   }
   return {
-    event: { ...common, kind: 'unknown', actor: 'unknown', sensitivity: 'metadata', payload: { envelopeType: 'unknown' }, payloadRef },
+    event: { ...common, kind: 'unknown', actor: 'unknown', sensitivity: 'sensitive-content', payload: {}, payloadRef },
     edges,
     unknown: true,
   };
@@ -283,18 +345,21 @@ export class CodexRolloutAdapter implements SourceAdapter {
     const files: string[] = [];
     walkRollouts(join(this.codexHome, 'sessions'), files);
     walkRollouts(join(this.codexHome, 'archived_sessions'), files);
-    return files.sort().map((path) => {
+    const artifacts = new Map<string, SourceArtifact>();
+    for (const path of files.sort()) {
       const absolute = resolve(path);
-      const id = `codex:${hash(absolute)}`;
+      const stableIdentity = nativeRolloutIdentity(absolute);
+      const id = `codex:${hash(stableIdentity)}`;
       this.paths.set(id, absolute);
-      return {
+      artifacts.set(id, {
         id,
         sourceKind: 'codex-rollout',
         parserVersion: PARSER_VERSION,
-        locatorHash: `sha256:${hash(absolute)}`,
+        locatorHash: `sha256:${hash(`codex-rollout:${stableIdentity}`)}`,
         observedAt: statSync(absolute).mtime.toISOString(),
-      };
-    });
+      });
+    }
+    return [...artifacts.values()];
   }
 
   async parse(artifact: SourceArtifact, context: { currentCursor: SourceCursor | null }): Promise<CanonicalBatch> {
@@ -304,35 +369,20 @@ export class CodexRolloutAdapter implements SourceAdapter {
     let operation: 'append' | 'rebuild' = 'append';
     let start = context.currentCursor?.position ?? 0;
     const diagnostics: IngestionDiagnostic[] = [];
+    const decodedCursor = context.currentCursor ? decodeCursor(context.currentCursor.token) : null;
     if (context.currentCursor && (
       start > buffer.length
-      || context.currentCursor.token !== `sha256:${hash(buffer.subarray(0, start))}`
+      || !decodedCursor
+      || decodedCursor.prefixHash !== hash(buffer.subarray(0, start))
     )) {
       operation = 'rebuild';
       start = 0;
       diagnostics.push({ severity: 'warning', code: 'rewritten-source', count: 1 });
     }
 
-    const state: ParseState = { role: 'unknown', callEvents: new Map() };
-    // Recover identity and turn lane from the immutable prefix without re-emitting it.
-    if (start > 0) {
-      let prefixOffset = 0;
-      let sequence = 0;
-      while (prefixOffset < start) {
-        const newline = buffer.indexOf(0x0a, prefixOffset);
-        const end = newline >= 0 && newline < start ? newline : start;
-        const value = buffer.subarray(prefixOffset, end).toString('utf8').trim();
-        if (value) {
-          try {
-            const raw = asRecord(JSON.parse(value));
-            recoverLegacyIdentity(raw, state);
-            mapEnvelope(raw, artifact, state, prefixOffset, sequence * 2 + 1);
-          } catch { /* valid prefix was previously imported */ }
-        }
-        prefixOffset = end + (newline >= 0 && newline < start ? 1 : 0);
-        sequence += 1;
-      }
-    }
+    const state: ParseState = operation === 'append' && decodedCursor
+      ? decodedCursor.state
+      : { role: 'unknown', callEvents: new Map() };
 
     const events: CanonicalEvent[] = [];
     const identityEdges: IdentityEdge[] = [];
@@ -342,6 +392,7 @@ export class CodexRolloutAdapter implements SourceAdapter {
     let skipped = 0;
     let failed = 0;
     let unknown = 0;
+    let unknownEnvelopes = 0;
     while (offset < buffer.length) {
       const newline = buffer.indexOf(0x0a, offset);
       const hasNewline = newline >= 0;
@@ -364,6 +415,12 @@ export class CodexRolloutAdapter implements SourceAdapter {
           break;
         }
         failed += 1;
+        unknown += 1;
+        events.push({
+          ...baseEvent(artifact, state, offset, sequence * 2 + 1, artifact.observedAt, 'malformed-record'),
+          kind: 'unknown', actor: 'unknown', sensitivity: 'sensitive-content',
+          payload: {}, payloadRef: sourceRef(artifact.id, offset),
+        });
         nextPosition = after;
         offset = after;
         sequence += 1;
@@ -382,12 +439,16 @@ export class CodexRolloutAdapter implements SourceAdapter {
       const mapped = mapEnvelope(raw, artifact, state, offset, sequence * 2 + 1);
       events.push(mapped.event);
       identityEdges.push(...mapped.edges);
-      if (mapped.unknown) unknown += 1;
+      if (mapped.unknown) {
+        unknown += 1;
+        unknownEnvelopes += 1;
+      }
       nextPosition = after;
       offset = after;
       sequence += 1;
     }
-    if (unknown > 0) diagnostics.push({ severity: 'warning', code: 'unknown-envelope', count: unknown });
+    if (unknownEnvelopes > 0) diagnostics.push({ severity: 'warning', code: 'unknown-envelope', count: unknownEnvelopes });
+    if (failed > 0) diagnostics.push({ severity: 'error', code: 'malformed-record', count: failed });
 
     return {
       artifact,
@@ -404,7 +465,7 @@ export class CodexRolloutAdapter implements SourceAdapter {
       diagnostics,
       coverage: { discovered: 1, parsed: events.length, skipped, failed, unknown },
       previousCursor: context.currentCursor,
-      nextCursor: { token: `sha256:${hash(buffer.subarray(0, nextPosition))}`, position: nextPosition },
+      nextCursor: { token: encodeCursor(buffer, nextPosition, state), position: nextPosition },
       operation,
     };
   }

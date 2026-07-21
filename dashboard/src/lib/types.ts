@@ -46,9 +46,11 @@ export interface WorkTaskDetail {
   tokenDeltas: Array<{
     eventId: string; taskId: string; laneKey: string; segment: number; status: string;
     inputTokens: number | null; cachedInputTokens: number | null;
-    outputTokens: number | null; reasoningTokens: number | null;
+    cacheCreationTokens: number | null; outputTokens: number | null;
+    reasoningTokens: number | null; compactionTokens: number | null;
   }>;
-  coverage: { parsed: number; unknown: number };
+  coverage: { discovered: number; parsed: number; skipped: number; failed: number; unknown: number };
+  diagnostics: Array<{ severity: string; code: string; count: number }>;
 }
 
 export interface Project {

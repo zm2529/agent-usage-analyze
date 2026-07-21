@@ -1,0 +1,2 @@
+{"type":"session_meta","timestamp":"2026-04-08T12:00:00.000Z","payload":{"id":"entire-thread","cwd":"/fixture/entire"}}
+{"type":"compacted","timestamp":"2026-04-08T12:01:00.000Z","payload":{"message":"","replacement_history":[{"type":"message","role":"user","content":[{"type":"input_text","text":"PRIVATE_SENTINEL"}]},{"type":"reasoning","encrypted_content":"REDACTED"}]}}

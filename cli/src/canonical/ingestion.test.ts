@@ -282,4 +282,24 @@ describe('canonical ingestion', () => {
       .toEqual({ payload: '{"status":"started"}' });
     db.close();
   });
+
+  it('surfaces conflicting task parents as a safe ingestion diagnostic', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const adapter = new FixtureAdapter();
+    adapter.parse = async (_artifact, context) => {
+      const batch = fixtureBatch(context.currentCursor);
+      batch.identityEdges = [
+        { kind: 'root-child', fromId: 'parent-a', toId: 'child' },
+        { kind: 'root-child', fromId: 'parent-b', toId: 'child' },
+      ];
+      return batch;
+    };
+    await expect(ingestSourceAdapter(adapter, db)).rejects.toThrow(/more than one parent/i);
+    expect(readIngestionHealth(db)).toMatchObject({
+      status: 'failed',
+      diagnostics: [{ severity: 'error', code: 'identity-conflict', count: 1 }],
+    });
+    db.close();
+  });
 });

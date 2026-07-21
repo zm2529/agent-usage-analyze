@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { rebuildTaskProjection } from './tasks.js';
+import { IdentityConflictError } from './tasks.js';
 
 export type SourceKind = 'synthetic-codex' | 'codex-rollout' | 'codex-hook' | 'git';
 export type EraMode = 'historical-backfill' | 'continuous-observation';
@@ -106,7 +107,9 @@ export type IngestionDiagnosticCode =
   | 'truncated-tail'
   | 'rewritten-source'
   | 'token-reset'
-  | 'token-out-of-order';
+  | 'token-out-of-order'
+  | 'identity-conflict'
+  | 'malformed-record';
 
 export interface IngestionDiagnostic {
   severity: 'info' | 'warning' | 'error';
@@ -213,6 +216,8 @@ const OPAQUE_PAYLOAD_REF = /^source:[A-Za-z0-9._:-]+(?:#[A-Za-z0-9._:=-]+)?$/;
 const DIAGNOSTIC_CODES = new Set<IngestionDiagnosticCode>([
   'fixture', 'adapter-parse-failed', 'ingestion-failed', 'unknown-envelope',
   'truncated-tail', 'rewritten-source', 'token-reset', 'token-out-of-order',
+  'identity-conflict',
+  'malformed-record',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -604,6 +609,31 @@ export async function ingestSourceAdapter(
           );
         }
 
+        db.prepare(`
+          INSERT INTO source_ingestion_stats (
+            source_artifact_id, discovered_count, parsed_count, skipped_count,
+            failed_count, unknown_count, diagnostics_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(source_artifact_id) DO UPDATE SET
+            discovered_count = excluded.discovered_count,
+            parsed_count = excluded.parsed_count,
+            skipped_count = excluded.skipped_count,
+            failed_count = excluded.failed_count,
+            unknown_count = excluded.unknown_count,
+            diagnostics_json = excluded.diagnostics_json,
+            updated_at = datetime('now')
+        `).run(
+          artifact.id,
+          batch.coverage.discovered,
+          batch.coverage.parsed,
+          batch.coverage.skipped,
+          batch.coverage.failed,
+          batch.coverage.unknown,
+          JSON.stringify(batch.diagnostics.map((diagnostic) => ({
+            severity: diagnostic.severity, code: diagnostic.code, count: diagnostic.count,
+          }))),
+        );
+
         const cursorUpdate = db.prepare(`
           UPDATE source_artifacts
           SET cursor = ?, cursor_position = ?, updated_at = datetime('now')
@@ -618,7 +648,9 @@ export async function ingestSourceAdapter(
         if (cursorUpdate.changes !== 1) {
           throw new Error('Stale source cursor: compare-and-swap failed');
         }
-        rebuildTaskProjection(db);
+        if (batch.operation === 'rebuild' || batch.events.length > 0 || batch.identityEdges.length > 0) {
+          rebuildTaskProjection(db);
+        }
       });
 
       writeBatch();
@@ -652,10 +684,13 @@ export async function ingestSourceAdapter(
       UPDATE ingestion_runs SET completed_at = ?, status = 'failed', failed_count = failed_count + 1
       WHERE id = ?
     `).run(new Date().toISOString(), runId);
+    const failureCode: IngestionDiagnosticCode = error instanceof IdentityConflictError
+      ? 'identity-conflict'
+      : 'ingestion-failed';
     db.prepare(`
       INSERT INTO ingestion_diagnostics (run_id, severity, code, count, detail)
-      VALUES (?, 'error', 'ingestion-failed', 1, ?)
-    `).run(runId, null);
+      VALUES (?, 'error', ?, 1, ?)
+    `).run(runId, failureCode, null);
     throw error;
   }
 
