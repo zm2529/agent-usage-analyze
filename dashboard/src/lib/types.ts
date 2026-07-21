@@ -23,6 +23,34 @@ export interface IngestionHealth {
   }>;
 }
 
+export interface WorkTaskNode {
+  id: string;
+  rootTaskId: string;
+  parentTaskId: string | null;
+  threadId: string;
+  role: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  repository: { root: string | null; worktree: string | null; branch: string | null };
+}
+
+export interface WorkTaskDetail {
+  id: string;
+  nodes: WorkTaskNode[];
+  events: Array<{
+    id: string; sourceArtifactId: string; sequence: number; kind: string; actor: string;
+    sensitivity: string; occurredAt: string; taskId: string | null; threadId: string | null;
+    turnId: string | null; attempt: number | null; generation: number | null; payloadRef: string | null;
+  }>;
+  tokenDeltas: Array<{
+    eventId: string; taskId: string; laneKey: string; segment: number; status: string;
+    inputTokens: number | null; cachedInputTokens: number | null;
+    outputTokens: number | null; reasoningTokens: number | null;
+  }>;
+  coverage: { parsed: number; unknown: number };
+}
+
 export interface Project {
   id: string;
   name: string;

@@ -12,10 +12,13 @@ import SettingsPage from '@/pages/SettingsPage';
 import ExportPage from '@/pages/ExportPage';
 import JournalPage from '@/pages/JournalPage';
 import PatternsPage from '@/pages/PatternsPage';
+import TasksPage from '@/pages/TasksPage';
+import TaskDetailPage from '@/pages/TaskDetailPage';
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/sessions': 'Sessions',
+  '/tasks': 'Work tasks',
   '/insights': 'Insights',
   '/analytics': 'Analytics',
   '/patterns': 'Patterns',
@@ -70,6 +73,8 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:id" element={<SessionDetailPage />} />
+          <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/patterns" element={<PatternsPage />} />

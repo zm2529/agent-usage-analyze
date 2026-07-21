@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth } from '@/lib/types';
+import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -136,6 +136,14 @@ export function fetchDashboardStats(range: '7d' | '30d' | '90d' | 'all' = '7d') 
 
 export function fetchIngestionHealth() {
   return request<IngestionHealth>('/ingestion/health');
+}
+
+export function fetchWorkTasks() {
+  return request<{ tasks: WorkTaskNode[] }>('/tasks');
+}
+
+export function fetchWorkTask(id: string) {
+  return request<{ task: WorkTaskDetail }>(`/tasks/${encodeURIComponent(id)}`);
 }
 
 // ── Analysis (Phase 4) ────────────────────────────────────────────────────────

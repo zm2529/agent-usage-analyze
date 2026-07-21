@@ -11,6 +11,7 @@ import {
   Github,
   Sparkles,
   Search,
+  Network,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,6 +29,7 @@ import { cn } from '@/lib/utils';
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { href: '/sessions', label: 'Sessions', icon: MessageSquare, exact: false },
+  { href: '/tasks', label: 'Work tasks', icon: Network, exact: false },
   { href: '/insights', label: 'Insights', icon: Lightbulb, exact: false },
   { href: '/analytics', label: 'Analytics', icon: BarChart3, exact: false },
   { href: '/patterns', label: 'Patterns', icon: Sparkles, exact: false },

@@ -24,6 +24,7 @@ export interface MigrationResult {
  * Version 10: Add canonical ingestion, observation era, coverage, and diagnostics tables
  * Version 11: Add monotonic source cursors, canonical identity edges, and repository locators
  * Version 12: Make parser version part of immutable source identity
+ * Version 13: Add work-task tree and segmented token delta projections
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -91,6 +92,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 12) {
     applyV12(db);
+  }
+
+  if (currentVersion < 13) {
+    applyV13(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -329,4 +334,38 @@ function applyV12(db: Database.Database): void {
     )
   `).run();
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(12);
+}
+
+function applyV13(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_tasks (
+      id              TEXT PRIMARY KEY,
+      root_task_id    TEXT NOT NULL,
+      parent_task_id  TEXT,
+      thread_id       TEXT NOT NULL,
+      role            TEXT NOT NULL,
+      status          TEXT NOT NULL,
+      started_at      TEXT NOT NULL,
+      ended_at        TEXT,
+      era_id          TEXT NOT NULL REFERENCES observation_eras(id),
+      repo_root       TEXT,
+      worktree_path   TEXT,
+      git_branch      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_work_tasks_root ON work_tasks(root_task_id, started_at);
+
+    CREATE TABLE IF NOT EXISTS task_token_deltas (
+      event_id            TEXT PRIMARY KEY REFERENCES canonical_events(id) ON DELETE CASCADE,
+      task_id             TEXT NOT NULL,
+      lane_key            TEXT NOT NULL,
+      segment             INTEGER NOT NULL,
+      status              TEXT NOT NULL,
+      input_tokens        INTEGER,
+      cached_input_tokens INTEGER,
+      output_tokens       INTEGER,
+      reasoning_tokens    INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_token_deltas_task ON task_token_deltas(task_id, lane_key, segment);
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(13);
 }

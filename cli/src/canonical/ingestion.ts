@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { rebuildTaskProjection } from './tasks.js';
 
 export type SourceKind = 'synthetic-codex' | 'codex-rollout' | 'codex-hook' | 'git';
 export type EraMode = 'historical-backfill' | 'continuous-observation';
@@ -130,6 +131,7 @@ export interface CanonicalBatch {
   coverage: CoverageCounts;
   previousCursor: SourceCursor | null;
   nextCursor: SourceCursor;
+  operation?: 'append' | 'rebuild';
 }
 
 export interface SourceAdapter {
@@ -283,8 +285,11 @@ function parseCanonicalBatchValue(value: unknown): CanonicalBatch {
   assertOnlyKeys(value.nextCursor as unknown as Record<string, unknown>, ['token', 'position'], 'Next cursor');
   assertOnlyKeys(value, [
     'artifact', 'era', 'events', 'identityEdges', 'diagnostics', 'coverage',
-    'previousCursor', 'nextCursor',
+    'previousCursor', 'nextCursor', 'operation',
   ], 'Canonical batch');
+  if (value.operation !== undefined && !['append', 'rebuild'].includes(String(value.operation))) {
+    throw new Error('Canonical batch operation must be append or rebuild');
+  }
   assertOnlyKeys(value.artifact, [
     'id', 'sourceKind', 'parserVersion', 'locatorHash', 'observedAt', 'contentHash',
   ], 'Source artifact');
@@ -464,7 +469,7 @@ export async function ingestSourceAdapter(
         if (!cursorsEqual(batch.previousCursor, currentCursor)) {
           throw new Error('Stale source cursor: batch was parsed from an outdated source position');
         }
-        if (batch.nextCursor.position < (currentCursor?.position ?? 0)) {
+        if (batch.operation !== 'rebuild' && batch.nextCursor.position < (currentCursor?.position ?? 0)) {
           throw new Error('Stale source cursor: next position would move backwards');
         }
       } catch (error) {
@@ -483,6 +488,10 @@ export async function ingestSourceAdapter(
       }
 
       const writeBatch = db.transaction(() => {
+        if (batch.operation === 'rebuild') {
+          db.prepare('DELETE FROM canonical_identity_edges WHERE source_artifact_id = ?').run(artifact.id);
+          db.prepare('DELETE FROM canonical_events WHERE source_artifact_id = ?').run(artifact.id);
+        }
         db.prepare(`
           INSERT INTO observation_eras (
             id, name, mode, parser_version, capabilities_json, starts_at, ends_at
@@ -609,6 +618,7 @@ export async function ingestSourceAdapter(
         if (cursorUpdate.changes !== 1) {
           throw new Error('Stale source cursor: compare-and-swap failed');
         }
+        rebuildTaskProjection(db);
       });
 
       writeBatch();

@@ -12,6 +12,7 @@
     "./db/write": "./dist/db/write.js",
     "./db/schema": "./dist/db/schema.js",
     "./canonical/ingestion": "./dist/canonical/ingestion.js",
+    "./canonical/tasks": "./dist/canonical/tasks.js",
     "./types": "./dist/types.js",
     "./utils/config": "./dist/utils/config.js",
     "./utils/browser": "./dist/utils/browser.js",

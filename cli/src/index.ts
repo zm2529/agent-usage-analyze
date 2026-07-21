@@ -19,6 +19,7 @@ import { buildQueueCommand } from './commands/queue.js';
 import { doctorCommand } from './commands/doctor/index.js';
 import { showTelemetryNoticeIfNeeded } from './utils/telemetry.js';
 import { ingestFixtureCommand } from './commands/ingest-fixture.js';
+import { importCodexCommand } from './commands/import-codex.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
@@ -95,6 +96,12 @@ program
   .command('ingest-fixture <path>')
   .description('Import a synthetic canonical batch for local validation')
   .action(ingestFixtureCommand);
+
+program
+  .command('import-codex')
+  .description('Explicitly import active and archived Codex rollouts into the canonical store')
+  .option('--home <path>', 'Use an isolated Codex home instead of the configured default')
+  .action(importCodexCommand);
 
 program
   .command('install-hook')
