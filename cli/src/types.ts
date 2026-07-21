@@ -361,6 +361,7 @@ export interface ClaudeInsightConfig {
   dashboard?: {
     port?: number;
     llm?: LLMProviderConfig;
+    semanticAnalysisEnabled?: boolean;
   };
   telemetry?: boolean;              // default false (local-first opt-in)
 }

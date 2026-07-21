@@ -25,6 +25,7 @@ import patternsRouter from './routes/patterns.js';
 import deliveriesRouter from './routes/deliveries.js';
 import buildermarkGateRouter from './routes/buildermark-gate.js';
 import gitAiSidecarRouter from './routes/git-ai-sidecar.js';
+import semanticAnalysisRouter from './routes/semantic-analysis.js';
 
 export interface ServerOptions {
   port: number;
@@ -72,6 +73,7 @@ export function createApp(): Hono {
   app.route('/api/deliveries', deliveriesRouter);
   app.route('/api/buildermark-gate', buildermarkGateRouter);
   app.route('/api/git-ai-sidecar', gitAiSidecarRouter);
+  app.route('/api/semantic', semanticAnalysisRouter);
 
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true, version: '0.1.0' }));

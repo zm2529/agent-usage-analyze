@@ -33,7 +33,11 @@ export function createLlamaCppClient(model: string, baseUrl?: string): LLMClient
     async chat(messages: LLMMessage[], options?: ChatOptions): Promise<LLMResponse> {
       // Inner helper — performs a single attempt at the llama-server completions endpoint.
       // Returns the raw content string so the caller can retry on parse failure if needed.
-      const attempt = async (): Promise<{ content: string; inputTokens: number; outputTokens: number }> => {
+      const attempt = async (): Promise<{
+        content: string;
+        inputTokens: number | undefined;
+        outputTokens: number | undefined;
+      }> => {
         // Use caller-provided signal, or fall back to a default timeout to prevent indefinite hangs
         // when llama-server accepts the connection but stalls (model loading, GPU memory pressure).
         const signal = options?.signal ?? AbortSignal.timeout(DEFAULT_CHAT_TIMEOUT_MS);
@@ -113,8 +117,8 @@ export function createLlamaCppClient(model: string, baseUrl?: string): LLMClient
 
         return {
           content: data.choices[0]?.message?.content || '',
-          inputTokens: data.usage?.prompt_tokens ?? 0,
-          outputTokens: data.usage?.completion_tokens ?? 0,
+          inputTokens: data.usage?.prompt_tokens,
+          outputTokens: data.usage?.completion_tokens,
         };
       };
 
@@ -123,7 +127,9 @@ export function createLlamaCppClient(model: string, baseUrl?: string): LLMClient
         const result = await attempt();
         return {
           content: result.content,
-          usage: { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+          ...(result.inputTokens !== undefined && result.outputTokens !== undefined ? {
+            usage: { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+          } : {}),
         };
       }
 
@@ -169,19 +175,20 @@ export function createLlamaCppClient(model: string, baseUrl?: string): LLMClient
 
         return {
           content: retryStripped,
-          usage: {
+          ...(first.inputTokens !== undefined && first.outputTokens !== undefined
+            && retry.inputTokens !== undefined && retry.outputTokens !== undefined ? { usage: {
             inputTokens: first.inputTokens + retry.inputTokens,
             outputTokens: first.outputTokens + retry.outputTokens,
-          },
+          } } : {}),
         };
       }
 
       return {
         content: stripped,
-        usage: {
+        ...(first.inputTokens !== undefined && first.outputTokens !== undefined ? { usage: {
           inputTokens: first.inputTokens,
           outputTokens: first.outputTokens,
-        },
+        } } : {}),
       };
 
     },

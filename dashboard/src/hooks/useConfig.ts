@@ -17,6 +17,7 @@ export function useSaveLlmConfig() {
       model?: string;
       apiKey?: string;
       baseUrl?: string;
+      semanticAnalysisEnabled?: boolean;
     }) => saveLlmConfig(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config', 'llm'] });

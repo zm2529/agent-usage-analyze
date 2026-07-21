@@ -63,10 +63,12 @@ export function createOllamaClient(model: string, baseUrl?: string): LLMClient {
 
       return {
         content: data.message?.content || '',
-        usage: {
-          inputTokens: data.prompt_eval_count || 0,
-          outputTokens: data.eval_count || 0,
-        },
+        ...(data.prompt_eval_count !== undefined && data.eval_count !== undefined ? {
+          usage: {
+            inputTokens: data.prompt_eval_count,
+            outputTokens: data.eval_count,
+          },
+        } : {}),
       };
     },
 

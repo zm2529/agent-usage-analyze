@@ -13,7 +13,7 @@ import type {
   SourceCursor,
 } from './ingestion.js';
 
-const PARSER_VERSION = 'codex-rollout-v2';
+const PARSER_VERSION = 'codex-rollout-v3';
 
 function hash(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
@@ -92,6 +92,38 @@ function safeName(value: unknown): string | undefined {
 
 function defined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, child]) => child !== undefined)) as T;
+}
+
+function contentText(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return null;
+  const parts = value.flatMap((item) => {
+    const block = asRecord(item);
+    if (!['input_text', 'output_text', 'text'].includes(String(block.type))) return [];
+    return typeof block.text === 'string' ? [block.text] : [];
+  });
+  return parts.length > 0 ? parts.join('\n') : null;
+}
+
+function semanticText(raw: Record<string, unknown>): string | null {
+  const envelope = text(raw.type) ?? '';
+  const body = envelope === 'item.completed' ? asRecord(raw.item)
+    : envelope === 'input' ? raw
+    : asRecord(raw.payload);
+  const inner = envelope === 'input' ? 'user_message' : text(body.type) ?? envelope;
+  if (['message', 'user_message', 'agent_message'].includes(inner)) {
+    return contentText(body.content) ?? contentText(body.message);
+  }
+  if (['reasoning', 'agent_reasoning'].includes(inner)) {
+    return contentText(body.summary) ?? contentText(body.content);
+  }
+  if (['function_call_output', 'custom_tool_call_output', 'tool_search_output', 'mcp_tool_call_end'].includes(inner)) {
+    return contentText(body.output) ?? contentText(asRecord(body.output).output);
+  }
+  if (envelope === 'compacted' || inner === 'context_compacted') {
+    return contentText(body.summary) ?? contentText(body.content);
+  }
+  return null;
 }
 
 function validationKind(body: Record<string, unknown>): 'test' | 'build' | 'lint' | 'typecheck' | undefined {
@@ -235,8 +267,8 @@ function recoverLegacyIdentity(raw: Record<string, unknown>, state: ParseState):
   state.role = 'root';
 }
 
-function sourceRef(artifactId: string, offset: number): string {
-  return `source:${artifactId}#offset=${offset}`;
+function sourceRef(artifactId: string, offset: number, lineDigest: string): string {
+  return `source:${artifactId}#offset=${offset}&sha256=${lineDigest}`;
 }
 
 function baseEvent(
@@ -268,6 +300,7 @@ function mapEnvelope(
   state: ParseState,
   offset: number,
   sequence: number,
+  lineDigest: string,
 ): { event: CanonicalEvent; edges: IdentityEdge[]; unknown: boolean } {
   const envelope = text(raw.type) ?? 'unknown';
   const body = envelope === 'item.completed' ? asRecord(raw.item)
@@ -329,7 +362,7 @@ function mapEnvelope(
     artifact, state, offset, sequence, timestamp,
     text(body.id) ?? text(body.call_id) ?? text(body.turn_id),
   );
-  const payloadRef = sourceRef(artifact.id, offset);
+  const payloadRef = sourceRef(artifact.id, offset, lineDigest);
   const role = text(body.role);
   if (inner === 'message' || inner === 'user_message' || inner === 'agent_message') {
     const actor = role === 'user' || inner === 'user_message' ? 'user'
@@ -426,6 +459,34 @@ export class CodexRolloutAdapter implements SourceAdapter {
     return [...artifacts.values()];
   }
 
+  async resolvePayloadText(payloadRef: string): Promise<string | null> {
+    const match = /^source:(codex:[a-f0-9]{64})#offset=([0-9]+)&sha256=([a-f0-9]{64})$/.exec(payloadRef);
+    if (!match) return null;
+    try {
+      const artifactId = match[1]!;
+      if (!this.paths.has(artifactId)) await this.discover();
+      const path = this.paths.get(artifactId);
+      const offset = Number(match[2]);
+      if (!path || !Number.isSafeInteger(offset) || offset < 0) return null;
+      const descriptor = openSync(path, 'r');
+      const buffer = Buffer.alloc(1024 * 1024 + 1);
+      let length = 0;
+      try {
+        length = readSync(descriptor, buffer, 0, buffer.length, offset);
+      } finally {
+        closeSync(descriptor);
+      }
+      if (length < 1) return null;
+      const newline = buffer.subarray(0, length).indexOf(0x0a);
+      if (newline < 0 || newline > 1024 * 1024) return null;
+      const line = buffer.subarray(0, newline).toString('utf8').trim();
+      if (hash(line) !== match[3]) return null;
+      return semanticText(asRecord(JSON.parse(line)));
+    } catch {
+      return null;
+    }
+  }
+
   async parse(artifact: SourceArtifact, context: { currentCursor: SourceCursor | null }): Promise<CanonicalBatch> {
     const path = this.paths.get(artifact.id);
     if (!path) throw new Error('Discovered Codex source is unavailable');
@@ -483,7 +544,7 @@ export class CodexRolloutAdapter implements SourceAdapter {
         events.push({
           ...baseEvent(artifact, state, offset, sequence * 2 + 1, artifact.observedAt, 'malformed-record'),
           kind: 'unknown', actor: 'unknown', sensitivity: 'sensitive-content',
-          payload: {}, payloadRef: sourceRef(artifact.id, offset),
+          payload: {}, payloadRef: sourceRef(artifact.id, offset, hash(value)),
         });
         nextPosition = after;
         offset = after;
@@ -500,7 +561,7 @@ export class CodexRolloutAdapter implements SourceAdapter {
         });
         identityEdges.push({ kind: 'task-thread', fromId: state.taskId!, toId: state.threadId });
       }
-      const mapped = mapEnvelope(raw, artifact, state, offset, sequence * 2 + 1);
+      const mapped = mapEnvelope(raw, artifact, state, offset, sequence * 2 + 1, hash(value));
       events.push(mapped.event);
       identityEdges.push(...mapped.edges);
       if (mapped.unknown) {
@@ -517,7 +578,7 @@ export class CodexRolloutAdapter implements SourceAdapter {
     return {
       artifact,
       era: {
-        id: 'era:codex-historical-v2',
+        id: 'era:codex-historical-v3',
         name: 'Codex historical rollout import',
         mode: 'historical-backfill',
         parserVersion: PARSER_VERSION,

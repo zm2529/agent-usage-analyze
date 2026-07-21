@@ -50,6 +50,10 @@ const DEFAULT_PRICING: ModelPricing = { input: 3, output: 15 };
  * Tries exact match first, then prefix match (e.g., 'claude-sonnet-4-5-20250929' matches 'claude-sonnet-4-5').
  */
 export function getModelPricing(model: string): ModelPricing {
+  return getKnownModelPricing(model) ?? DEFAULT_PRICING;
+}
+
+export function getKnownModelPricing(model: string): ModelPricing | null {
   // Exact match
   if (MODEL_PRICING[model]) {
     return MODEL_PRICING[model];
@@ -62,7 +66,7 @@ export function getModelPricing(model: string): ModelPricing {
     }
   }
 
-  return DEFAULT_PRICING;
+  return null;
 }
 
 /**

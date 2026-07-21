@@ -30,6 +30,7 @@ export interface MigrationResult {
  * Version 16: Add immutable engineering deliveries
  * Version 17: Add isolated Buildermark helper gate reports
  * Version 18: Add managed Git AI prospective sidecar gate reports
+ * Version 19: Add privacy-controlled semantic analysis runs and claim details
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -121,6 +122,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 18) {
     applyV18(db);
+  }
+
+  if (currentVersion < 19) {
+    applyV19(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -552,4 +557,45 @@ function applyV18(db: Database.Database): void {
       ON git_ai_gate_runs(sequence DESC);
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(18);
+}
+
+function applyV19(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS semantic_analysis_runs (
+      id                     TEXT PRIMARY KEY,
+      task_id                TEXT NOT NULL,
+      status                 TEXT NOT NULL CHECK (status IN ('accepted', 'rejected', 'failed')),
+      provider               TEXT NOT NULL,
+      model                  TEXT NOT NULL,
+      locality               TEXT NOT NULL CHECK (locality IN ('local', 'remote')),
+      rubric_version         TEXT NOT NULL,
+      analysis_version       TEXT NOT NULL,
+      input_coverage         REAL NOT NULL CHECK (input_coverage >= 0 AND input_coverage <= 1),
+      estimated_input_tokens INTEGER NOT NULL CHECK (estimated_input_tokens >= 0),
+      input_tokens           INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+      output_tokens          INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+      cost_usd               REAL CHECK (cost_usd IS NULL OR cost_usd >= 0),
+      evidence_refs_json     TEXT NOT NULL
+        CHECK (json_valid(evidence_refs_json) AND json_type(evidence_refs_json) = 'array'),
+      rejection_code         TEXT,
+      created_at             TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_semantic_analysis_runs_task
+      ON semantic_analysis_runs(task_id, created_at DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS semantic_claim_details (
+      claim_id         TEXT PRIMARY KEY REFERENCES analysis_claims(id) ON DELETE CASCADE,
+      run_id           TEXT NOT NULL REFERENCES semantic_analysis_runs(id) ON DELETE CASCADE,
+      claim_type       TEXT NOT NULL CHECK (claim_type IN ('pattern-explanation', 'improvement-advice')),
+      title            TEXT NOT NULL,
+      summary          TEXT NOT NULL,
+      expected_benefit TEXT NOT NULL,
+      verification     TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_semantic_claim_details_run
+      ON semantic_claim_details(run_id, claim_id);
+    `);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(19);
+  })();
 }

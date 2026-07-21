@@ -215,7 +215,7 @@ const PAYLOAD_STRING_VALUES: Partial<Record<CanonicalEventKind, Record<string, R
   'file-change': { changeType: new Set(['added', 'modified', 'deleted', 'renamed', 'unknown']) },
 };
 const FORBIDDEN_ANALYSIS_KEY = /(analysis|score|rating|claim|causal|effectiveness|confidence)/i;
-const OPAQUE_PAYLOAD_REF = /^source:[A-Za-z0-9._:-]+(?:#[A-Za-z0-9._:=-]+)?$/;
+const OPAQUE_PAYLOAD_REF = /^source:[A-Za-z0-9._:-]+(?:#[A-Za-z0-9._:=-]+|#offset=[0-9]+&sha256=[a-f0-9]{64})?$/;
 const DIAGNOSTIC_CODES = new Set<IngestionDiagnosticCode>([
   'fixture', 'adapter-parse-failed', 'ingestion-failed', 'unknown-envelope',
   'truncated-tail', 'rewritten-source', 'token-reset', 'token-out-of-order',
@@ -489,8 +489,8 @@ export async function ingestSourceAdapter(
       }) | undefined;
       const parserUpgrade = Boolean(storedSource
         && artifact.sourceKind === 'codex-rollout'
-        && storedSource.parserVersion === 'codex-rollout-v1'
-        && artifact.parserVersion === 'codex-rollout-v2'
+        && ['codex-rollout-v1', 'codex-rollout-v2'].includes(storedSource.parserVersion)
+        && artifact.parserVersion === 'codex-rollout-v3'
         && storedSource.locatorHash === artifact.locatorHash
         && storedSource.contentHash === (artifact.contentHash ?? null));
       if (storedSource && (

@@ -3,6 +3,7 @@ import { useWorkTask } from '@/hooks/useWorkTasks';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { eventAnchorId } from '@/lib/event-links';
 import { DeliveryCandidateCard } from '@/components/deliveries/DeliveryCandidateCard';
+import { SemanticAnalysisPanel } from '@/components/tasks/SemanticAnalysisPanel';
 
 export default function TaskDetailPage() {
   const { id } = useParams();
@@ -34,6 +35,7 @@ export default function TaskDetailPage() {
           </Card>
         ))}
       </section>
+      <SemanticAnalysisPanel taskId={task.id} />
       <section>
         <h2 className="mb-3 text-lg font-semibold">Candidate deliveries</h2>
         <div className="space-y-2">

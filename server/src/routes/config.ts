@@ -4,6 +4,7 @@ import type { ClaudeInsightConfig, LLMProviderConfig } from '@agent-analytics/cl
 import { loadLLMConfig, testLLMConfig } from '../llm/client.js';
 import { discoverOllamaModels } from '../llm/providers/ollama.js';
 import { discoverLlamaCppModels } from '../llm/providers/llamacpp.js';
+import { semanticProviderLocality } from '@agent-analytics/cli/canonical/semantic-analysis';
 
 const app = new Hono();
 
@@ -25,6 +26,8 @@ app.get('/llm', (c) => {
     model: llm?.model,
     apiKey: maskApiKey(llm?.apiKey),
     baseUrl: llm?.baseUrl,
+    semanticProviderLocality: llm ? semanticProviderLocality(llm.provider, llm.baseUrl) : undefined,
+    semanticAnalysisEnabled: config?.dashboard?.semanticAnalysisEnabled === true,
   });
 });
 
@@ -36,6 +39,7 @@ app.put('/llm', async (c) => {
     model?: string;
     apiKey?: string;
     baseUrl?: string;
+    semanticAnalysisEnabled?: boolean;
   }>();
 
   const config: ClaudeInsightConfig = loadConfig() ?? {
@@ -64,6 +68,7 @@ app.put('/llm', async (c) => {
     }
 
     const existingLlm = config.dashboard?.llm ?? {} as Partial<LLMProviderConfig>;
+    const providerChanged = body.provider !== undefined && body.provider !== existingLlm.provider;
 
     const updatedLlm: LLMProviderConfig = {
       provider: (body.provider as LLMProviderConfig['provider']) ?? existingLlm.provider ?? 'ollama',
@@ -71,7 +76,7 @@ app.put('/llm', async (c) => {
       // Preserve existing API key if not provided in update
       ...(body.apiKey !== undefined
         ? { apiKey: body.apiKey || undefined }
-        : existingLlm.apiKey !== undefined ? { apiKey: existingLlm.apiKey } : {}),
+        : !providerChanged && existingLlm.apiKey !== undefined ? { apiKey: existingLlm.apiKey } : {}),
       ...(body.baseUrl !== undefined
         ? { baseUrl: body.baseUrl || undefined }
         : existingLlm.baseUrl !== undefined ? { baseUrl: existingLlm.baseUrl } : {}),
@@ -83,6 +88,39 @@ app.put('/llm', async (c) => {
 
     config.dashboard = { ...config.dashboard, llm: updatedLlm };
     changed = true;
+  }
+
+  if (body.semanticAnalysisEnabled !== undefined) {
+    if (typeof body.semanticAnalysisEnabled !== 'boolean') {
+      return c.json({ error: 'semanticAnalysisEnabled must be a boolean' }, 400);
+    }
+    if (body.semanticAnalysisEnabled && !config.dashboard?.llm) {
+      return c.json({ error: 'A provider and model are required before semantic analysis can be enabled' }, 400);
+    }
+    config.dashboard = {
+      ...config.dashboard,
+      semanticAnalysisEnabled: body.semanticAnalysisEnabled,
+    };
+    changed = true;
+  }
+
+  const semanticLlm = config.dashboard?.llm;
+  if (config.dashboard?.semanticAnalysisEnabled === true) {
+    if (!semanticLlm) {
+      return c.json({ error: 'A provider and model are required before semantic analysis can be enabled' }, 400);
+    }
+    const isLocalProvider = semanticLlm.provider === 'ollama' || semanticLlm.provider === 'llamacpp';
+    const locality = semanticProviderLocality(semanticLlm.provider, semanticLlm.baseUrl);
+    if (isLocalProvider && locality === 'remote') {
+      return c.json({
+        error: 'Remote Ollama and llama.cpp endpoints are not supported for semantic analysis',
+      }, 400);
+    }
+    if (!isLocalProvider && !semanticLlm.apiKey) {
+      return c.json({
+        error: 'An API key is required before remote semantic analysis can be enabled',
+      }, 400);
+    }
   }
 
   if (!changed) {

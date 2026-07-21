@@ -159,6 +159,42 @@ export interface GitAiSidecarState {
     | 'sidecar-health-check-failed' | null;
 }
 
+export type SemanticAnalysisPreview =
+  | { status: 'disabled'; reason: 'not-enabled'; deterministicAvailable: true }
+  | {
+    status: 'ready'; provider: string; model: string; locality: 'local' | 'remote';
+    evidenceScope: { firstTurn: string | null; lastTurn: string | null; turnCount: number; eventCount: number };
+    inputCoverage: number; estimatedInputTokens: number; estimatedCostUsd: number | null;
+    deterministicAvailable: true;
+  };
+
+export interface SemanticAnalysisRun {
+  id: string;
+  provider: string;
+  model: string;
+  locality: 'local' | 'remote';
+  rubricVersion: string;
+  analysisVersion: string;
+  inputCoverage: number;
+  estimatedInputTokens: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+}
+
+export interface SemanticClaim {
+  id: string;
+  sourceCategory: 'llm-semantic';
+  claimType: 'pattern-explanation' | 'improvement-advice';
+  title: string;
+  summary: string;
+  expectedBenefit: string;
+  verification: string;
+  confidence: number;
+  evidenceRefs: string[];
+  run: SemanticAnalysisRun;
+}
+
 export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
 export interface AnalysisClaim {
   id: string;
@@ -458,4 +494,6 @@ export interface LLMConfig {
   model?: string;
   apiKey?: string;      // masked by server before returning (first4...last4)
   baseUrl?: string;
+  semanticProviderLocality?: 'local' | 'remote';
+  semanticAnalysisEnabled: boolean;
 }

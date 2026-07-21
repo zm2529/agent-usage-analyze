@@ -1,5 +1,9 @@
 import Database from 'better-sqlite3';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync,
+  writeFileSync, writeSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -68,6 +72,51 @@ afterEach(() => {
 });
 
 describe('CodexRolloutAdapter', () => {
+  it('resolves an opaque payload reference only from the matching local rollout', async () => {
+    const home = tempCodexHome();
+    const rootPath = join(home, 'sessions', '2026', '07', '21', 'rollout-root.jsonl');
+    writeFileSync(rootPath, `${rootRollout().join('\n')}\n`);
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const adapter = new CodexRolloutAdapter(home);
+    await ingestSourceAdapter(adapter, db);
+    const payloadRef = readWorkTaskDetail(db, 'thread-root')?.events
+      .find((event) => event.kind === 'user-message')?.payloadRef;
+
+    expect(payloadRef).toMatch(/^source:codex:/);
+    expect(await adapter.resolvePayloadText(payloadRef!)).toBe('PRIVATE_SENTINEL');
+    expect(await adapter.resolvePayloadText('source:codex:invalid#offset=0')).toBeNull();
+    const rewritten = rootRollout();
+    rewritten[2] = line('response_item', {
+      type: 'message', role: 'user', content: [{ type: 'input_text', text: 'REWRITTEN_PRIVATE' }],
+    }, '2026-07-21T08:00:02.000Z');
+    writeFileSync(rootPath, `${rewritten.join('\n')}\n`);
+    expect(await adapter.resolvePayloadText(payloadRef!)).toBeNull();
+    rmSync(rootPath);
+    expect(await adapter.resolvePayloadText(payloadRef!)).toBeNull();
+    db.close();
+  });
+
+  it('resolves one bounded line by offset without loading a large sparse rollout', async () => {
+    const home = tempCodexHome();
+    const path = join(home, 'sessions', '2026', '07', '21', 'rollout-sparse.jsonl');
+    writeFileSync(path, `${rootRollout()[0]}\n`);
+    const offset = 64 * 1024 * 1024;
+    const message = `${rootRollout()[2]}\n`;
+    const descriptor = openSync(path, 'r+');
+    try {
+      writeSync(descriptor, message, offset, 'utf8');
+    } finally {
+      closeSync(descriptor);
+    }
+    const adapter = new CodexRolloutAdapter(home);
+    const [artifact] = await adapter.discover();
+
+    const digest = createHash('sha256').update(message.trim()).digest('hex');
+    expect(await adapter.resolvePayloadText(`source:${artifact!.id}#offset=${offset}&sha256=${digest}`))
+      .toBe('PRIVATE_SENTINEL');
+  });
+
   it('imports active and archived task trees with private content references and token deltas', async () => {
     const home = tempCodexHome();
     const rootPath = join(home, 'sessions', '2026', '07', '21', 'rollout-root.jsonl');
@@ -287,22 +336,25 @@ describe('CodexRolloutAdapter', () => {
     await ingestSourceAdapter(adapter, db);
     db.prepare(`INSERT INTO observation_eras
       (id, name, mode, parser_version, capabilities_json, starts_at)
-      VALUES ('era:codex-historical-v1', 'old', 'historical-backfill', 'codex-rollout-v1',
+      VALUES ('era:codex-historical-v2', 'old', 'historical-backfill', 'codex-rollout-v2',
         '["active-rollout","archived-rollout","task-tree","token-snapshot"]', '2026-07-21T08:00:00.000Z')`).run();
-    db.prepare(`UPDATE source_artifacts SET parser_version = 'codex-rollout-v1', era_id = 'era:codex-historical-v1'`).run();
-    db.prepare(`UPDATE canonical_events SET parser_version = 'codex-rollout-v1', era_id = 'era:codex-historical-v1'`).run();
-    db.prepare(`UPDATE work_tasks SET era_id = 'era:codex-historical-v1'`).run();
-    db.prepare(`DELETE FROM observation_eras WHERE id = 'era:codex-historical-v2'`).run();
+    db.prepare(`UPDATE source_artifacts SET parser_version = 'codex-rollout-v2', era_id = 'era:codex-historical-v2'`).run();
+    db.prepare(`UPDATE canonical_events SET parser_version = 'codex-rollout-v2', era_id = 'era:codex-historical-v2'`).run();
+    db.prepare(`UPDATE work_tasks SET era_id = 'era:codex-historical-v2'`).run();
+    db.prepare(`DELETE FROM observation_eras WHERE id = 'era:codex-historical-v3'`).run();
 
     const upgraded = await ingestSourceAdapter(adapter, db);
     expect(upgraded.insertedEvents).toBe(rootRollout().length);
     expect(db.prepare(`SELECT parser_version AS parserVersion, era_id AS eraId FROM source_artifacts`).get())
-      .toEqual({ parserVersion: 'codex-rollout-v2', eraId: 'era:codex-historical-v2' });
+      .toEqual({ parserVersion: 'codex-rollout-v3', eraId: 'era:codex-historical-v3' });
     expect(db.prepare('SELECT COUNT(*) AS count FROM canonical_events').get()).toEqual({ count: rootRollout().length });
     expect(readWorkTaskDetail(db, 'thread-root')?.diagnostics).toEqual(expect.arrayContaining([
       { severity: 'info', code: 'parser-upgrade-rebuild', count: 1 },
     ]));
-    expect(db.prepare(`SELECT ends_at AS endsAt FROM observation_eras WHERE id = 'era:codex-historical-v1'`).get())
+    const upgradedPayloadRef = readWorkTaskDetail(db, 'thread-root')?.events
+      .find((event) => event.kind === 'user-message')?.payloadRef;
+    expect(await adapter.resolvePayloadText(upgradedPayloadRef!)).toBe('PRIVATE_SENTINEL');
+    expect(db.prepare(`SELECT ends_at AS endsAt FROM observation_eras WHERE id = 'era:codex-historical-v2'`).get())
       .toEqual({ endsAt: '2026-07-21T08:00:00.000Z' });
     db.close();
   });

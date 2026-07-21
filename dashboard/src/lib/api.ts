@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState } from '@/lib/types';
+import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -146,6 +146,24 @@ export function fetchWorkTask(id: string) {
   return request<{ task: WorkTaskDetail }>(`/tasks/${encodeURIComponent(id)}`);
 }
 
+export function previewSemanticAnalysis(taskId: string) {
+  return request<SemanticAnalysisPreview>('/semantic/preview', {
+    method: 'POST', body: JSON.stringify({ taskId }),
+  });
+}
+
+export function runSemanticAnalysis(taskId: string) {
+  return request<
+    | { status: 'accepted'; run: SemanticAnalysisRun; claims: SemanticClaim[] }
+    | { status: 'disabled' | 'rejected' | 'failed'; reason: string; claims?: [] }
+  >('/semantic/analyze', { method: 'POST', body: JSON.stringify({ taskId }) });
+}
+
+export function fetchSemanticClaims(taskId: string) {
+  const query = new URLSearchParams({ taskId });
+  return request<{ claims: SemanticClaim[] }>(`/semantic/claims?${query.toString()}`);
+}
+
 export function fetchPatternTrends(currentStart: string, currentEnd: string) {
   const query = new URLSearchParams({ currentStart, currentEnd });
   return request<{ comparison: TrendComparison }>(`/patterns/trends?${query.toString()}`);
@@ -216,6 +234,7 @@ export function saveLlmConfig(body: {
   model?: string;
   apiKey?: string;
   baseUrl?: string;
+  semanticAnalysisEnabled?: boolean;
 }) {
   return request<{ ok: boolean }>('/config/llm', {
     method: 'PUT',

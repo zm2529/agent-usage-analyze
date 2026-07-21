@@ -9,7 +9,7 @@
 //   3. Ollama or unknown provider → $0.00 (local, free)
 
 import { PROVIDERS } from '@agent-analytics/cli/constants/llm-providers';
-import { getModelPricing } from '@agent-analytics/cli/utils/pricing';
+import { getKnownModelPricing, getModelPricing } from '@agent-analytics/cli/utils/pricing';
 
 /**
  * Date when pricing data was last verified against provider pricing pages.
@@ -92,4 +92,19 @@ export function calculateAnalysisCost(
 
   const total = inputCost + outputCost + cacheReadCost;
   return Math.round(total * 1_000_000) / 1_000_000;
+}
+
+export function calculateAnalysisCostIfKnown(
+  provider: string,
+  model: string,
+  usage: AnalysisCostUsage,
+): number | null {
+  if (provider === 'ollama' || provider === 'llamacpp') return 0;
+  if (provider === 'anthropic') {
+    return getKnownModelPricing(model) ? calculateAnalysisCost(provider, model, usage) : null;
+  }
+  const modelInfo = PROVIDERS.find((candidate) => candidate.id === provider)
+    ?.models.find((candidate) => candidate.id === model);
+  return modelInfo?.inputCostPer1M != null && modelInfo.outputCostPer1M != null
+    ? calculateAnalysisCost(provider, model, usage) : null;
 }

@@ -63,6 +63,8 @@ export function saveConfig(config: ClaudeInsightConfig): void {
     clean.dashboard = {
       ...(config.dashboard.port !== undefined ? { port: config.dashboard.port } : {}),
       ...(config.dashboard.llm !== undefined ? { llm: config.dashboard.llm } : {}),
+      ...(config.dashboard.semanticAnalysisEnabled !== undefined
+        ? { semanticAnalysisEnabled: config.dashboard.semanticAnalysisEnabled } : {}),
     };
   }
   if (config.telemetry !== undefined) {

@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
     db.close();
   });
 });
@@ -100,6 +100,46 @@ describe('runMigrations — V14 canonical coverage upgrade', () => {
     expect(columns.filter((column) => column.name === 'compaction_tokens')).toHaveLength(1);
     expect(db.prepare('SELECT dirty FROM canonical_projection_state WHERE id = 1').get())
       .toEqual({ dirty: 1 });
+    db.close();
+  });
+});
+
+describe('runMigrations — V19 semantic analysis', () => {
+  const insertRun = `INSERT INTO semantic_analysis_runs (
+    id, task_id, status, provider, model, locality, rubric_version, analysis_version,
+    input_coverage, estimated_input_tokens, input_tokens, output_tokens, cost_usd,
+    evidence_refs_json, rejection_code
+  ) VALUES ('run', 'missing-task', 'failed', 'fixture', 'fixture', 'local',
+    'semantic-rubric-v1', 'semantic-analysis-v1', 0, 0, NULL, NULL, NULL, ?, 'provider-failure')`;
+
+  it('enforces JSON evidence arrays without coupling history to the rebuildable task projection', () => {
+    const db = freshDb();
+    runMigrations(db);
+    expect(() => db.prepare(insertRun).run('{broken')).toThrow();
+    db.pragma('foreign_keys = ON');
+    expect(() => db.prepare(insertRun).run('[]')).not.toThrow();
+    db.close();
+  });
+
+  it('rolls back a failed V19 attempt and resumes after the bad partial table is removed', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.prepare('DELETE FROM schema_version WHERE version = 19').run();
+    db.exec(`
+      DROP TABLE semantic_claim_details;
+      DROP TABLE semantic_analysis_runs;
+      CREATE TABLE semantic_analysis_runs (id TEXT PRIMARY KEY);
+    `);
+
+    expect(() => runMigrations(db)).toThrow();
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = 19').get()).toBeUndefined();
+    expect(db.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name = 'semantic_claim_details'`).get()).toBeUndefined();
+
+    db.exec('DROP TABLE semantic_analysis_runs');
+    expect(() => runMigrations(db)).not.toThrow();
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = 19').get())
+      .toEqual({ version: 19 });
     db.close();
   });
 });

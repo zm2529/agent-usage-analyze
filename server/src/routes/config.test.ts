@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { runMigrations } from '@agent-analytics/cli/db/schema';
-import { saveConfig } from '@agent-analytics/cli/utils/config';
+import { loadConfig, saveConfig } from '@agent-analytics/cli/utils/config';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference for mocking.
@@ -19,7 +19,7 @@ vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
 }));
 
 vi.mock('@agent-analytics/cli/utils/config', () => ({
-  loadConfig: () => null,
+  loadConfig: vi.fn(() => null),
   saveConfig: vi.fn(),
 }));
 
@@ -52,6 +52,8 @@ function initTestDb(): Database.Database {
 describe('Config routes', () => {
   beforeEach(() => {
     testDb = initTestDb();
+    vi.mocked(loadConfig).mockReturnValue(null);
+    vi.mocked(saveConfig).mockClear();
   });
 
   afterEach(() => {
@@ -68,6 +70,7 @@ describe('Config routes', () => {
       expect(body.dashboardPort).toBe(7890);
       expect(body.provider).toBeUndefined();
       expect(body.model).toBeUndefined();
+      expect(body.semanticAnalysisEnabled).toBe(false);
     });
   });
 
@@ -166,6 +169,107 @@ describe('Config routes', () => {
         body: JSON.stringify({ provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' }),
       });
       expect(vi.mocked(saveConfig)).toHaveBeenCalledOnce();
+    });
+
+    it('persists semantic analysis as an explicit opt-in with the selected provider', async () => {
+      vi.mocked(saveConfig).mockClear();
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'ollama', model: 'qwen3:14b', semanticAnalysisEnabled: true,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(saveConfig)).toHaveBeenCalledWith(expect.objectContaining({
+        dashboard: expect.objectContaining({
+          semanticAnalysisEnabled: true,
+          llm: expect.objectContaining({ provider: 'ollama', model: 'qwen3:14b' }),
+        }),
+      }));
+    });
+
+    it('does not enable a remote semantic provider without explicit credentials', async () => {
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'anthropic', model: 'claude-sonnet-4-6', semanticAnalysisEnabled: true,
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: 'An API key is required before remote semantic analysis can be enabled',
+      });
+    });
+
+    it('does not switch an enabled local semantic configuration to an uncredentialed remote provider', async () => {
+      vi.mocked(loadConfig).mockReturnValue({
+        sync: { claudeDir: '', excludeProjects: [] },
+        dashboard: {
+          semanticAnalysisEnabled: true,
+          llm: { provider: 'ollama', model: 'qwen3:14b' },
+        },
+      });
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'anthropic', model: 'claude-sonnet-4-6' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(saveConfig).not.toHaveBeenCalled();
+    });
+
+    it('does not remove the credential from an enabled remote semantic configuration', async () => {
+      vi.mocked(loadConfig).mockReturnValue({
+        sync: { claudeDir: '', excludeProjects: [] },
+        dashboard: {
+          semanticAnalysisEnabled: true,
+          llm: { provider: 'anthropic', model: 'claude-sonnet-4-6', apiKey: 'configured-secret' },
+        },
+      });
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: '' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(saveConfig).not.toHaveBeenCalled();
+    });
+
+    it('does not reuse one remote provider credential after switching providers', async () => {
+      vi.mocked(loadConfig).mockReturnValue({
+        sync: { claudeDir: '', excludeProjects: [] },
+        dashboard: {
+          semanticAnalysisEnabled: true,
+          llm: { provider: 'openai', model: 'gpt-fixture', apiKey: 'openai-only-secret' },
+        },
+      });
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'anthropic', model: 'claude-fixture' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(saveConfig).not.toHaveBeenCalled();
+    });
+
+    it('does not classify a custom remote Ollama endpoint as local semantic analysis', async () => {
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'ollama', model: 'qwen3:14b', baseUrl: 'https://remote.example',
+          apiKey: 'unused-secret', semanticAnalysisEnabled: true,
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: 'Remote Ollama and llama.cpp endpoints are not supported for semantic analysis',
+      });
+      expect(saveConfig).not.toHaveBeenCalled();
     });
   });
 
