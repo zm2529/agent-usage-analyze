@@ -101,6 +101,38 @@ describe('Export routes', () => {
     mockLoadLLMConfig.mockReturnValue({ provider: 'openai', model: 'gpt-4o' });
   });
 
+  it('returns a versioned sanitized export without canonical payload content', async () => {
+    testDb.exec(`
+      INSERT INTO observation_eras
+        (id, name, mode, parser_version, capabilities_json, starts_at)
+      VALUES ('era:private', 'Private era', 'historical-backfill', 'fixture-v1', '[]',
+        '2026-07-21T00:00:00.000Z');
+      INSERT INTO source_artifacts
+        (id, source_kind, parser_version, locator_hash, observed_at, era_id)
+      VALUES ('source:private', 'synthetic-codex', 'fixture-v1', 'sha256:source',
+        '2026-07-21T00:00:00.000Z', 'era:private');
+      INSERT INTO work_tasks
+        (id, root_task_id, thread_id, role, status, started_at, era_id, repo_root)
+      VALUES ('task:PRIVATE_NAME', 'task:PRIVATE_NAME', 'thread:private', 'root', 'completed',
+        '2026-07-21T00:00:00.000Z', 'era:private', '/Users/alice/SecretRepo');
+      INSERT INTO canonical_events
+        (id, source_artifact_id, era_id, native_event_id, sequence, occurred_at, kind,
+         actor, sensitivity, payload_json, task_id, thread_id, parser_version)
+      VALUES ('event:private', 'source:private', 'era:private', 'native:private', 1,
+        '2026-07-21T00:01:00.000Z', 'user-message', 'user', 'content',
+        '{"text":"TOP_SECRET_PROMPT"}', 'task:PRIVATE_NAME', 'thread:private', 'fixture-v1');
+    `);
+    const response = await createApp().request('/api/export/sanitized');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-disposition')).toContain('agent-analytics-sanitized');
+    const text = await response.text();
+    expect(JSON.parse(text)).toMatchObject({
+      schemaVersion: 'agent-analytics.sanitized-export.v1',
+      summary: { taskCount: 1, eventCount: 1 },
+    });
+    expect(text).not.toMatch(/TOP_SECRET_PROMPT|PRIVATE_NAME|SecretRepo|thread:private/);
+  });
+
   afterEach(() => {
     testDb.close();
   });

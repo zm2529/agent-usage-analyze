@@ -4,8 +4,10 @@ The CLI imports local Codex work into the canonical event store and starts the l
 
 ```sh
 agent-analytics ingest-fixture ./canonical-batch.json
+agent-analytics migrate-product
+agent-analytics import-codex
 agent-analytics dashboard --no-open
+agent-analytics reset
 ```
 
 Product telemetry and remote semantic analysis are disabled by default. See the repository [README](../README.md), [UPSTREAM](../UPSTREAM.md), and [LICENSE](../LICENSE).
-

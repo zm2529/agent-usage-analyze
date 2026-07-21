@@ -20,6 +20,7 @@ import { doctorCommand } from './commands/doctor/index.js';
 import { showTelemetryNoticeIfNeeded } from './utils/telemetry.js';
 import { ingestFixtureCommand } from './commands/ingest-fixture.js';
 import { importCodexCommand } from './commands/import-codex.js';
+import { migrateProductCommand } from './commands/migrate-product.js';
 import { buildermarkGateCommand } from './commands/buildermark-gate.js';
 import {
   gitAiProspectiveGateCommand,
@@ -111,6 +112,11 @@ program
   .description('Explicitly import active and archived Codex rollouts into the canonical store')
   .option('--home <path>', 'Use an isolated Codex home instead of the configured default')
   .action(importCodexCommand);
+
+program
+  .command('migrate-product')
+  .description('Backup and migrate a frozen legacy database into the canonical product schema')
+  .action(migrateProductCommand);
 
 program
   .command('advisory [task_id]')

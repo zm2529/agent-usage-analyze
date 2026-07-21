@@ -33,6 +33,7 @@ export interface MigrationResult {
  * Version 19: Add privacy-controlled semantic analysis runs and claim details
  * Version 20: Add immutable scorecards, versioned results, and observer overhead
  * Version 21: Add non-blocking advisory interaction history and mute policy
+ * Version 22: Add immutable expand-project-contract migration records
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -136,6 +137,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 21) {
     applyV21(db);
+  }
+
+  if (currentVersion < 22) {
+    applyV22(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -775,5 +780,30 @@ function applyV21(db: Database.Database): void {
         BEFORE DELETE ON advisory_events BEGIN SELECT RAISE(ABORT, 'advisory events are immutable'); END;
     `);
     db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(21);
+  })();
+}
+
+function applyV22(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS product_migration_runs (
+        id                    TEXT PRIMARY KEY,
+        source_schema_version INTEGER NOT NULL,
+        target_schema_version INTEGER NOT NULL,
+        status                TEXT NOT NULL CHECK (status IN ('initialized', 'migrated')),
+        backup_file           TEXT,
+        report_json           TEXT NOT NULL CHECK (json_valid(report_json)),
+        completed_at          TEXT NOT NULL
+      );
+      CREATE TRIGGER IF NOT EXISTS product_migration_runs_no_update
+        BEFORE UPDATE ON product_migration_runs BEGIN
+          SELECT RAISE(ABORT, 'product migration records are immutable');
+        END;
+      CREATE TRIGGER IF NOT EXISTS product_migration_runs_no_delete
+        BEFORE DELETE ON product_migration_runs BEGIN
+          SELECT RAISE(ABORT, 'product migration records are immutable');
+        END;
+    `);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(22);
   })();
 }

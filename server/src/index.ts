@@ -37,6 +37,14 @@ export interface ServerOptions {
   openBrowser: boolean;
 }
 
+export interface ServerRuntimeDependencies {
+  serve: typeof serve;
+  openUrl: typeof openUrl;
+  onListen: (info: { address: string; port: number }) => void;
+}
+
+export const LOOPBACK_HOST = '127.0.0.1';
+
 /**
  * Create the Hono app with all API routes mounted.
  * Does NOT add static file serving or call serve() — that's startServer's job.
@@ -98,7 +106,10 @@ export function createApp(): Hono {
  * then calls serve().
  * Called by the CLI `dashboard` command.
  */
-export async function startServer(options: ServerOptions): Promise<void> {
+export async function startServer(
+  options: ServerOptions,
+  dependencies: Partial<ServerRuntimeDependencies> = {},
+): Promise<ReturnType<typeof serve>> {
   const { port, staticDir, openBrowser } = options;
 
   const app = createApp();
@@ -148,11 +159,14 @@ export async function startServer(options: ServerOptions): Promise<void> {
   process.on('SIGINT', () => { void shutdown(); });
   process.on('SIGTERM', () => { void shutdown(); });
 
-  serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
+  const serveRuntime = dependencies.serve ?? serve;
+  const openRuntimeUrl = dependencies.openUrl ?? openUrl;
+  return serveRuntime({ fetch: app.fetch, port, hostname: LOOPBACK_HOST }, (info) => {
+    dependencies.onListen?.(info);
     const url = `http://localhost:${info.port}`;
     console.log(`  Agent Analytics dashboard running at ${url}`);
     if (openBrowser) {
-      openUrl(url);
+      openRuntimeUrl(url);
     }
   });
 }

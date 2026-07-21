@@ -1,87 +1,56 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { existsSync, unlinkSync } from 'fs';
-import { getDb, getDbPath } from '../db/client.js';
+import { closeDb, getDbPath } from '../db/client.js';
+import { archiveLocalAnalysisData } from '../db/local-data-lifecycle.js';
 import { getSyncStatePath } from '../utils/config.js';
-import { trackEvent, captureError, classifyError } from '../utils/telemetry.js';
+import { captureError, classifyError, trackEvent } from '../utils/telemetry.js';
 
 export const resetCommand = new Command('reset')
-  .description('Delete all synced data from the local SQLite database and reset sync state')
+  .description('Archive local analysis data so it can be rebuilt or recovered')
   .option('--confirm', 'Skip confirmation prompt')
   .action(async (options) => {
-    console.log(chalk.red.bold('\n  WARNING: This will permanently delete ALL synced data from your local database!'));
-    console.log(chalk.yellow('  Tables to be cleared: projects, sessions, messages, insights, session_facets, reflect_snapshots, usage_stats\n'));
+    console.log(chalk.yellow.bold('\n  This archives the local analysis database and sync state.'));
+    console.log(chalk.gray('  Imported source history and Git repositories are never changed.\n'));
 
     if (!options.confirm) {
       const readline = await import('readline');
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       const answer = await new Promise<string>((resolve) => {
-        rl.question(chalk.cyan('Type "DELETE" to confirm: '), resolve);
+        rl.question(chalk.cyan('Type "ARCHIVE" to confirm: '), resolve);
       });
       rl.close();
-
-      if (answer !== 'DELETE') {
-        console.log(chalk.gray('\nAborted. No data was deleted.'));
-        process.exit(0);
+      if (answer !== 'ARCHIVE') {
+        console.log(chalk.gray('\nAborted. No local analysis data was archived.'));
+        return;
       }
     }
 
-    console.log('');
-
-    // Delete SQLite data — all 5 DELETEs wrapped in a single transaction.
-    // If any DELETE fails, the transaction rolls back atomically and we do NOT
-    // proceed to delete the sync state file (which would leave them out of sync).
-    const dbSpinner = ora('Clearing database...').start();
+    const spinner = ora('Archiving local analysis data...').start();
     try {
-      const db = getDb();
-      const clearAll = db.transaction(() => {
-        // Delete in dependency order (FK constraints)
-        db.prepare('DELETE FROM insights').run();
-        db.prepare('DELETE FROM session_facets').run();
-        db.prepare('DELETE FROM reflect_snapshots').run();
-        db.prepare('DELETE FROM messages').run();
-        db.prepare('DELETE FROM sessions').run();
-        db.prepare('DELETE FROM projects').run();
-        db.prepare('DELETE FROM usage_stats').run();
+      closeDb();
+      const result = archiveLocalAnalysisData({
+        dbPath: getDbPath(),
+        syncStatePath: getSyncStatePath(),
       });
-      clearAll();
-      dbSpinner.succeed(`Database cleared (${getDbPath()})`);
+      if (result.status === 'nothing-to-archive') spinner.info('No local analysis data existed');
+      else spinner.succeed('Local analysis data archived');
+      if (result.databaseBackupPath) {
+        console.log(chalk.gray(`  Database backup: ${result.databaseBackupPath}`));
+      }
+      if (result.syncStateBackupPath) {
+        console.log(chalk.gray(`  Sync-state backup: ${result.syncStateBackupPath}`));
+      }
+      console.log(chalk.gray(`  Recovery: ${result.recovery}`));
+      trackEvent('cli_reset', { success: true, mode: 'recoverable-archive' });
+      console.log(chalk.green(`\n  Archive complete. Run \`${result.rebuildCommand}\` to rebuild analysis.\n`));
     } catch (error) {
-      dbSpinner.fail(`Failed to clear database: ${error instanceof Error ? error.message : error}`);
-      console.error(chalk.red('\nAborted. Sync state was NOT deleted to avoid inconsistency.'));
+      spinner.fail(`Failed to archive local data: ${error instanceof Error ? error.message : error}`);
+      console.error(chalk.red('\nAborted. Any partial moves were rolled back.'));
       console.error(chalk.dim('Run `agent-analytics doctor` if the problem persists.'));
       const { error_type, error_message } = classifyError(error);
       trackEvent('cli_reset', { success: false, error_type, error_message });
       captureError(error, { command: 'reset', error_type });
-      process.exit(1);
+      process.exitCode = 1;
     }
-
-    // Delete local sync state — only reached if DB clear succeeded
-    const syncStatePath = getSyncStatePath();
-    const syncSpinner = ora('Removing local sync state...').start();
-    try {
-      if (existsSync(syncStatePath)) {
-        unlinkSync(syncStatePath);
-        syncSpinner.succeed('Removed local sync state');
-      } else {
-        syncSpinner.info('No local sync state file found');
-      }
-    } catch (error) {
-      syncSpinner.fail(`Failed to remove sync state: ${error}`);
-    }
-
-    // Collect stats for telemetry before resetting
-    try {
-      trackEvent('cli_reset', { success: true });
-    } catch {
-      // non-fatal
-    }
-
-    console.log(chalk.green('\n  Reset complete. Run `agent-analytics sync` to re-sync all sessions.\n'));
-    process.exit(0);
   });

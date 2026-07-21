@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
     db.close();
   });
 });
@@ -175,7 +175,7 @@ describe('runMigrations — V21 advisory history and mute policy', () => {
   it('rolls back a failed partial V21 and resumes without losing immutable history guards', () => {
     const db = freshDb();
     runMigrations(db);
-    db.prepare('DELETE FROM schema_version WHERE version = 21').run();
+    db.prepare('DELETE FROM schema_version WHERE version >= 21').run();
     db.exec(`
       DROP TRIGGER advisory_events_no_update;
       DROP TRIGGER advisory_events_no_delete;

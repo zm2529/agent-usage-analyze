@@ -20,9 +20,9 @@ import ScorecardsPage from '@/pages/ScorecardsPage';
 import AdvicePage from '@/pages/AdvicePage';
 
 const ROUTE_TITLES: Record<string, string> = {
-  '/dashboard': 'Dashboard',
+  '/dashboard': 'Overview',
   '/sessions': 'Sessions',
-  '/tasks': 'Work tasks',
+  '/tasks': 'Tasks',
   '/deliveries': 'Deliveries',
   '/insights': 'Insights',
   '/analytics': 'Analytics',

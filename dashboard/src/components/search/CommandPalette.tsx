@@ -4,16 +4,16 @@ import {
   LayoutDashboard,
   MessageSquare,
   Lightbulb,
-  BarChart3,
   Sparkles,
   Settings,
-  Download,
   Search,
   SearchX,
   Clock,
   Zap,
   Scale,
   BellRing,
+  Network,
+  PackageCheck,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -50,14 +50,12 @@ function pushRecent(item: Omit<RecentItem, 'timestamp'>): void {
 }
 
 const NAV_ITEMS = [
-  { label: 'Go to Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Go to Sessions', href: '/sessions', icon: MessageSquare },
-  { label: 'Go to Insights', href: '/insights', icon: Lightbulb },
-  { label: 'Go to Analytics', href: '/analytics', icon: BarChart3 },
+  { label: 'Go to Overview', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Go to Tasks', href: '/tasks', icon: Network },
+  { label: 'Go to Deliveries', href: '/deliveries', icon: PackageCheck },
   { label: 'Go to Patterns', href: '/patterns', icon: Sparkles },
-  { label: 'Go to Scorecards', href: '/scorecards', icon: Scale },
   { label: 'Go to Advice', href: '/advice', icon: BellRing },
-  { label: 'Go to Export', href: '/export', icon: Download },
+  { label: 'Go to Scorecards', href: '/scorecards', icon: Scale },
   { label: 'Go to Settings', href: '/settings', icon: Settings },
 ];
 

@@ -6,7 +6,8 @@
     "dev": "pnpm --filter @agent-analytics/cli dev",
     "test": "pnpm -r test",
     "test:watch": "vitest",
-    "test:coverage": "pnpm --filter @agent-analytics/cli test:coverage && pnpm --filter @agent-analytics/server test:coverage"
+    "test:coverage": "pnpm --filter @agent-analytics/cli test:coverage && pnpm --filter @agent-analytics/server test:coverage",
+    "audit:v1": "node scripts/release-audit.mjs"
   },
   "engines": {
     "node": ">=18.0.0",

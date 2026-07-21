@@ -8,6 +8,7 @@ import { formatAgentRules } from '../export/agent-rules.js';
 import type { SessionRow, InsightRow } from '../export/knowledge-base.js';
 import { createLLMClient, loadLLMConfig } from '../llm/client.js';
 import { requireLLM } from './route-helpers.js';
+import { buildSanitizedExport } from '@agent-analytics/cli/canonical/sanitized-export';
 import {
   applyDepthCap,
   buildInsightContext,
@@ -24,6 +25,12 @@ const app = new Hono();
 // SQLite SQLITE_LIMIT_VARIABLE_NUMBER is 999 by default.
 // Batch insights queries to avoid hitting this limit for large session sets.
 const INSIGHTS_BATCH_SIZE = 500;
+
+app.get('/sanitized', (c) => {
+  const result = buildSanitizedExport(getDb());
+  c.header('Content-Disposition', 'attachment; filename="agent-analytics-sanitized.json"');
+  return c.json(result);
+});
 
 function fetchInsightsForSessions(db: ReturnType<typeof getDb>, sessionIds: string[]): InsightRow[] {
   if (sessionIds.length === 0) return [];

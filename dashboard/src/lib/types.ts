@@ -592,3 +592,15 @@ export interface LLMConfig {
   semanticProviderLocality?: 'local' | 'remote';
   semanticAnalysisEnabled: boolean;
 }
+
+export interface RuntimeConfig {
+  dataDirectory: string;
+  listenAddress: string;
+  sources: Array<{ kind: string; count: number }>;
+  eras: Array<{ mode: string; parserVersion: string; count: number }>;
+  llm: { configured: boolean; provider?: string; model?: string; locality?: 'local' | 'remote'; enabled: boolean };
+  migration: { databaseSchema: number; status: string; completedAt: string | null };
+  dataActions: {
+    exportPath: string; archiveCommand: string; rebuildCommand: string; scope: string; recovery: string;
+  };
+}

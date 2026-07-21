@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, AdviceState } from '@/lib/types';
+import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, AdviceState } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -270,6 +270,10 @@ export function analyzeSession(sessionId: string) {
 
 export function fetchLlmConfig() {
   return request<LLMConfig>('/config/llm');
+}
+
+export function fetchRuntimeConfig() {
+  return request<RuntimeConfig>('/config/runtime');
 }
 
 export function saveLlmConfig(body: {

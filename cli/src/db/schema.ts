@@ -128,6 +128,6 @@ CREATE TABLE IF NOT EXISTS usage_stats (
 );
 `;
 
-export const CURRENT_SCHEMA_VERSION = 21;
+export const CURRENT_SCHEMA_VERSION = 22;
 
 export { runMigrations } from './migrate.js';

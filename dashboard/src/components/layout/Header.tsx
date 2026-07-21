@@ -1,20 +1,16 @@
 import { Link, useLocation } from 'react-router';
 import {
   LayoutDashboard,
-  Lightbulb,
-  BarChart3,
-  Download,
   Settings,
   Menu,
-  MessageSquare,
   MoreHorizontal,
   Github,
-  Sparkles,
   Search,
   Network,
   PackageCheck,
   Scale,
   BellRing,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,17 +25,13 @@ import { ThemeToggle } from './ThemeToggle';
 import { Logo } from '@/components/brand/Logo';
 import { cn } from '@/lib/utils';
 
-const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { href: '/sessions', label: 'Sessions', icon: MessageSquare, exact: false },
-  { href: '/tasks', label: 'Work tasks', icon: Network, exact: false },
+export const NAV_ITEMS = [
+  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
+  { href: '/tasks', label: 'Tasks', icon: Network, exact: false },
   { href: '/deliveries', label: 'Deliveries', icon: PackageCheck, exact: false },
-  { href: '/insights', label: 'Insights', icon: Lightbulb, exact: false },
-  { href: '/analytics', label: 'Analytics', icon: BarChart3, exact: false },
   { href: '/patterns', label: 'Patterns', icon: Sparkles, exact: false },
-  { href: '/scorecards', label: 'Scorecards', icon: Scale, exact: false },
   { href: '/advice', label: 'Advice', icon: BellRing, exact: false },
-  { href: '/export', label: 'Export', icon: Download, exact: false },
+  { href: '/scorecards', label: 'Scorecards', icon: Scale, exact: false },
   { href: '/settings', label: 'Settings', icon: Settings, exact: false },
 ];
 

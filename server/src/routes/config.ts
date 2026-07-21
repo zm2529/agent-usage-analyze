@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { loadConfig, saveConfig } from '@agent-analytics/cli/utils/config';
+import { getDb } from '@agent-analytics/cli/db/client';
+import { getConfigDir, loadConfig, saveConfig } from '@agent-analytics/cli/utils/config';
 import type { ClaudeInsightConfig, LLMProviderConfig } from '@agent-analytics/cli/types';
 import { loadLLMConfig, testLLMConfig } from '../llm/client.js';
 import { discoverOllamaModels } from '../llm/providers/ollama.js';
@@ -14,6 +15,53 @@ function maskApiKey(key: string | undefined): string | undefined {
   if (!key || key.length < 8) return key ? '***' : undefined;
   return key.slice(0, 4) + '...' + key.slice(-4);
 }
+
+app.get('/runtime', (c) => {
+  const config = loadConfig();
+  const port = config?.dashboard?.port ?? 7890;
+  const llm = config?.dashboard?.llm;
+  const db = getDb();
+  const sources = db.prepare(`SELECT source_kind AS kind, COUNT(*) AS count
+    FROM source_artifacts GROUP BY source_kind ORDER BY source_kind`).all() as Array<{
+      kind: string; count: number;
+    }>;
+  const eras = db.prepare(`SELECT mode, parser_version AS parserVersion, COUNT(*) AS count
+    FROM observation_eras GROUP BY mode, parser_version ORDER BY mode, parser_version`).all() as Array<{
+      mode: string; parserVersion: string; count: number;
+    }>;
+  const databaseSchema = (db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_version')
+    .get() as { version: number }).version;
+  const migration = db.prepare(`SELECT status, completed_at AS completedAt
+    FROM product_migration_runs ORDER BY completed_at DESC, id DESC LIMIT 1`).get() as {
+      status: string; completedAt: string;
+    } | undefined;
+
+  return c.json({
+    dataDirectory: getConfigDir(),
+    listenAddress: `127.0.0.1:${port}`,
+    sources,
+    eras,
+    llm: {
+      configured: Boolean(llm?.provider && llm.model),
+      provider: llm?.provider,
+      model: llm?.model,
+      locality: llm ? semanticProviderLocality(llm.provider, llm.baseUrl) : undefined,
+      enabled: config?.dashboard?.semanticAnalysisEnabled === true,
+    },
+    migration: {
+      databaseSchema,
+      status: migration?.status ?? 'not-recorded',
+      completedAt: migration?.completedAt ?? null,
+    },
+    dataActions: {
+      exportPath: '/api/export/sanitized',
+      archiveCommand: 'agent-analytics reset',
+      rebuildCommand: 'agent-analytics import-codex',
+      scope: 'Local analysis data only; imported sources and Git repositories are unchanged.',
+      recovery: 'Reset creates timestamped backups under the data directory.',
+    },
+  });
+});
 
 // GET /api/config/llm — return full config (API key masked)
 app.get('/llm', (c) => {

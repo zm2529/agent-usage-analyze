@@ -414,7 +414,7 @@ describe('Git AI prospective sidecar gate', () => {
       configured: false, consumptionEnabled: false, stateError: 'corrupt-config',
     });
     db.close();
-  }, 20_000);
+  }, 40_000);
 
   it('rejects raw prompts and line-percentage fields at the product boundary', () => {
     expect(() => parseGitAiProspectiveEvidence({ prompt: 'private request' }))

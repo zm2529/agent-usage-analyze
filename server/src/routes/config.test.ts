@@ -21,6 +21,7 @@ vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
 vi.mock('@agent-analytics/cli/utils/config', () => ({
   loadConfig: vi.fn(() => null),
   saveConfig: vi.fn(),
+  getConfigDir: () => '/tmp/agent-analytics-test',
 }));
 
 vi.mock('../llm/client.js', () => ({
@@ -71,6 +72,36 @@ describe('Config routes', () => {
       expect(body.provider).toBeUndefined();
       expect(body.model).toBeUndefined();
       expect(body.semanticAnalysisEnabled).toBe(false);
+    });
+  });
+
+  describe('GET /api/config/runtime', () => {
+    it('reports only local runtime, source, migration, and recovery metadata', async () => {
+      testDb.exec(`
+        INSERT INTO observation_eras
+          (id, name, mode, parser_version, capabilities_json, starts_at)
+        VALUES ('era:runtime', 'Runtime', 'continuous-observation', 'fixture-v1', '[]',
+          '2026-07-21T00:00:00.000Z');
+        INSERT INTO source_artifacts
+          (id, source_kind, parser_version, locator_hash, observed_at, era_id)
+        VALUES ('source:runtime', 'synthetic-codex', 'fixture-v1', 'sha256:runtime',
+          '2026-07-21T00:00:00.000Z', 'era:runtime');
+      `);
+      const response = await createApp().request('/api/config/runtime');
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        dataDirectory: '/tmp/agent-analytics-test',
+        listenAddress: '127.0.0.1:7890',
+        sources: [{ kind: 'synthetic-codex', count: 1 }],
+        eras: [{ mode: 'continuous-observation', parserVersion: 'fixture-v1' }],
+        llm: { configured: false, enabled: false },
+        migration: { databaseSchema: 22 },
+        dataActions: {
+          exportPath: '/api/export/sanitized',
+          archiveCommand: 'agent-analytics reset',
+          rebuildCommand: 'agent-analytics import-codex',
+        },
+      });
     });
   });
 
