@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { rebuildTaskProjection } from './tasks.js';
 import { IdentityConflictError } from './tasks.js';
+import { recordObserverOverheadDiagnostic, tryRecordObserverOverhead } from './observer-overhead.js';
 
 export type SourceKind = 'synthetic-codex' | 'codex-rollout' | 'codex-hook' | 'git';
 export type EraMode = 'historical-backfill' | 'continuous-observation';
@@ -454,11 +455,43 @@ export async function ingestSourceAdapter(
   db: Database.Database,
 ): Promise<IngestionSummary> {
   const runId = `ingestion:${randomUUID()}`;
+  const overheadStartedAt = Date.now();
+  const overheadStartedCpu = process.cpuUsage();
+  const databaseBytes = () => {
+    const pageCount = db.pragma('page_count', { simple: true }) as number;
+    const pageSize = db.pragma('page_size', { simple: true }) as number;
+    return pageCount * pageSize;
+  };
+  let overheadStartedBytes: number | null = null;
+  try { overheadStartedBytes = databaseBytes(); } catch {
+    recordObserverOverheadDiagnostic(db, {
+      category: 'import', observerRunId: runId, code: 'observer-measurement-failed',
+    });
+  }
   const startedAt = new Date().toISOString();
   const coverage = { ...EMPTY_COVERAGE };
   let insertedEvents = 0;
   let advancedSources = 0;
   let status: IngestionSummary['status'] = 'completed';
+  const recordImportOverhead = () => {
+    try {
+      const cpu = process.cpuUsage(overheadStartedCpu);
+      const startedBytes = overheadStartedBytes;
+      const currentBytes = startedBytes === null ? null : databaseBytes();
+      tryRecordObserverOverhead(db, {
+        category: 'import', observerRunId: runId,
+        cpuMs: (cpu.user + cpu.system) / 1_000,
+        wallMs: Date.now() - overheadStartedAt,
+        dbBytesDelta: currentBytes === null || startedBytes === null
+          ? undefined : Math.max(0, currentBytes - startedBytes),
+        evidenceRefs: [runId],
+      });
+    } catch {
+      recordObserverOverheadDiagnostic(db, {
+        category: 'import', observerRunId: runId, code: 'observer-measurement-failed',
+      });
+    }
+  };
 
   db.prepare(`
     INSERT INTO ingestion_runs (
@@ -797,9 +830,11 @@ export async function ingestSourceAdapter(
       INSERT INTO ingestion_diagnostics (run_id, severity, code, count, detail)
       VALUES (?, 'error', ?, 1, ?)
     `).run(runId, failureCode, null);
+    recordImportOverhead();
     throw error;
   }
 
+  recordImportOverhead();
   return { runId, adapter: adapter.name, insertedEvents, advancedSources, coverage, status };
 }
 

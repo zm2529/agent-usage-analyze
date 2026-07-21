@@ -361,6 +361,13 @@ describe('privacy-controlled semantic analysis', () => {
       analysisVersion: 'semantic-analysis-v1', inputCoverage: 1,
       inputTokens: 18, outputTokens: 12, costUsd: 0,
     });
+    expect(db.prepare(`SELECT subject_kind AS subjectKind, category, observer_run_id AS observerRunId,
+      analyzed_task_id AS analyzedTaskId, input_tokens AS inputTokens,
+      output_tokens AS outputTokens, cost_usd AS costUsd
+      FROM observer_overhead_events`).get()).toEqual({
+        subjectKind: 'observer', category: 'llm', observerRunId: result.status === 'accepted' ? result.run.id : '',
+        analyzedTaskId: 'task', inputTokens: 18, outputTokens: 12, costUsd: 0,
+      });
     const storedSnapshots = JSON.parse(storedRun.evidenceRefsJson) as Array<{
       eventId: string; evidenceVersion: string;
     }>;
@@ -595,6 +602,8 @@ describe('privacy-controlled semantic analysis', () => {
       ...fakeProvider(''),
       analyze: async () => { throw new Error('remote failed while sending private-source-text'); },
     };
+    db.exec(`CREATE TRIGGER observer_insert_failure BEFORE INSERT ON observer_overhead_events
+      BEGIN SELECT RAISE(ABORT, 'observer ledger unavailable'); END;`);
 
     const result = await runSemanticAnalysis(db, {
       taskId: 'task',

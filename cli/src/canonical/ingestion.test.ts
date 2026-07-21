@@ -10,6 +10,7 @@ import {
   type SourceArtifact,
   type SourceCursor,
 } from './ingestion.js';
+import { readObserverOverhead } from './observer-overhead.js';
 
 const artifact: SourceArtifact = {
   id: 'fixture:rollout-1',
@@ -74,6 +75,10 @@ describe('canonical ingestion', () => {
 
     expect(first).toMatchObject({ insertedEvents: 1, advancedSources: 1 });
     expect(second).toMatchObject({ insertedEvents: 0, advancedSources: 1 });
+    expect(readObserverOverhead(db)).toMatchObject({
+      eventCount: 2,
+      byCategory: [{ category: 'import', eventCount: 2 }],
+    });
     expect(health).toEqual({
       status: 'completed',
       diagnostics: [{ severity: 'info', code: 'fixture', count: 1 }],
@@ -89,6 +94,21 @@ describe('canonical ingestion', () => {
       ],
     });
 
+    db.close();
+  });
+
+  it('does not let observer ledger failure change a completed import result', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    db.exec(`CREATE TRIGGER observer_insert_failure BEFORE INSERT ON observer_overhead_events
+      BEGIN SELECT RAISE(ABORT, 'observer ledger unavailable'); END;`);
+
+    await expect(ingestSourceAdapter(new FixtureAdapter(), db)).resolves.toMatchObject({ status: 'completed' });
+    expect(db.prepare('SELECT status FROM ingestion_runs').get()).toEqual({ status: 'completed' });
+    expect(readObserverOverhead(db)).toMatchObject({
+      degraded: true,
+      diagnostics: [{ category: 'import', code: 'observer-write-failed' }],
+    });
     db.close();
   });
 

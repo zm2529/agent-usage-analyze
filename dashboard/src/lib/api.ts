@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun } from '@/lib/types';
+import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -162,6 +162,24 @@ export function runSemanticAnalysis(taskId: string) {
 export function fetchSemanticClaims(taskId: string) {
   const query = new URLSearchParams({ taskId });
   return request<{ claims: SemanticClaim[] }>(`/semantic/claims?${query.toString()}`);
+}
+
+export function fetchScorecards(taskId?: string) {
+  const query = taskId ? `?${new URLSearchParams({ taskId }).toString()}` : '';
+  return request<{ versions: ScorecardVersion[]; results: ScorecardResult[] }>(`/scorecards${query}`);
+}
+
+export function fetchObserverOverhead() {
+  return request<ObserverOverhead>('/observer-overhead');
+}
+
+export function recordAdvisoryOverhead(input: {
+  claimId: string;
+  action: 'shown' | 'adopted' | 'ignored' | 'dismissed';
+}) {
+  return request<{ recorded: boolean; degraded: boolean }>('/observer-overhead/advisory', {
+    method: 'POST', body: JSON.stringify(input),
+  });
 }
 
 export function fetchPatternTrends(currentStart: string, currentEnd: string) {

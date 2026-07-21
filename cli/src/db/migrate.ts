@@ -31,6 +31,7 @@ export interface MigrationResult {
  * Version 17: Add isolated Buildermark helper gate reports
  * Version 18: Add managed Git AI prospective sidecar gate reports
  * Version 19: Add privacy-controlled semantic analysis runs and claim details
+ * Version 20: Add immutable scorecards, versioned results, and observer overhead
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -126,6 +127,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 19) {
     applyV19(db);
+  }
+
+  if (currentVersion < 20) {
+    applyV20(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -597,5 +602,127 @@ function applyV19(db: Database.Database): void {
       ON semantic_claim_details(run_id, claim_id);
     `);
     db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(19);
+  })();
+}
+
+function applyV20(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scorecard_versions (
+        id                       TEXT PRIMARY KEY,
+        name                     TEXT NOT NULL,
+        version                  TEXT NOT NULL UNIQUE,
+        definition_hash          TEXT NOT NULL UNIQUE,
+        features_json            TEXT NOT NULL CHECK (json_valid(features_json) AND json_type(features_json) = 'array'),
+        quality_gates_json        TEXT NOT NULL CHECK (json_valid(quality_gates_json) AND json_type(quality_gates_json) = 'array'),
+        safety_gates_json         TEXT NOT NULL CHECK (json_valid(safety_gates_json) AND json_type(safety_gates_json) = 'array'),
+        missing_rules_json        TEXT NOT NULL CHECK (json_valid(missing_rules_json) AND json_type(missing_rules_json) = 'object'),
+        thresholds_json           TEXT NOT NULL CHECK (json_valid(thresholds_json) AND json_type(thresholds_json) = 'object'),
+        calibration_data_version TEXT,
+        scope_json                TEXT NOT NULL CHECK (json_valid(scope_json) AND json_type(scope_json) = 'object'),
+        evidence_refs_json        TEXT NOT NULL CHECK (json_valid(evidence_refs_json) AND json_type(evidence_refs_json) = 'array'),
+        created_at                TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_scorecard_versions_created
+        ON scorecard_versions(created_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS scorecard_status_events (
+        sequence       INTEGER PRIMARY KEY AUTOINCREMENT,
+        scorecard_id   TEXT NOT NULL REFERENCES scorecard_versions(id),
+        from_status    TEXT CHECK (from_status IS NULL OR from_status IN ('draft', 'calibrating', 'active', 'retired')),
+        to_status      TEXT NOT NULL CHECK (to_status IN ('draft', 'calibrating', 'active', 'retired')),
+        evidence_refs_json TEXT NOT NULL CHECK (json_valid(evidence_refs_json) AND json_type(evidence_refs_json) = 'array'),
+        created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_scorecard_status_events_current
+        ON scorecard_status_events(scorecard_id, sequence DESC);
+
+      CREATE TABLE IF NOT EXISTS scorecard_results (
+        id                    TEXT PRIMARY KEY,
+        task_id               TEXT NOT NULL,
+        scorecard_version_id  TEXT NOT NULL REFERENCES scorecard_versions(id),
+        raw_features_json     TEXT NOT NULL CHECK (json_valid(raw_features_json) AND json_type(raw_features_json) = 'object'),
+        gate_results_json     TEXT NOT NULL CHECK (json_valid(gate_results_json) AND json_type(gate_results_json) = 'object'),
+        coverage              REAL NOT NULL CHECK (coverage >= 0 AND coverage <= 1),
+        uncertainty           REAL NOT NULL CHECK (uncertainty >= 0 AND uncertainty <= 1),
+        index_value           REAL CHECK (index_value IS NULL OR (index_value >= 0 AND index_value <= 100)),
+        unavailable_reason    TEXT CHECK (unavailable_reason IS NULL OR unavailable_reason IN (
+          'scorecard-not-active', 'calibration-not-passed', 'quality-gate-failed',
+          'safety-gate-failed', 'insufficient-coverage', 'missing-feature',
+          'task-not-found', 'out-of-scope'
+        )),
+        evidence_refs_json    TEXT NOT NULL CHECK (json_valid(evidence_refs_json) AND json_type(evidence_refs_json) = 'array'),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_scorecard_results_task
+        ON scorecard_results(task_id, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_scorecard_results_version
+        ON scorecard_results(scorecard_version_id, created_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS observer_overhead_events (
+        id                  TEXT PRIMARY KEY,
+        subject_kind        TEXT NOT NULL DEFAULT 'observer' CHECK (subject_kind = 'observer'),
+        category            TEXT NOT NULL CHECK (category IN ('import', 'llm', 'sidecar', 'advisory')),
+        observer_run_id     TEXT NOT NULL,
+        analyzed_task_id    TEXT,
+        cpu_ms              REAL CHECK (cpu_ms IS NULL OR cpu_ms >= 0),
+        wall_ms             REAL CHECK (wall_ms IS NULL OR wall_ms >= 0),
+        db_bytes_delta      INTEGER CHECK (db_bytes_delta IS NULL OR db_bytes_delta >= 0),
+        input_tokens        INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+        output_tokens       INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+        cost_usd            REAL CHECK (cost_usd IS NULL OR cost_usd >= 0),
+        sidecar_ms          REAL CHECK (sidecar_ms IS NULL OR sidecar_ms >= 0),
+        advisory_action     TEXT CHECK (advisory_action IS NULL OR advisory_action IN ('shown', 'adopted', 'ignored', 'dismissed')),
+        evidence_refs_json  TEXT NOT NULL CHECK (json_valid(evidence_refs_json) AND json_type(evidence_refs_json) = 'array'),
+        occurred_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (
+          (category = 'import' AND input_tokens IS NULL AND output_tokens IS NULL AND cost_usd IS NULL
+            AND sidecar_ms IS NULL AND advisory_action IS NULL)
+          OR (category = 'llm' AND cpu_ms IS NULL AND db_bytes_delta IS NULL
+            AND sidecar_ms IS NULL AND advisory_action IS NULL)
+          OR (category = 'sidecar' AND db_bytes_delta IS NULL AND input_tokens IS NULL
+            AND output_tokens IS NULL AND cost_usd IS NULL AND advisory_action IS NULL)
+          OR (category = 'advisory' AND cpu_ms IS NULL AND db_bytes_delta IS NULL
+            AND input_tokens IS NULL AND output_tokens IS NULL AND cost_usd IS NULL
+            AND sidecar_ms IS NULL AND advisory_action IS NOT NULL)
+        )
+      );
+      CREATE INDEX IF NOT EXISTS idx_observer_overhead_time
+        ON observer_overhead_events(occurred_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_observer_overhead_category
+        ON observer_overhead_events(category, occurred_at DESC);
+
+      CREATE TABLE IF NOT EXISTS observer_overhead_diagnostics (
+        id              TEXT PRIMARY KEY,
+        category        TEXT NOT NULL CHECK (category IN ('import', 'llm', 'sidecar', 'advisory')),
+        observer_run_id TEXT NOT NULL,
+        code            TEXT NOT NULL CHECK (code IN ('observer-write-failed', 'observer-measurement-failed')),
+        occurred_at     TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_observer_overhead_diagnostics_time
+        ON observer_overhead_diagnostics(occurred_at DESC, id DESC);
+
+      CREATE TRIGGER IF NOT EXISTS scorecard_versions_no_update
+        BEFORE UPDATE ON scorecard_versions BEGIN SELECT RAISE(ABORT, 'scorecard versions are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS scorecard_versions_no_delete
+        BEFORE DELETE ON scorecard_versions BEGIN SELECT RAISE(ABORT, 'scorecard versions are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS scorecard_status_events_no_update
+        BEFORE UPDATE ON scorecard_status_events BEGIN SELECT RAISE(ABORT, 'scorecard status history is immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS scorecard_status_events_no_delete
+        BEFORE DELETE ON scorecard_status_events BEGIN SELECT RAISE(ABORT, 'scorecard status history is immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS scorecard_results_no_update
+        BEFORE UPDATE ON scorecard_results BEGIN SELECT RAISE(ABORT, 'scorecard results are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS scorecard_results_no_delete
+        BEFORE DELETE ON scorecard_results BEGIN SELECT RAISE(ABORT, 'scorecard results are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS observer_overhead_events_no_update
+        BEFORE UPDATE ON observer_overhead_events BEGIN SELECT RAISE(ABORT, 'observer overhead events are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS observer_overhead_events_no_delete
+        BEFORE DELETE ON observer_overhead_events BEGIN SELECT RAISE(ABORT, 'observer overhead events are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS observer_overhead_diagnostics_no_update
+        BEFORE UPDATE ON observer_overhead_diagnostics BEGIN SELECT RAISE(ABORT, 'observer overhead diagnostics are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS observer_overhead_diagnostics_no_delete
+        BEFORE DELETE ON observer_overhead_diagnostics BEGIN SELECT RAISE(ABORT, 'observer overhead diagnostics are immutable'); END;
+    `);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(20);
   })();
 }

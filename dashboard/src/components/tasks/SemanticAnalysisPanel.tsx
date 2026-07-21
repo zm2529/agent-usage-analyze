@@ -1,13 +1,18 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { fetchSemanticClaims, previewSemanticAnalysis, runSemanticAnalysis } from '@/lib/api';
+import { fetchSemanticClaims, previewSemanticAnalysis, recordAdvisoryOverhead, runSemanticAnalysis } from '@/lib/api';
 import { eventAnchorHref } from '@/lib/event-links';
 
 export function SemanticAnalysisPanel({ taskId }: { taskId: string }) {
   const queryClient = useQueryClient();
+  const shownClaims = useRef(new Set<string>());
+  const shownAttempts = useRef(new Set<string>());
+  const [shownAccounting, setShownAccounting] = useState<Record<string, 'recording' | 'recorded' | 'degraded' | 'unavailable'>>({});
+  const [claimActions, setClaimActions] = useState<Record<string, string>>({});
   const preview = useQuery({
     queryKey: ['semantic-preview', taskId],
     queryFn: () => previewSemanticAnalysis(taskId),
@@ -22,6 +27,36 @@ export function SemanticAnalysisPanel({ taskId }: { taskId: string }) {
     mutationFn: () => runSemanticAnalysis(taskId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['semantic-claims', taskId] }),
   });
+  const recordShown = useCallback((claimId: string) => {
+    if (shownClaims.current.has(claimId) || shownAttempts.current.has(claimId)) return;
+    shownAttempts.current.add(claimId);
+    setShownAccounting((current) => ({ ...current, [claimId]: 'recording' }));
+    void recordAdvisoryOverhead({ claimId, action: 'shown' }).then((result) => {
+      shownAttempts.current.delete(claimId);
+      if (result.recorded) shownClaims.current.add(claimId);
+      setShownAccounting((current) => ({
+        ...current, [claimId]: result.recorded ? 'recorded' : 'degraded',
+      }));
+    }).catch(() => {
+      shownAttempts.current.delete(claimId);
+      setShownAccounting((current) => ({ ...current, [claimId]: 'unavailable' }));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (preview.data?.status !== 'ready') return;
+    for (const claim of claims.data?.claims ?? []) {
+      if (claim.claimType === 'improvement-advice') recordShown(claim.id);
+    }
+  }, [claims.data, preview.data, recordShown]);
+
+  const recordAction = (claimId: string, action: 'adopted' | 'ignored' | 'dismissed') => {
+    void recordAdvisoryOverhead({ claimId, action }).then((result) => {
+      setClaimActions((current) => ({ ...current, [claimId]: result.recorded ? action : 'degraded' }));
+    }).catch(() => {
+      setClaimActions((current) => ({ ...current, [claimId]: 'unavailable' }));
+    });
+  };
 
   if (preview.isError) {
     return (
@@ -101,6 +136,26 @@ export function SemanticAnalysisPanel({ taskId }: { taskId: string }) {
                   <Link key={eventId} className="underline" to={eventAnchorHref(taskId, eventId)}>{eventId}</Link>
                 ))}
               </p>
+              {claim.claimType === 'improvement-advice' && (
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  <Button size="sm" variant="outline" onClick={() => recordAction(claim.id, 'adopted')}>Mark adopted</Button>
+                  <Button size="sm" variant="ghost" onClick={() => recordAction(claim.id, 'ignored')}>Ignore</Button>
+                  <Button size="sm" variant="ghost" onClick={() => recordAction(claim.id, 'dismissed')}>Dismiss</Button>
+                  {shownAccounting[claim.id] === 'degraded' || shownAccounting[claim.id] === 'unavailable' ? (
+                    <span className="text-xs text-destructive">
+                      Display not recorded: {shownAccounting[claim.id]}.{' '}
+                      <button className="underline" onClick={() => recordShown(claim.id)}>Retry display accounting</button>
+                    </span>
+                  ) : null}
+                  {claimActions[claim.id] && (
+                    <span className={claimActions[claim.id] === 'degraded' || claimActions[claim.id] === 'unavailable'
+                      ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+                      {claimActions[claim.id] === 'degraded' || claimActions[claim.id] === 'unavailable'
+                        ? `Not recorded: ${claimActions[claim.id]}` : `Recorded: ${claimActions[claim.id]}`}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

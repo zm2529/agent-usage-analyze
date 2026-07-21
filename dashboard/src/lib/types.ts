@@ -195,6 +195,64 @@ export interface SemanticClaim {
   run: SemanticAnalysisRun;
 }
 
+export type ScorecardStatus = 'draft' | 'calibrating' | 'active' | 'retired';
+export interface ScorecardVersion {
+  id: string;
+  name: string;
+  version: string;
+  definitionHash: string;
+  status: ScorecardStatus;
+  features: Array<{ key: string; label: string; weight: number; requiresQualityGate: boolean }>;
+  qualityGates: string[];
+  safetyGates: string[];
+  missingRules: Record<string, 'unavailable' | 'neutral'>;
+  thresholds: { minimumCoverage: number };
+  calibrationDataVersion: string | null;
+  scope: { kind: 'personal'; taskRole?: string };
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface ScorecardResult {
+  id: string;
+  taskId: string;
+  rootTaskId: string;
+  scorecardVersionId: string;
+  rawFeatures: Record<string, number | null>;
+  gateResults: { quality: boolean; safety: boolean; calibration: boolean };
+  coverage: number;
+  uncertainty: number;
+  indexValue: number | null;
+  unavailableReason: 'scorecard-not-active' | 'calibration-not-passed' | 'quality-gate-failed'
+    | 'safety-gate-failed' | 'insufficient-coverage' | 'missing-feature'
+    | 'task-not-found' | 'out-of-scope' | null;
+  evidenceRefs: string[];
+  evidenceLinks: Array<{ ref: string; eventId: string; rootTaskId: string }>;
+  createdAt: string;
+}
+
+export interface ObserverOverhead {
+  eventCount: number;
+  degraded: boolean;
+  diagnostics: Array<{
+    id: string; category: 'import' | 'llm' | 'sidecar' | 'advisory'; observerRunId: string;
+    code: 'observer-write-failed' | 'observer-measurement-failed'; occurredAt: string;
+  }>;
+  totals: {
+    cpuMs: number; wallMs: number; dbBytesDelta: number; inputTokens: number | null;
+    outputTokens: number | null; costUsd: number | null; sidecarMs: number;
+  };
+  advisory: { shown: number; adopted: number; ignored: number; dismissed: number };
+  byCategory: Array<{ category: 'import' | 'llm' | 'sidecar' | 'advisory'; eventCount: number; wallMs: number }>;
+  recentEvents: Array<{
+    id: string; subjectKind: 'observer'; category: 'import' | 'llm' | 'sidecar' | 'advisory';
+    observerRunId: string; analyzedTaskId?: string; cpuMs?: number; wallMs?: number;
+    dbBytesDelta?: number; inputTokens?: number; outputTokens?: number; costUsd?: number | null;
+    sidecarMs?: number; advisoryAction?: 'shown' | 'adopted' | 'ignored' | 'dismissed';
+    evidenceRefs: string[]; occurredAt: string;
+  }>;
+}
+
 export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
 export interface AnalysisClaim {
   id: string;

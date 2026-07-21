@@ -16,6 +16,7 @@ import TasksPage from '@/pages/TasksPage';
 import TaskDetailPage from '@/pages/TaskDetailPage';
 import DeliveriesPage from '@/pages/DeliveriesPage';
 import DeliveryDetailPage from '@/pages/DeliveryDetailPage';
+import ScorecardsPage from '@/pages/ScorecardsPage';
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -25,6 +26,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/insights': 'Insights',
   '/analytics': 'Analytics',
   '/patterns': 'Patterns',
+  '/scorecards': 'Scorecards',
   '/export': 'Export',
   '/journal': 'Journal',
   '/settings': 'Settings',
@@ -83,6 +85,7 @@ export default function App() {
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/patterns" element={<PatternsPage />} />
+          <Route path="/scorecards" element={<ScorecardsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/export" element={<ExportPage />} />
           <Route path="/journal" element={<JournalPage />} />

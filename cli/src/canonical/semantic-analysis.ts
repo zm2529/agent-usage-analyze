@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { tryRecordObserverOverhead } from './observer-overhead.js';
 
 export interface SemanticAnalysisConfig {
   enabled: boolean;
@@ -473,6 +474,17 @@ export async function runSemanticAnalysis(
     });
     return { status: 'rejected', reason: 'input-injection-detected', runId: id, claims: [] };
   }
+  const providerStartedAt = Date.now();
+  const recordLlmOverhead = (usage: { inputTokens: number | null; outputTokens: number | null; costUsd: number | null }) => {
+    tryRecordObserverOverhead(db, {
+      category: 'llm', observerRunId: id, analyzedTaskId: input.taskId,
+      wallMs: Date.now() - providerStartedAt,
+      inputTokens: usage.inputTokens ?? undefined,
+      outputTokens: usage.outputTokens ?? undefined,
+      costUsd: usage.costUsd,
+      evidenceRefs: [id],
+    });
+  };
   let response: Awaited<ReturnType<SemanticProvider['analyze']>>;
   try {
     response = await input.provider.analyze({ systemInstruction: SYSTEM_INSTRUCTION, evidenceData });
@@ -482,6 +494,7 @@ export async function runSemanticAnalysis(
       coverage: packet.coverage.ratio, estimatedTokens, inputTokens: null, outputTokens: null,
       costUsd: null, evidenceSnapshots, rejectionCode: 'provider-failure',
     });
+    recordLlmOverhead({ inputTokens: null, outputTokens: null, costUsd: null });
     return { status: 'failed', reason: 'provider-failure', runId: id, claims: [] };
   }
   const usage = response.usage ?? { inputTokens: null, outputTokens: null, costUsd: null };
@@ -493,6 +506,7 @@ export async function runSemanticAnalysis(
       coverage: packet.coverage.ratio, estimatedTokens, inputTokens: null, outputTokens: null,
       costUsd: null, evidenceSnapshots, rejectionCode: 'invalid-usage',
     });
+    recordLlmOverhead({ inputTokens: null, outputTokens: null, costUsd: null });
     return { status: 'rejected', reason: 'invalid-usage', runId: id, claims: [] };
   }
   const parsed = parseSemanticOutput(response.content, new Set(evidenceRefs));
@@ -503,6 +517,7 @@ export async function runSemanticAnalysis(
       outputTokens: usage.outputTokens, costUsd: usage.costUsd, evidenceSnapshots,
       rejectionCode: parsed.rejection,
     });
+    recordLlmOverhead(usage);
     return { status: 'rejected', reason: parsed.rejection, runId: id, claims: [] };
   }
   const acceptedClaims: SemanticClaimResult[] = [];
@@ -577,6 +592,7 @@ export async function runSemanticAnalysis(
     }
     return true;
   })();
+  recordLlmOverhead(usage);
   if (!accepted) {
     return { status: 'rejected', reason: 'source-changed', runId: id, claims: [] };
   }

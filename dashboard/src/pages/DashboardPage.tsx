@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { DailyStats } from '@/lib/types';
 import { Sparkles, ArrowRight } from 'lucide-react';
+import { ObserverOverheadSection } from '@/components/dashboard/ObserverOverheadSection';
 
 type DashboardRange = '7d' | '30d' | '90d' | 'all';
 
@@ -120,6 +121,8 @@ export default function DashboardPage() {
       )}
 
       {ingestionHealth && <IngestionHealthCard health={ingestionHealth} />}
+
+      <ObserverOverheadSection />
 
       {/* All-time stats hero */}
       {loading ? (

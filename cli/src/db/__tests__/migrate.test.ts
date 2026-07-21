@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
     db.close();
   });
 });
@@ -124,7 +124,7 @@ describe('runMigrations — V19 semantic analysis', () => {
   it('rolls back a failed V19 attempt and resumes after the bad partial table is removed', () => {
     const db = freshDb();
     runMigrations(db);
-    db.prepare('DELETE FROM schema_version WHERE version = 19').run();
+    db.prepare('DELETE FROM schema_version WHERE version >= 19').run();
     db.exec(`
       DROP TABLE semantic_claim_details;
       DROP TABLE semantic_analysis_runs;
@@ -140,6 +140,33 @@ describe('runMigrations — V19 semantic analysis', () => {
     expect(() => runMigrations(db)).not.toThrow();
     expect(db.prepare('SELECT version FROM schema_version WHERE version = 19').get())
       .toEqual({ version: 19 });
+    db.close();
+  });
+});
+
+describe('runMigrations — V20 scorecards and observer overhead', () => {
+  it('rolls back a failed partial V20 and resumes after the conflicting table is removed', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.prepare('DELETE FROM schema_version WHERE version = 20').run();
+    db.exec(`
+      DROP TRIGGER scorecard_versions_no_update;
+      DROP TRIGGER scorecard_versions_no_delete;
+      DROP TABLE scorecard_status_events;
+      DROP TABLE scorecard_results;
+      DROP TABLE scorecard_versions;
+      CREATE TABLE scorecard_versions (id TEXT PRIMARY KEY);
+    `);
+
+    expect(() => runMigrations(db)).toThrow();
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = 20').get()).toBeUndefined();
+    expect(db.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name = 'scorecard_status_events'`).get()).toBeUndefined();
+
+    db.exec('DROP TABLE scorecard_versions');
+    expect(() => runMigrations(db)).not.toThrow();
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = 20').get())
+      .toEqual({ version: 20 });
     db.close();
   });
 });

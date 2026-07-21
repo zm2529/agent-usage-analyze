@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs';
 import type Database from 'better-sqlite3';
 import { discoverRepositoryDeliveries, listDeliveries } from './deliveries.js';
 import { gitCommitExists, repositoryIdentity } from './delivery-repository.js';
+import { tryRecordObserverOverhead } from './observer-overhead.js';
 import {
   inspectGitAiSidecar,
 } from '../sidecars/git-ai-manager.js';
@@ -407,6 +408,7 @@ export function runGitAiProspectiveGate(
   db: Database.Database,
   input: { repositoryPath: string; evidence: GitAiProspectiveEvidenceEnvelope },
 ): GitAiGateReport {
+  const overheadStartedAt = Date.now();
   const evidence = parseGitAiProspectiveEvidence(input.evidence);
   const repoIdentity = repositoryIdentity(input.repositoryPath);
   const id = `git-ai-gate:${randomUUID()}`;
@@ -541,11 +543,17 @@ export function runGitAiProspectiveGate(
     }
   }
   const reports = REQUIRED_SCENARIOS.flatMap((kind) => matrix.has(kind) ? [scenarioReport(matrix.get(kind)!)] : []);
-  return persistReport(db, {
+  const report = persistReport(db, {
     id,
     failureCodes,
     scenarios: reports,
     candidateEvidence: plans.filter((plan) => plan.scenario.outcome === 'candidate').length,
     abstentions: plans.filter((plan) => plan.scenario.outcome === 'abstained').length,
   });
+  const elapsedMs = Date.now() - overheadStartedAt;
+  tryRecordObserverOverhead(db, {
+    category: 'sidecar', observerRunId: id, wallMs: elapsedMs, sidecarMs: elapsedMs,
+    evidenceRefs: [id],
+  });
+  return report;
 }

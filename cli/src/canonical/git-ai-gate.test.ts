@@ -261,6 +261,8 @@ describe('Git AI prospective sidecar gate', () => {
       WHERE algorithm_version = 'git-ai-provenance-v1'`).get()).toEqual({ count: 0 });
 
     configureGitAiSidecar({ binaryPath, enabled: true, notesExportPolicy: 'local-only' });
+    db.exec(`CREATE TRIGGER observer_insert_failure BEFORE INSERT ON observer_overhead_events
+      BEGIN SELECT RAISE(ABORT, 'observer ledger unavailable'); END;`);
     const report = runGitAiProspectiveGate(db, { repositoryPath: repository, evidence });
 
     expect(report).toMatchObject({
