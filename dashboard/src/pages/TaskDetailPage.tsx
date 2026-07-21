@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router';
 import { useWorkTask } from '@/hooks/useWorkTasks';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { eventAnchorId } from '@/lib/event-links';
 
 export default function TaskDetailPage() {
   const { id } = useParams();
@@ -36,7 +37,7 @@ export default function TaskDetailPage() {
         <h2 className="mb-3 text-lg font-semibold">Timeline</h2>
         <div className="space-y-2">
           {task.events.map((event) => (
-            <div key={event.id} className="rounded-lg border p-3 text-sm">
+            <div id={eventAnchorId(event.id)} key={event.id} className="rounded-lg border p-3 text-sm">
               <span className="font-medium">{event.kind}</span> · {event.actor} · {event.occurredAt}
               <div className="mt-1 font-mono text-xs text-muted-foreground">
                 source {event.sourceArtifactId} · sequence {event.sequence} · {event.payloadRef ? 'private payload referenced locally' : 'structural only'}

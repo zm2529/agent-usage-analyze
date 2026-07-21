@@ -26,6 +26,7 @@ export interface MigrationResult {
  * Version 12: Make parser version part of immutable source identity
  * Version 13: Add work-task tree and segmented token delta projections
  * Version 14: Complete token counters and add durable per-source ingestion coverage
+ * Version 15: Add evidence-closed, versioned analysis claims
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -101,6 +102,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 14) {
     applyV14(db);
+  }
+
+  if (currentVersion < 15) {
+    applyV15(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -405,4 +410,44 @@ function applyV14(db: Database.Database): void {
       ON CONFLICT(id) DO UPDATE SET dirty = 1, updated_at = datetime('now');
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(14);
+}
+
+function applyV15(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS evidence_records (
+      id                TEXT PRIMARY KEY,
+      evidence_type     TEXT NOT NULL,
+      subject_ref       TEXT NOT NULL,
+      position          TEXT NOT NULL CHECK (position IN ('supports', 'opposes', 'limits')),
+      source_category   TEXT NOT NULL CHECK (source_category IN ('deterministic', 'statistical', 'llm-semantic', 'human-corrected')),
+      algorithm_version TEXT NOT NULL,
+      coverage          REAL NOT NULL,
+      confidence        REAL NOT NULL,
+      era_compatibility TEXT NOT NULL CHECK (era_compatibility IN ('compatible', 'limited', 'incomparable')),
+      era_ids_json      TEXT NOT NULL,
+      human_status      TEXT NOT NULL DEFAULT 'unreviewed' CHECK (human_status IN ('unreviewed', 'confirmed', 'rejected', 'corrected')),
+      fact_refs_json    TEXT NOT NULL,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS analysis_claims (
+      id                TEXT PRIMARY KEY,
+      pattern_key       TEXT NOT NULL,
+      source_category   TEXT NOT NULL CHECK (source_category IN ('deterministic', 'statistical', 'llm-semantic', 'human-corrected')),
+      algorithm_version TEXT NOT NULL,
+      window_start      TEXT NOT NULL,
+      window_end        TEXT NOT NULL,
+      sample_count      INTEGER NOT NULL,
+      total_task_count  INTEGER NOT NULL,
+      coverage          REAL NOT NULL,
+      confidence        REAL NOT NULL,
+      era_compatibility TEXT NOT NULL CHECK (era_compatibility IN ('compatible', 'limited', 'incomparable')),
+      sample_task_refs_json TEXT NOT NULL,
+      evidence_refs_json TEXT NOT NULL,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_analysis_claims_window
+      ON analysis_claims(window_start, window_end, pattern_key);
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(15);
 }

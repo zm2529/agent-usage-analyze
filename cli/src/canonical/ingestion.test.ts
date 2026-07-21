@@ -182,6 +182,60 @@ describe('canonical ingestion', () => {
     db.close();
   });
 
+  it('requires a new observation era when collection capabilities change', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new FixtureAdapter(), db);
+    const changed = new FixtureAdapter();
+    changed.parse = async (_artifact, context) => ({
+      ...fixtureBatch(context.currentCursor),
+      era: { ...fixtureBatch(context.currentCursor).era, capabilities: ['canonical-event', 'hook'] },
+    });
+
+    await expect(ingestSourceAdapter(changed, db)).rejects.toThrow(/observation era identity/i);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM observation_eras').get()).toEqual({ count: 1 });
+    db.close();
+  });
+
+  it('closes the historical era when a new continuous collection era starts', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new FixtureAdapter(), db);
+    const continuousArtifact: SourceArtifact = {
+      ...artifact, id: 'fixture:hook-1', sourceKind: 'codex-hook', locatorHash: 'sha256:hook-1',
+      observedAt: '2026-07-21T09:00:00.000Z',
+    };
+    const continuous = new FixtureAdapter();
+    continuous.discover = async () => [continuousArtifact];
+    continuous.parse = async (_artifact, context) => ({
+      ...fixtureBatch(context.currentCursor),
+      artifact: continuousArtifact,
+      era: {
+        id: 'era:continuous-hook-v1', name: 'Continuous hook', mode: 'continuous-observation',
+        parserVersion: 'fixture-v1', capabilities: ['canonical-event', 'hook'],
+        startsAt: '2026-07-21T09:00:00.000Z',
+      },
+      events: fixtureBatch(context.currentCursor).events.map((event) => ({
+        ...event, id: 'event:hook:0', nativeEventId: 'hook:0', occurredAt: '2026-07-21T09:00:00.000Z',
+      })),
+      nextCursor: { token: 'hook:1', position: 1 },
+    });
+
+    await ingestSourceAdapter(continuous, db);
+    expect(db.prepare(`SELECT id, mode, starts_at AS startsAt, ends_at AS endsAt
+      FROM observation_eras ORDER BY starts_at`).all()).toEqual([
+      {
+        id: 'era:historical-fixture-v1', mode: 'historical-backfill',
+        startsAt: '2026-07-21T08:00:00.000Z', endsAt: '2026-07-21T09:00:00.000Z',
+      },
+      {
+        id: 'era:continuous-hook-v1', mode: 'continuous-observation',
+        startsAt: '2026-07-21T09:00:00.000Z', endsAt: null,
+      },
+    ]);
+    db.close();
+  });
+
   it('rejects an ambiguous empty cursor token', () => {
     const batch = fixtureBatch();
     batch.nextCursor = { token: '', position: 0 };

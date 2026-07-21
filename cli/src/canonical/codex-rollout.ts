@@ -13,7 +13,7 @@ import type {
   SourceCursor,
 } from './ingestion.js';
 
-const PARSER_VERSION = 'codex-rollout-v1';
+const PARSER_VERSION = 'codex-rollout-v2';
 
 function hash(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
@@ -92,6 +92,58 @@ function safeName(value: unknown): string | undefined {
 
 function defined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, child]) => child !== undefined)) as T;
+}
+
+function validationKind(body: Record<string, unknown>): 'test' | 'build' | 'lint' | 'typecheck' | undefined {
+  const tool = String(body.name ?? body.namespace ?? '').toLowerCase();
+  if (!['exec_command', 'shell', 'bash', 'terminal', 'run_command'].some((name) => tool.includes(name))) return undefined;
+  let argumentsValue = body.arguments ?? body.input ?? body.params;
+  if (typeof argumentsValue === 'string') {
+    try { argumentsValue = JSON.parse(argumentsValue); } catch { /* plain command string */ }
+  }
+  const command = typeof argumentsValue === 'string'
+    ? argumentsValue
+    : text(asRecord(argumentsValue).cmd ?? asRecord(argumentsValue).command);
+  if (!command) return undefined;
+  for (const rawSegment of command.split(/&&|\|\||;/)) {
+    const segment = rawSegment.trim().replace(/^rtk\s+/, '');
+    const tokens = segment.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((token) => token.replace(/^['"]|['"]$/g, '')) ?? [];
+    const executable = tokens[0]?.toLowerCase();
+    if (!executable) continue;
+    let action: string | undefined;
+    if (['pnpm', 'npm', 'yarn', 'bun'].includes(executable)) {
+      const optionsWithValues = new Set(['--filter', '-f', '--dir', '-c', '--workspace', '-w', '--config', '--prefix']);
+      let index = 1;
+      while (index < tokens.length) {
+        const token = tokens[index]!.toLowerCase();
+        if (optionsWithValues.has(token)) { index += 2; continue; }
+        if (token.startsWith('-')) { index += 1; continue; }
+        action = token === 'run' ? tokens[index + 1]?.toLowerCase() : token;
+        if (['exec', 'dlx', 'x'].includes(token)) action = tokens[index + 1]?.toLowerCase();
+        break;
+      }
+    }
+    const scriptKind = action?.split(':', 1)[0];
+    if (['pytest', 'vitest', 'jest', 'ctest'].includes(executable)
+        || ['pytest', 'vitest', 'jest', 'ctest'].includes(action ?? '')
+        || scriptKind === 'test'
+        || (executable === 'xcodebuild' && tokens.some((token) => token.toLowerCase() === 'test'))
+        || (executable === 'gradle' && tokens.some((token) => /^test/i.test(token)))) return 'test';
+    if (scriptKind === 'build' || ['xcodebuild', 'gradle'].includes(executable)) return 'build';
+    if (['eslint', 'swiftlint'].includes(executable) || ['eslint', 'swiftlint'].includes(action ?? '') || scriptKind === 'lint') return 'lint';
+    if ((executable === 'tsc' && tokens.includes('--noEmit')) || action === 'tsc' || scriptKind === 'typecheck') return 'typecheck';
+  }
+  return undefined;
+}
+
+function constraintKind(body: Record<string, unknown>): 'scope-change' | 'acceptance-criteria' | 'environment' | undefined {
+  const candidate = JSON.stringify(body.message ?? body.content ?? '');
+  if (/(acceptance criteria|must pass|验收|必须通过)/i.test(candidate)) return 'acceptance-criteria';
+  if (/(only on|environment|device only|real device|simulator|环境|真机|模拟器)/i.test(candidate)) return 'environment';
+  if (/(scope change|instead of|only allow|only use|改为|只允许|仅限)/i.test(candidate)
+      || /(?:do not|don't|must not)\s+(?:use|change|modify|edit|run|build|commit|push|include|touch|switch|mix|add|remove|delete|create|implement|inspect|read|write|restart)\b/i.test(candidate)
+      || /(?:不要|不能|禁止|不得)(?:使用|修改|编辑|运行|构建|提交|推送|包含|触碰|切换|混用|新增|删除|创建|实现|检查|读取|写入|重新)/i.test(candidate)) return 'scope-change';
+  return undefined;
 }
 
 function gitRoot(cwd?: string): string | undefined {
@@ -283,7 +335,8 @@ function mapEnvelope(
     const actor = role === 'user' || inner === 'user_message' ? 'user'
       : role === 'developer' || role === 'system' ? 'system' : 'assistant';
     const kind = actor === 'user' ? 'user-message' : actor === 'system' ? 'system-message' : 'assistant-message';
-    return { event: { ...common, kind, actor, sensitivity: 'sensitive-content', payload: {}, payloadRef } as CanonicalEvent, edges, unknown: false };
+    const payload = actor === 'user' ? defined({ constraintKind: constraintKind(body) }) : {};
+    return { event: { ...common, kind, actor, sensitivity: 'sensitive-content', payload, payloadRef } as CanonicalEvent, edges, unknown: false };
   }
   if (['reasoning', 'agent_reasoning'].includes(inner)) {
     return { event: { ...common, kind: 'thinking', actor: 'assistant', sensitivity: 'sensitive-content', payload: {}, payloadRef }, edges, unknown: false };
@@ -292,7 +345,7 @@ function mapEnvelope(
     const callId = safeName(body.call_id ?? body.id);
     const event: CanonicalEvent = {
       ...common, kind: 'tool-call', actor: 'assistant', sensitivity: 'metadata',
-      payload: defined({ toolName: safeName(body.name ?? body.namespace ?? inner), callId }),
+      payload: defined({ toolName: safeName(body.name ?? body.namespace ?? inner), callId, validationKind: validationKind(body) }),
     };
     if (callId) state.callEvents.set(callId, event.id);
     return { event, edges, unknown: false };
@@ -335,7 +388,8 @@ function mapEnvelope(
     return { event: { ...common, kind: 'compaction', actor: 'system', sensitivity: 'sensitive-content', payload: {}, payloadRef }, edges, unknown: false };
   }
   if (inner === 'patch_apply_end') {
-    return { event: { ...common, kind: 'file-change', actor: 'tool', sensitivity: 'metadata', payload: { changeType: normalizeStatus(body.status) === 'completed' ? 'modified' : 'unknown' }, payloadRef }, edges, unknown: false };
+    const path = text(body.path ?? body.file_path);
+    return { event: { ...common, kind: 'file-change', actor: 'tool', sensitivity: 'metadata', payload: defined({ changeType: normalizeStatus(body.status) === 'completed' ? 'modified' : 'unknown', pathHash: path ? `sha256:${hash(path)}` : undefined }), payloadRef }, edges, unknown: false };
   }
   return {
     event: { ...common, kind: 'unknown', actor: 'unknown', sensitivity: 'sensitive-content', payload: {}, payloadRef },
@@ -345,7 +399,7 @@ function mapEnvelope(
 }
 
 export class CodexRolloutAdapter implements SourceAdapter {
-  readonly name = 'codex-rollout-v1';
+  readonly name = PARSER_VERSION;
   private readonly paths = new Map<string, string>();
 
   constructor(private readonly codexHome = process.env.AGENT_ANALYTICS_CODEX_HOME ?? process.env.CODEX_HOME ?? join(homedir(), '.codex')) {}
@@ -463,12 +517,12 @@ export class CodexRolloutAdapter implements SourceAdapter {
     return {
       artifact,
       era: {
-        id: 'era:codex-historical-v1',
+        id: 'era:codex-historical-v2',
         name: 'Codex historical rollout import',
         mode: 'historical-backfill',
         parserVersion: PARSER_VERSION,
-        capabilities: ['active-rollout', 'archived-rollout', 'task-tree', 'token-snapshot'],
-        startsAt: '1970-01-01T00:00:00.000Z',
+        capabilities: ['active-rollout', 'archived-rollout', 'task-tree', 'token-snapshot', 'validation-category', 'file-path-hash', 'constraint-signal'],
+        startsAt: events[0]?.occurredAt ?? artifact.observedAt,
       },
       events,
       identityEdges,

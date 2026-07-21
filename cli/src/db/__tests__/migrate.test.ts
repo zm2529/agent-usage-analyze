@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
     db.close();
   });
 });
@@ -43,7 +43,7 @@ describe('runMigrations — V14 canonical coverage upgrade', () => {
   it('upgrades the exact pre-fix V13 task projection schema', () => {
     const db = freshDb();
     runMigrations(db);
-    db.prepare('DELETE FROM schema_version WHERE version = 14').run();
+    db.prepare('DELETE FROM schema_version WHERE version >= 14').run();
     db.exec('DROP TABLE source_ingestion_stats');
     db.exec(`
       CREATE TABLE task_token_deltas_v13 AS
@@ -67,7 +67,7 @@ describe('runMigrations — V14 canonical coverage upgrade', () => {
   it('upgrades the intermediate six-counter V13 schema without duplicate columns', () => {
     const db = freshDb();
     runMigrations(db);
-    db.prepare('DELETE FROM schema_version WHERE version = 14').run();
+    db.prepare('DELETE FROM schema_version WHERE version >= 14').run();
     db.exec('DROP TABLE canonical_projection_state');
 
     expect(() => runMigrations(db)).not.toThrow();
@@ -82,7 +82,7 @@ describe('runMigrations — V14 canonical coverage upgrade', () => {
   it('resumes a partially applied V14 with only one new counter column present', () => {
     const db = freshDb();
     runMigrations(db);
-    db.prepare('DELETE FROM schema_version WHERE version = 14').run();
+    db.prepare('DELETE FROM schema_version WHERE version >= 14').run();
     db.exec(`
       DROP TABLE canonical_projection_state;
       CREATE TABLE task_token_deltas_partial AS

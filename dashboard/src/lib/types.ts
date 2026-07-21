@@ -53,6 +53,40 @@ export interface WorkTaskDetail {
   diagnostics: Array<{ severity: string; code: string; count: number }>;
 }
 
+export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
+export interface AnalysisClaim {
+  id: string;
+  pattern: string;
+  sourceCategory: 'deterministic' | 'statistical' | 'llm-semantic' | 'human-corrected';
+  algorithmVersion: string;
+  window: { start: string; end: string };
+  sampleCount: number;
+  totalTaskCount: number;
+  coverage: number;
+  confidence: number;
+  eraCompatibility: 'compatible' | 'limited' | 'incomparable';
+  sampleTaskRefs: string[];
+  evidenceRefs: string[];
+  evidence: Array<{
+    id: string; evidenceType: string; subjectRef: string; position: string;
+    sourceCategory: string; algorithmVersion: string; coverage: number;
+    confidence: number; eraCompatibility: string; eraIds: string[];
+    humanStatus: string; factRefs: string[];
+    facts: Array<{ eventId: string; taskId: string }>;
+  }>;
+}
+export interface TrendComparison {
+  previousWindow: { start: string; end: string; taskCount: number; coverage: number; eras: Array<{ id: string; mode: string; parserVersion: string; capabilities: string[]; startsAt: string; endsAt: string | null; coverage: number }> };
+  currentWindow: { start: string; end: string; taskCount: number; coverage: number; eras: Array<{ id: string; mode: string; parserVersion: string; capabilities: string[]; startsAt: string; endsAt: string | null; coverage: number }> };
+  eraCompatibility: 'compatible' | 'limited' | 'incomparable';
+  trends: Array<{
+    pattern: string; label: string; observableFact: string; state: TrendState;
+    change: number | null; unknownReason: string | null;
+    previous: AnalysisClaim | null; current: AnalysisClaim | null;
+    conflictingEvidence: AnalysisClaim['evidence'];
+  }>;
+}
+
 export interface Project {
   id: string;
   name: string;

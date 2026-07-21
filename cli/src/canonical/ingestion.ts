@@ -73,10 +73,10 @@ interface CanonicalEventBase {
 export interface CanonicalEventPayloads {
   'session-meta': { originator?: string; source?: string; model?: string; cliVersion?: string; taskRole?: 'root' | 'subagent' | 'reviewer' | 'worker' | 'unknown' };
   'turn-context': { model?: string; effort?: string; sandbox?: string; approvalPolicy?: string };
-  'user-message': Record<string, never>;
+  'user-message': { constraintKind?: 'scope-change' | 'acceptance-criteria' | 'environment' };
   'assistant-message': Record<string, never>;
   'system-message': Record<string, never>;
-  'tool-call': { toolName?: string; callId?: string };
+  'tool-call': { toolName?: string; callId?: string; validationKind?: 'test' | 'build' | 'lint' | 'typecheck' };
   'tool-result': { callId?: string; status?: 'completed' | 'failed' | 'cancelled' | 'unknown' };
   thinking: Record<string, never>;
   compaction: { trigger?: 'automatic' | 'manual' | 'unknown' };
@@ -109,7 +109,8 @@ export type IngestionDiagnosticCode =
   | 'token-reset'
   | 'token-out-of-order'
   | 'identity-conflict'
-  | 'malformed-record';
+  | 'malformed-record'
+  | 'parser-upgrade-rebuild';
 
 export interface IngestionDiagnostic {
   severity: 'info' | 'warning' | 'error';
@@ -174,10 +175,10 @@ type PayloadValueKind = 'string' | 'number' | 'boolean';
 const EVENT_PAYLOAD_FIELDS: Record<CanonicalEventKind, Record<string, PayloadValueKind>> = {
   'session-meta': { originator: 'string', source: 'string', model: 'string', cliVersion: 'string', taskRole: 'string' },
   'turn-context': { model: 'string', effort: 'string', sandbox: 'string', approvalPolicy: 'string' },
-  'user-message': {},
+  'user-message': { constraintKind: 'string' },
   'assistant-message': {},
   'system-message': {},
-  'tool-call': { toolName: 'string', callId: 'string' },
+  'tool-call': { toolName: 'string', callId: 'string', validationKind: 'string' },
   'tool-result': { callId: 'string', status: 'string' },
   thinking: {},
   compaction: { trigger: 'string' },
@@ -195,6 +196,8 @@ const EVENT_PAYLOAD_FIELDS: Record<CanonicalEventKind, Record<string, PayloadVal
 const PAYLOAD_STRING_VALUES: Partial<Record<CanonicalEventKind, Record<string, ReadonlySet<string>>>> = {
   'session-meta': { taskRole: new Set(['root', 'subagent', 'reviewer', 'worker', 'unknown']) },
   'tool-result': { status: new Set(['completed', 'failed', 'cancelled', 'unknown']) },
+  'tool-call': { validationKind: new Set(['test', 'build', 'lint', 'typecheck']) },
+  'user-message': { constraintKind: new Set(['scope-change', 'acceptance-criteria', 'environment']) },
   compaction: { trigger: new Set(['automatic', 'manual', 'unknown']) },
   'task-started': { status: new Set(['started', 'running']) },
   'task-completed': {
@@ -218,6 +221,7 @@ const DIAGNOSTIC_CODES = new Set<IngestionDiagnosticCode>([
   'truncated-tail', 'rewritten-source', 'token-reset', 'token-out-of-order',
   'identity-conflict',
   'malformed-record',
+  'parser-upgrade-rebuild',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -366,7 +370,10 @@ function parseCanonicalBatchValue(value: unknown): CanonicalBatch {
       }
     }
     validatePayload(rawEvent.kind as CanonicalEventKind, rawEvent.payload);
-    if (rawEvent.sensitivity === 'sensitive-content' && Object.keys(rawEvent.payload).length > 0) {
+    const safeSensitiveMetadata = rawEvent.kind === 'user-message'
+      && Object.keys(rawEvent.payload).every((key) => key === 'constraintKind');
+    if (rawEvent.sensitivity === 'sensitive-content' && Object.keys(rawEvent.payload).length > 0
+        && !safeSensitiveMetadata) {
       throw new Error('Canonical payload cannot contain raw sensitive content; use payloadRef');
     }
     if (rawEvent.sensitivity === 'sensitive-content'
@@ -470,7 +477,7 @@ export async function ingestSourceAdapter(
       const storedSource = db.prepare(`
         SELECT cursor AS token, cursor_position AS position,
                locator_hash AS locatorHash, content_hash AS contentHash,
-               parser_version AS parserVersion
+               parser_version AS parserVersion, era_id AS eraId
         FROM source_artifacts WHERE id = ?
       `).get(artifact.id) as ({
         token: string | null;
@@ -478,15 +485,22 @@ export async function ingestSourceAdapter(
         locatorHash: string;
         contentHash: string | null;
         parserVersion: string;
+        eraId: string;
       }) | undefined;
+      const parserUpgrade = Boolean(storedSource
+        && artifact.sourceKind === 'codex-rollout'
+        && storedSource.parserVersion === 'codex-rollout-v1'
+        && artifact.parserVersion === 'codex-rollout-v2'
+        && storedSource.locatorHash === artifact.locatorHash
+        && storedSource.contentHash === (artifact.contentHash ?? null));
       if (storedSource && (
         storedSource.locatorHash !== artifact.locatorHash
         || storedSource.contentHash !== (artifact.contentHash ?? null)
-        || storedSource.parserVersion !== artifact.parserVersion
+        || (storedSource.parserVersion !== artifact.parserVersion && !parserUpgrade)
       )) {
         throw new Error('Immutable source identity conflicts with changed locator or content hash');
       }
-      const currentCursor = storedSource?.token !== null && storedSource?.token !== undefined
+      const currentCursor = !parserUpgrade && storedSource?.token !== null && storedSource?.token !== undefined
         ? { token: storedSource.token, position: storedSource.position }
         : null;
       try {
@@ -500,6 +514,13 @@ export async function ingestSourceAdapter(
         }
         if (!cursorsEqual(batch.previousCursor, currentCursor)) {
           throw new Error('Stale source cursor: batch was parsed from an outdated source position');
+        }
+        if (parserUpgrade) {
+          batch.operation = 'rebuild';
+          batch.diagnostics.push({ severity: 'info', code: 'parser-upgrade-rebuild', count: 1 });
+        }
+        if (storedSource && storedSource.eraId !== batch.era.id && !parserUpgrade) {
+          throw new IdentityConflictError('Source identity cannot cross observation eras');
         }
         if (batch.operation !== 'rebuild' && batch.nextCursor.position < (currentCursor?.position ?? 0)) {
           throw new Error('Stale source cursor: next position would move backwards');
@@ -524,22 +545,49 @@ export async function ingestSourceAdapter(
           db.prepare('DELETE FROM canonical_identity_edges WHERE source_artifact_id = ?').run(artifact.id);
           db.prepare('DELETE FROM canonical_events WHERE source_artifact_id = ?').run(artifact.id);
         }
+        const existingEra = db.prepare(`
+          SELECT mode, parser_version AS parserVersion, capabilities_json AS capabilitiesJson,
+                 starts_at AS startsAt
+          FROM observation_eras WHERE id = ?
+        `).get(batch.era.id) as {
+          mode: string; parserVersion: string; capabilitiesJson: string; startsAt: string;
+        } | undefined;
+        const capabilitiesJson = JSON.stringify([...batch.era.capabilities].sort());
+        if (existingEra && (
+          existingEra.mode !== batch.era.mode
+          || existingEra.parserVersion !== batch.era.parserVersion
+          || JSON.stringify((JSON.parse(existingEra.capabilitiesJson) as string[]).sort()) !== capabilitiesJson
+        )) {
+          throw new IdentityConflictError('Observation era identity conflicts with changed collection contract');
+        }
+        if (!existingEra) {
+          db.prepare(`UPDATE observation_eras SET ends_at = ?
+            WHERE id <> ? AND ends_at IS NULL AND starts_at <= ?`)
+            .run(batch.era.startsAt, batch.era.id, batch.era.startsAt);
+        }
         db.prepare(`
           INSERT INTO observation_eras (
             id, name, mode, parser_version, capabilities_json, starts_at, ends_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
+            starts_at = MIN(observation_eras.starts_at, excluded.starts_at),
             ends_at = COALESCE(excluded.ends_at, observation_eras.ends_at)
         `).run(
           batch.era.id,
           batch.era.name,
           batch.era.mode,
           batch.era.parserVersion,
-          JSON.stringify(batch.era.capabilities),
+          capabilitiesJson,
           batch.era.startsAt,
           batch.era.endsAt ?? null,
         );
+
+        if (parserUpgrade) {
+          db.prepare(`UPDATE source_artifacts SET parser_version = ?, era_id = ?,
+            cursor = NULL, cursor_position = 0, updated_at = datetime('now') WHERE id = ?`)
+            .run(artifact.parserVersion, batch.era.id, artifact.id);
+        }
 
         db.prepare(`
           INSERT INTO source_artifacts (

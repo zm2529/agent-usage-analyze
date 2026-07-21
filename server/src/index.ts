@@ -21,6 +21,7 @@ import reflectRouter from './routes/reflect.js';
 import dispatchRouter from './routes/dispatch.js';
 import ingestionRouter from './routes/ingestion.js';
 import tasksRouter from './routes/tasks.js';
+import patternsRouter from './routes/patterns.js';
 
 export interface ServerOptions {
   port: number;
@@ -64,6 +65,7 @@ export function createApp(): Hono {
   app.route('/api/dispatch', dispatchRouter);
   app.route('/api/ingestion', ingestionRouter);
   app.route('/api/tasks', tasksRouter);
+  app.route('/api/patterns', patternsRouter);
 
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true, version: '0.1.0' }));

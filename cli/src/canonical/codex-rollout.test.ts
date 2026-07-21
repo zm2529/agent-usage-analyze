@@ -215,7 +215,8 @@ describe('CodexRolloutAdapter', () => {
     const home = tempCodexHome();
     const path = join(home, 'sessions', '2026', '07', '21', 'rollout-tool-call.jsonl');
     writeFileSync(path, `${rootRollout()[0]}\n${line('response_item', {
-      type: 'function_call', name: 'shell', call_id: 'call-1', arguments: 'PRIVATE_SENTINEL',
+      type: 'function_call', name: 'shell', call_id: 'call-1',
+      arguments: '{"cmd":"pnpm test","secret":"PRIVATE_SENTINEL"}',
     }, '2026-07-21T08:00:01.000Z')}\n${line('response_item', {
       type: 'function_call_output', call_id: 'call-1', output: 'PRIVATE_SENTINEL',
     }, '2026-07-21T08:00:02.000Z')}\n`);
@@ -226,7 +227,83 @@ describe('CodexRolloutAdapter', () => {
     const toolResult = readWorkTaskDetail(db, 'thread-root')?.events.find((event) => event.kind === 'tool-result');
     expect(toolCall).toMatchObject({ sensitivity: 'metadata', payloadRef: null });
     expect(toolResult).toMatchObject({ sensitivity: 'sensitive-content', payloadRef: expect.stringMatching(/^source:/) });
+    expect(db.prepare(`SELECT payload_json AS payloadJson FROM canonical_events WHERE kind = 'tool-call'`).get())
+      .toEqual({ payloadJson: '{"toolName":"shell","callId":"call-1","validationKind":"test"}' });
     expect(JSON.stringify({ toolCall, toolResult })).not.toContain('PRIVATE_SENTINEL');
+    db.close();
+  });
+
+  it('does not infer validation from patch or search arguments that merely mention tests', async () => {
+    const home = tempCodexHome();
+    const path = join(home, 'sessions', '2026', '07', '21', 'rollout-non-validation.jsonl');
+    writeFileSync(path, `${rootRollout()[0]}\n${line('response_item', {
+      type: 'function_call', name: 'apply_patch', call_id: 'call-patch',
+      arguments: '{"patch":"Add docs saying pnpm test"}',
+    }, '2026-07-21T08:00:01.000Z')}\n`);
+    appendFileSync(path, `${line('response_item', {
+      type: 'function_call', name: 'shell', call_id: 'call-search',
+      arguments: '{"cmd":"pnpm exec rg test src"}',
+    }, '2026-07-21T08:00:02.000Z')}\n${line('response_item', {
+      type: 'function_call', name: 'shell', call_id: 'call-view',
+      arguments: '{"cmd":"npm view test"}',
+    }, '2026-07-21T08:00:03.000Z')}\n`);
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new CodexRolloutAdapter(home), db);
+    expect(db.prepare(`SELECT payload_json AS payloadJson FROM canonical_events
+      WHERE kind = 'tool-call' ORDER BY sequence`).all()).toEqual([
+      { payloadJson: '{"toolName":"apply_patch","callId":"call-patch"}' },
+      { payloadJson: '{"toolName":"shell","callId":"call-search"}' },
+      { payloadJson: '{"toolName":"shell","callId":"call-view"}' },
+    ]);
+    db.close();
+  });
+
+  it('does not promote reassurance messages into late-constraint evidence', async () => {
+    const home = tempCodexHome();
+    const path = join(home, 'sessions', '2026', '07', '21', 'rollout-reassurance.jsonl');
+    writeFileSync(path, `${rootRollout()[0]}\n${line('response_item', {
+      type: 'message', role: 'user', content: [{ type: 'input_text', text: "don't worry, continue" }],
+    }, '2026-07-21T08:00:01.000Z')}\n${line('response_item', {
+      type: 'message', role: 'user', content: [{ type: 'input_text', text: '请不要着急，继续执行' }],
+    }, '2026-07-21T08:00:02.000Z')}\n`);
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new CodexRolloutAdapter(home), db);
+    expect(db.prepare(`SELECT payload_json AS payloadJson FROM canonical_events
+      WHERE kind = 'user-message' ORDER BY sequence`).all()).toEqual([
+      { payloadJson: '{}' }, { payloadJson: '{}' },
+    ]);
+    db.close();
+  });
+
+  it('rebuilds a prior parser source into a new observation era without mixing semantics', async () => {
+    const home = tempCodexHome();
+    const path = join(home, 'sessions', '2026', '07', '21', 'rollout-upgrade.jsonl');
+    writeFileSync(path, `${rootRollout().join('\n')}\n`);
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const adapter = new CodexRolloutAdapter(home);
+    await ingestSourceAdapter(adapter, db);
+    db.prepare(`INSERT INTO observation_eras
+      (id, name, mode, parser_version, capabilities_json, starts_at)
+      VALUES ('era:codex-historical-v1', 'old', 'historical-backfill', 'codex-rollout-v1',
+        '["active-rollout","archived-rollout","task-tree","token-snapshot"]', '2026-07-21T08:00:00.000Z')`).run();
+    db.prepare(`UPDATE source_artifacts SET parser_version = 'codex-rollout-v1', era_id = 'era:codex-historical-v1'`).run();
+    db.prepare(`UPDATE canonical_events SET parser_version = 'codex-rollout-v1', era_id = 'era:codex-historical-v1'`).run();
+    db.prepare(`UPDATE work_tasks SET era_id = 'era:codex-historical-v1'`).run();
+    db.prepare(`DELETE FROM observation_eras WHERE id = 'era:codex-historical-v2'`).run();
+
+    const upgraded = await ingestSourceAdapter(adapter, db);
+    expect(upgraded.insertedEvents).toBe(rootRollout().length);
+    expect(db.prepare(`SELECT parser_version AS parserVersion, era_id AS eraId FROM source_artifacts`).get())
+      .toEqual({ parserVersion: 'codex-rollout-v2', eraId: 'era:codex-historical-v2' });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM canonical_events').get()).toEqual({ count: rootRollout().length });
+    expect(readWorkTaskDetail(db, 'thread-root')?.diagnostics).toEqual(expect.arrayContaining([
+      { severity: 'info', code: 'parser-upgrade-rebuild', count: 1 },
+    ]));
+    expect(db.prepare(`SELECT ends_at AS endsAt FROM observation_eras WHERE id = 'era:codex-historical-v1'`).get())
+      .toEqual({ endsAt: '2026-07-21T08:00:00.000Z' });
     db.close();
   });
 
