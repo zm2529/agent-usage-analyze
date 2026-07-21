@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "dev": "vite",
     "preview": "vite preview",
     "test": "vitest run"

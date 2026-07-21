@@ -13,6 +13,7 @@ import {
 const artifact: SourceArtifact = {
   id: 'fixture:rollout-1',
   sourceKind: 'synthetic-codex',
+  parserVersion: 'fixture-v1',
   locatorHash: 'sha256:fixture-1',
   observedAt: '2026-07-21T08:00:00.000Z',
 };
@@ -37,7 +38,8 @@ function fixtureBatch(previousCursor: SourceCursor | null = null): CanonicalBatc
         kind: 'task-started',
         actor: 'system',
         sensitivity: 'structural',
-        payload: { taskId: 'task-1' },
+        payload: { status: 'started' },
+        taskId: 'task-1',
       },
     ],
     identityEdges: [],
@@ -104,6 +106,69 @@ describe('canonical ingestion', () => {
     db.close();
   });
 
+  it('rejects unknown payload fields, short raw text, and malformed optional fields', async () => {
+    const invalidPayloads: Array<Record<string, unknown>> = [
+      { claim: 'user caused delay' },
+      { text: 'secret' },
+    ];
+    for (const payload of invalidPayloads) {
+      const db = new Database(':memory:');
+      runMigrations(db);
+      const adapter = new FixtureAdapter();
+      adapter.parse = async (_artifact, context) => {
+        const batch = fixtureBatch(context.currentCursor);
+        batch.events[0]!.payload = payload;
+        return batch;
+      };
+      await expect(ingestSourceAdapter(adapter, db)).rejects.toThrow(/payload/i);
+      expect(readIngestionHealth(db).eventCount).toBe(0);
+      db.close();
+    }
+
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const adapter = new FixtureAdapter();
+    adapter.parse = async (_artifact, context) => {
+      const batch = fixtureBatch(context.currentCursor);
+      batch.events[0]!.repository = { root: 42 as unknown as string };
+      return batch;
+    };
+    await expect(ingestSourceAdapter(adapter, db)).rejects.toThrow(/repository/i);
+    db.close();
+  });
+
+  it('records discovery failure as the newest failed health state', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new FixtureAdapter(), db);
+    const failing = new FixtureAdapter();
+    failing.discover = async () => { throw new Error('discovery unavailable'); };
+
+    await expect(ingestSourceAdapter(failing, db)).rejects.toThrow('discovery unavailable');
+    expect(readIngestionHealth(db)).toMatchObject({
+      status: 'failed',
+      diagnostics: [{ severity: 'error', code: 'ingestion-failed', count: 1 }],
+    });
+    db.close();
+  });
+
+  it('treats parser version as part of immutable source identity', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new FixtureAdapter(), db);
+    const changed = new FixtureAdapter();
+    const changedArtifact = { ...artifact, parserVersion: 'fixture-v2' };
+    changed.discover = async () => [changedArtifact];
+    changed.parse = async (_artifact, context) => ({
+      ...fixtureBatch(context.currentCursor),
+      artifact: changedArtifact,
+      era: { ...fixtureBatch(context.currentCursor).era, parserVersion: 'fixture-v2' },
+    });
+
+    await expect(ingestSourceAdapter(changed, db)).rejects.toThrow(/immutable source identity/i);
+    db.close();
+  });
+
   it('does not let a stale batch move a source cursor backwards', async () => {
     const db = new Database(':memory:');
     runMigrations(db);
@@ -155,6 +220,26 @@ describe('canonical ingestion', () => {
 
     await expect(ingestSourceAdapter(changed, db)).rejects.toThrow(/immutable source identity/i);
     expect(readIngestionHealth(db).eventCount).toBe(1);
+    db.close();
+  });
+
+  it('rejects a conflicting duplicate event without advancing the cursor', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new FixtureAdapter(), db);
+    const conflicting = new FixtureAdapter();
+    conflicting.parse = async (_artifact, context) => {
+      const batch = fixtureBatch(context.currentCursor);
+      batch.events[0]!.payload = { status: 'completed' };
+      batch.nextCursor = { token: 'line:2', position: 2 };
+      return batch;
+    };
+
+    await expect(ingestSourceAdapter(conflicting, db)).rejects.toThrow(/event identity conflict/i);
+    expect(db.prepare('SELECT cursor_position AS position FROM source_artifacts').get())
+      .toEqual({ position: 1 });
+    expect(db.prepare('SELECT payload_json AS payload FROM canonical_events').get())
+      .toEqual({ payload: '{"status":"started"}' });
     db.close();
   });
 });

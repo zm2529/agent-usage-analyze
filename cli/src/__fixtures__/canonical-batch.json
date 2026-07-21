@@ -2,6 +2,7 @@
   "artifact": {
     "id": "fixture:cli-smoke",
     "sourceKind": "synthetic-codex",
+    "parserVersion": "fixture-v1",
     "locatorHash": "sha256:cli-smoke",
     "observedAt": "2026-07-21T10:00:00.000Z"
   },
@@ -22,7 +23,8 @@
       "kind": "task-started",
       "actor": "system",
       "sensitivity": "structural",
-      "payload": { "taskId": "fixture-task" }
+      "payload": { "status": "started" },
+      "taskId": "fixture-task"
     }
   ],
   "identityEdges": [],

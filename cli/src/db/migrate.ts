@@ -23,6 +23,7 @@ export interface MigrationResult {
  * Version 9: Add analysis_queue table for async hook-triggered analysis
  * Version 10: Add canonical ingestion, observation era, coverage, and diagnostics tables
  * Version 11: Add monotonic source cursors, canonical identity edges, and repository locators
+ * Version 12: Make parser version part of immutable source identity
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -86,6 +87,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 11) {
     applyV11(db);
+  }
+
+  if (currentVersion < 12) {
+    applyV12(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -312,4 +317,16 @@ function applyV11(db: Database.Database): void {
     )
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(11);
+}
+
+function applyV12(db: Database.Database): void {
+  db.exec(`ALTER TABLE source_artifacts ADD COLUMN parser_version TEXT NOT NULL DEFAULT 'unknown'`);
+  db.prepare(`
+    UPDATE source_artifacts
+    SET parser_version = COALESCE(
+      (SELECT parser_version FROM observation_eras WHERE observation_eras.id = source_artifacts.era_id),
+      'unknown'
+    )
+  `).run();
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(12);
 }

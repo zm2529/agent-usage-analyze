@@ -15,6 +15,14 @@ interface DashboardOptions {
   sync?: boolean;
 }
 
+export async function syncLegacyProjectionIfRequested(
+  enabled: boolean | undefined,
+  sync: (options: { quiet: boolean }) => Promise<unknown> = runSync,
+): Promise<void> {
+  if (enabled !== true) return;
+  await sync({ quiet: false });
+}
+
 /**
  * Check if a port is already in use.
  * - Checks only EADDRINUSE, not other errors (e.g. EACCES for privileged ports).
@@ -49,7 +57,7 @@ export async function dashboardCommand(options: DashboardOptions): Promise<void>
   // Legacy session projection is explicit opt-in while canonical Codex ingestion is built.
   if (options.sync === true) {
     try {
-      await runSync({ quiet: false });
+      await syncLegacyProjectionIfRequested(options.sync);
       void identifyUser();
     } catch (err) {
       // Sync failure is non-fatal — dashboard still opens with whatever data exists

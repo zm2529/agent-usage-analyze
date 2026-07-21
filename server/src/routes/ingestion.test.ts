@@ -16,6 +16,7 @@ let dataDir: string;
 const artifact: SourceArtifact = {
   id: 'fixture:api',
   sourceKind: 'synthetic-codex',
+  parserVersion: 'api-v1',
   locatorHash: 'sha256:api',
   observedAt: '2026-07-21T09:00:00.000Z',
 };

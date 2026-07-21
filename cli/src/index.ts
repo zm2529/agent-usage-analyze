@@ -180,8 +180,8 @@ insightsCmd
     });
   });
 
-// Default action: running `agent-analytics` with no arguments opens the dashboard.
-// Dashboard auto-syncs sessions first, giving "1 command to value" on first run.
+// Default action opens the dashboard without scanning real history.
+// Import remains an explicit action so startup is private and predictable.
 program.action(async () => {
   await dashboardCommand({ port: '7890', open: true, sync: false });
 });

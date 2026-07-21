@@ -614,7 +614,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
               loadingMore={loadingMore}
               hasMore={hasMore}
               onLoadMore={() => messagesQuery.fetchNextPage()}
-              sourceTool={session.source_tool}
+              sourceTool={session.source_tool ?? undefined}
               highlightMessageId={searchHighlightId}
               searchQuery={searchQuery}
             />

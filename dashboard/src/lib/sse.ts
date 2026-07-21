@@ -11,7 +11,8 @@
 export async function* parseSSEStream(
   body: ReadableStream<Uint8Array>
 ): AsyncGenerator<{ event: string; data: string }> {
-  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
   let buffer = '';
   let currentEvent = '';
   let currentData = '';
@@ -21,7 +22,7 @@ export async function* parseSSEStream(
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += value;
+      buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       // Keep the last potentially incomplete line in the buffer
       buffer = lines.pop() ?? '';
@@ -38,6 +39,7 @@ export async function* parseSSEStream(
         }
       }
     }
+    buffer += decoder.decode();
     // Flush any remaining buffered event
     if (currentEvent && currentData) {
       yield { event: currentEvent, data: currentData };

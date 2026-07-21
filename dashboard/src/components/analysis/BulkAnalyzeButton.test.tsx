@@ -49,6 +49,12 @@ function makeSession(id: string): Session {
     cache_creation_tokens: null,
     cache_read_tokens: null,
     estimated_cost_usd: null,
+    models_used: null,
+    primary_model: null,
+    usage_source: null,
+    compact_count: 0,
+    auto_compact_count: 0,
+    slash_commands: null,
   };
 }
 
@@ -73,7 +79,7 @@ beforeEach(() => {
 describe('BulkAnalyzeButton', () => {
   describe('unconfigured state', () => {
     it('renders disabled button with configure message when LLM not configured', () => {
-      mockUseLlmConfig.mockReturnValue({ data: null } as ReturnType<typeof useLlmConfig>);
+      mockUseLlmConfig.mockReturnValue({ data: null } as unknown as ReturnType<typeof useLlmConfig>);
       setup([makeSession('s1')]);
       const btn = screen.getByRole('button', { name: /analyze selected/i });
       expect(btn).toBeDisabled();

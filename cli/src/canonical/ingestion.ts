@@ -31,6 +31,7 @@ export interface SourceCursor {
 export interface SourceArtifact {
   id: string;
   sourceKind: SourceKind;
+  parserVersion: string;
   locatorHash: string;
   observedAt: string;
   contentHash?: string;
@@ -79,7 +80,6 @@ export interface IngestionDiagnostic {
   severity: 'info' | 'warning' | 'error';
   code: string;
   count: number;
-  detail?: string;
 }
 
 export interface CoverageCounts {
@@ -133,25 +133,67 @@ const ACTORS = new Set<EventActor>(['user', 'assistant', 'system', 'tool', 'suba
 const SENSITIVITIES = new Set<Sensitivity>(['structural', 'metadata', 'sensitive-content']);
 const SOURCE_KINDS = new Set<SourceKind>(['synthetic-codex', 'codex-rollout', 'codex-hook', 'git']);
 const ERA_MODES = new Set<EraMode>(['historical-backfill', 'continuous-observation']);
-const FORBIDDEN_ANALYSIS_KEY = /(analysis|score|rating|causal|effectiveness|confidence)/i;
+type PayloadValueKind = 'string' | 'number' | 'boolean';
+
+const EVENT_PAYLOAD_FIELDS: Record<CanonicalEventKind, Record<string, PayloadValueKind>> = {
+  'session-meta': { originator: 'string', source: 'string', model: 'string', cliVersion: 'string', taskRole: 'string' },
+  'turn-context': { model: 'string', effort: 'string', sandbox: 'string', approvalPolicy: 'string' },
+  'user-message': {},
+  'assistant-message': {},
+  'system-message': {},
+  'tool-call': { toolName: 'string', callId: 'string' },
+  'tool-result': { callId: 'string', status: 'string' },
+  thinking: {},
+  compaction: { trigger: 'string' },
+  'task-started': { status: 'string' },
+  'task-completed': { status: 'string', reason: 'string' },
+  'task-status': { status: 'string', reason: 'string' },
+  'subagent-spawned': { agentRole: 'string', status: 'string' },
+  'token-snapshot': {
+    inputTokens: 'number', cachedInputTokens: 'number', cacheCreationTokens: 'number',
+    outputTokens: 'number', reasoningTokens: 'number', compactionTokens: 'number',
+  },
+  'file-change': { changeType: 'string', pathHash: 'string' },
+  unknown: { envelopeType: 'string' },
+};
+const FORBIDDEN_ANALYSIS_KEY = /(analysis|score|rating|claim|causal|effectiveness|confidence)/i;
+const OPAQUE_PAYLOAD_REF = /^source:[A-Za-z0-9._:-]+(?:#[A-Za-z0-9._:=-]+)?$/;
+const DIAGNOSTIC_CODE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function containsForbiddenAnalysisKey(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsForbiddenAnalysisKey);
-  if (!isRecord(value)) return false;
-  return Object.entries(value).some(
-    ([key, child]) => FORBIDDEN_ANALYSIS_KEY.test(key) || containsForbiddenAnalysisKey(child),
-  );
+function assertOnlyKeys(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
+  const unexpected = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unexpected) throw new Error(`${label} contains unsupported field: ${unexpected}`);
 }
 
-function containsRawContent(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsRawContent);
-  if (typeof value === 'string') return value.length > 256 || value.includes('\n');
-  if (!isRecord(value)) return false;
-  return Object.values(value).some(containsRawContent);
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalNonNegativeInteger(value: unknown): boolean {
+  return value === undefined
+    || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+}
+
+function validatePayload(kind: CanonicalEventKind, payload: Record<string, unknown>): void {
+  const schema = EVENT_PAYLOAD_FIELDS[kind];
+  if (Object.keys(payload).some((key) => FORBIDDEN_ANALYSIS_KEY.test(key))) {
+    throw new Error('Canonical payload cannot contain analysis or causal fields');
+  }
+  assertOnlyKeys(payload, Object.keys(schema), `Canonical ${kind} payload`);
+  for (const [key, value] of Object.entries(payload)) {
+    const expected = schema[key];
+    if (typeof value !== expected) throw new Error(`Canonical ${kind} payload field ${key} must be ${expected}`);
+    if (typeof value === 'string' && (value.length > 256 || value.includes('\n'))) {
+      throw new Error(`Canonical ${kind} payload cannot contain raw content`);
+    }
+    if (typeof value === 'number' && (!Number.isSafeInteger(value) || value < 0)) {
+      throw new Error(`Canonical ${kind} payload counters must be non-negative integers`);
+    }
+  }
 }
 
 function isCursor(value: unknown): value is SourceCursor {
@@ -173,19 +215,36 @@ export function parseCanonicalBatch(value: unknown): CanonicalBatch {
   if (!(value.previousCursor === null || isCursor(value.previousCursor)) || !isCursor(value.nextCursor)) {
     throw new Error('Canonical batch must contain valid previousCursor and nextCursor');
   }
+  if (value.previousCursor) {
+    assertOnlyKeys(value.previousCursor as unknown as Record<string, unknown>, ['token', 'position'], 'Previous cursor');
+  }
+  assertOnlyKeys(value.nextCursor as unknown as Record<string, unknown>, ['token', 'position'], 'Next cursor');
+  assertOnlyKeys(value, [
+    'artifact', 'era', 'events', 'identityEdges', 'diagnostics', 'coverage',
+    'previousCursor', 'nextCursor',
+  ], 'Canonical batch');
+  assertOnlyKeys(value.artifact, [
+    'id', 'sourceKind', 'parserVersion', 'locatorHash', 'observedAt', 'contentHash',
+  ], 'Source artifact');
   if (typeof value.artifact.id !== 'string'
       || !SOURCE_KINDS.has(value.artifact.sourceKind as SourceKind)
+      || typeof value.artifact.parserVersion !== 'string'
       || typeof value.artifact.locatorHash !== 'string'
-      || typeof value.artifact.observedAt !== 'string') {
+      || typeof value.artifact.observedAt !== 'string'
+      || !isOptionalString(value.artifact.contentHash)) {
     throw new Error('Source artifact does not match the runtime schema');
   }
+  assertOnlyKeys(value.era, [
+    'id', 'name', 'mode', 'parserVersion', 'capabilities', 'startsAt', 'endsAt',
+  ], 'Observation era');
   if (typeof value.era.id !== 'string'
       || typeof value.era.name !== 'string'
       || !ERA_MODES.has(value.era.mode as EraMode)
       || typeof value.era.parserVersion !== 'string'
       || !Array.isArray(value.era.capabilities)
       || !value.era.capabilities.every((capability) => typeof capability === 'string')
-      || typeof value.era.startsAt !== 'string') {
+      || typeof value.era.startsAt !== 'string'
+      || !isOptionalString(value.era.endsAt)) {
     throw new Error('Observation era does not match the runtime schema');
   }
   for (const key of ['discovered', 'parsed', 'skipped', 'failed', 'unknown']) {
@@ -194,6 +253,7 @@ export function parseCanonicalBatch(value: unknown): CanonicalBatch {
       throw new Error('Coverage counts must be non-negative integers');
     }
   }
+  assertOnlyKeys(value.coverage, ['discovered', 'parsed', 'skipped', 'failed', 'unknown'], 'Coverage');
   for (const rawEvent of value.events) {
     if (!isRecord(rawEvent)
         || typeof rawEvent.id !== 'string'
@@ -206,16 +266,40 @@ export function parseCanonicalBatch(value: unknown): CanonicalBatch {
         || !isRecord(rawEvent.payload)) {
       throw new Error('Canonical event does not match the closed runtime schema');
     }
-    if (containsForbiddenAnalysisKey(rawEvent.payload)) {
-      throw new Error('Canonical payload cannot contain analysis or causal fields');
+    assertOnlyKeys(rawEvent, [
+      'id', 'nativeEventId', 'sequence', 'occurredAt', 'kind', 'actor', 'sensitivity',
+      'payload', 'parentEventId', 'taskId', 'threadId', 'turnId', 'attempt', 'generation',
+      'repository', 'payloadRef',
+    ], 'Canonical event');
+    if (!Number.isSafeInteger(rawEvent.sequence) || rawEvent.sequence < 0
+        || !isOptionalString(rawEvent.parentEventId)
+        || !isOptionalString(rawEvent.taskId)
+        || !isOptionalString(rawEvent.threadId)
+        || !isOptionalString(rawEvent.turnId)
+        || !isOptionalString(rawEvent.payloadRef)
+        || !isOptionalNonNegativeInteger(rawEvent.attempt)
+        || !isOptionalNonNegativeInteger(rawEvent.generation)) {
+      throw new Error('Canonical event optional identity fields do not match the runtime schema');
     }
-    if ((rawEvent.sensitivity === 'sensitive-content' && Object.keys(rawEvent.payload).length > 0)
-        || containsRawContent(rawEvent.payload)) {
+    if (rawEvent.repository !== undefined) {
+      if (!isRecord(rawEvent.repository)) throw new Error('Canonical event repository must be a record');
+      assertOnlyKeys(rawEvent.repository, ['root', 'worktree', 'branch'], 'Canonical event repository');
+      if (!isOptionalString(rawEvent.repository.root)
+          || !isOptionalString(rawEvent.repository.worktree)
+          || !isOptionalString(rawEvent.repository.branch)) {
+        throw new Error('Canonical event repository fields must be strings');
+      }
+    }
+    validatePayload(rawEvent.kind as CanonicalEventKind, rawEvent.payload);
+    if (rawEvent.sensitivity === 'sensitive-content' && Object.keys(rawEvent.payload).length > 0) {
       throw new Error('Canonical payload cannot contain raw sensitive content; use payloadRef');
     }
     if (rawEvent.sensitivity === 'sensitive-content'
         && (typeof rawEvent.payloadRef !== 'string' || rawEvent.payloadRef.length === 0)) {
       throw new Error('Sensitive canonical events require a payloadRef');
+    }
+    if (rawEvent.payloadRef !== undefined && !OPAQUE_PAYLOAD_REF.test(rawEvent.payloadRef as string)) {
+      throw new Error('Canonical payloadRef must be an opaque source reference');
     }
   }
   for (const edge of value.identityEdges) {
@@ -224,6 +308,19 @@ export function parseCanonicalBatch(value: unknown): CanonicalBatch {
         || typeof edge.fromId !== 'string'
         || typeof edge.toId !== 'string') {
       throw new Error('Identity edge does not match the runtime schema');
+    }
+    assertOnlyKeys(edge, ['kind', 'fromId', 'toId'], 'Identity edge');
+  }
+  for (const diagnostic of value.diagnostics) {
+    if (!isRecord(diagnostic)) throw new Error('Ingestion diagnostic must be a record');
+    assertOnlyKeys(diagnostic, ['severity', 'code', 'count'], 'Ingestion diagnostic');
+    if (!['info', 'warning', 'error'].includes(String(diagnostic.severity))
+        || typeof diagnostic.code !== 'string'
+        || !DIAGNOSTIC_CODE.test(diagnostic.code)
+        || typeof diagnostic.count !== 'number'
+        || !Number.isSafeInteger(diagnostic.count)
+        || diagnostic.count < 0) {
+      throw new Error('Ingestion diagnostic does not match the runtime schema');
     }
   }
   return value as unknown as CanonicalBatch;
@@ -240,8 +337,7 @@ export async function ingestSourceAdapter(
 ): Promise<IngestionSummary> {
   const runId = `ingestion:${randomUUID()}`;
   const startedAt = new Date().toISOString();
-  const artifacts = await adapter.discover();
-  const coverage = { ...EMPTY_COVERAGE, discovered: artifacts.length };
+  const coverage = { ...EMPTY_COVERAGE };
   let insertedEvents = 0;
   let advancedSources = 0;
   let status: IngestionSummary['status'] = 'completed';
@@ -250,25 +346,32 @@ export async function ingestSourceAdapter(
     INSERT INTO ingestion_runs (
       id, adapter_name, started_at, status, discovered_count,
       parsed_count, skipped_count, failed_count, unknown_count
-    ) VALUES (?, ?, ?, 'running', ?, 0, 0, 0, 0)
-  `).run(runId, adapter.name, startedAt, artifacts.length);
+    ) VALUES (?, ?, ?, 'running', 0, 0, 0, 0, 0)
+  `).run(runId, adapter.name, startedAt);
 
   try {
+    const artifacts = await adapter.discover();
+    coverage.discovered = artifacts.length;
+    db.prepare('UPDATE ingestion_runs SET discovered_count = ? WHERE id = ?')
+      .run(artifacts.length, runId);
     for (const artifact of artifacts) {
       let batch: CanonicalBatch;
       const storedSource = db.prepare(`
         SELECT cursor AS token, cursor_position AS position,
-               locator_hash AS locatorHash, content_hash AS contentHash
+               locator_hash AS locatorHash, content_hash AS contentHash,
+               parser_version AS parserVersion
         FROM source_artifacts WHERE id = ?
       `).get(artifact.id) as ({
         token: string | null;
         position: number;
         locatorHash: string;
         contentHash: string | null;
+        parserVersion: string;
       }) | undefined;
       if (storedSource && (
         storedSource.locatorHash !== artifact.locatorHash
         || storedSource.contentHash !== (artifact.contentHash ?? null)
+        || storedSource.parserVersion !== artifact.parserVersion
       )) {
         throw new Error('Immutable source identity conflicts with changed locator or content hash');
       }
@@ -279,6 +382,7 @@ export async function ingestSourceAdapter(
         batch = parseCanonicalBatch(await adapter.parse(artifact, { currentCursor }));
         if (batch.artifact.id !== artifact.id
             || batch.artifact.sourceKind !== artifact.sourceKind
+            || batch.artifact.parserVersion !== artifact.parserVersion
             || batch.artifact.locatorHash !== artifact.locatorHash
             || (batch.artifact.contentHash ?? null) !== (artifact.contentHash ?? null)) {
           throw new Error('Canonical batch artifact does not match the discovered source');
@@ -324,12 +428,14 @@ export async function ingestSourceAdapter(
 
         db.prepare(`
           INSERT INTO source_artifacts (
-            id, source_kind, locator_hash, observed_at, content_hash, cursor, cursor_position, era_id
-          ) VALUES (?, ?, ?, ?, ?, NULL, 0, ?)
+            id, source_kind, parser_version, locator_hash, observed_at,
+            content_hash, cursor, cursor_position, era_id
+          ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, ?)
           ON CONFLICT(id) DO NOTHING
         `).run(
           artifact.id,
           artifact.sourceKind,
+          artifact.parserVersion,
           artifact.locatorHash,
           artifact.observedAt,
           artifact.contentHash ?? null,
@@ -346,29 +452,49 @@ export async function ingestSourceAdapter(
         `);
 
         for (const event of batch.events) {
+          const persistedEvent = {
+            id: event.id,
+            sourceArtifactId: artifact.id,
+            eraId: batch.era.id,
+            nativeEventId: event.nativeEventId,
+            sequence: event.sequence,
+            occurredAt: event.occurredAt,
+            kind: event.kind,
+            actor: event.actor,
+            sensitivity: event.sensitivity,
+            payloadJson: JSON.stringify(event.payload),
+            parentEventId: event.parentEventId ?? null,
+            taskId: event.taskId ?? null,
+            threadId: event.threadId ?? null,
+            turnId: event.turnId ?? null,
+            attempt: event.attempt ?? null,
+            generation: event.generation ?? null,
+            parserVersion: batch.era.parserVersion,
+            repoRoot: event.repository?.root ?? null,
+            worktreePath: event.repository?.worktree ?? null,
+            gitBranch: event.repository?.branch ?? null,
+            payloadRef: event.payloadRef ?? null,
+          };
           const result = insertEvent.run(
-            event.id,
-            artifact.id,
-            batch.era.id,
-            event.nativeEventId,
-            event.sequence,
-            event.occurredAt,
-            event.kind,
-            event.actor,
-            event.sensitivity,
-            JSON.stringify(event.payload),
-            event.parentEventId ?? null,
-            event.taskId ?? null,
-            event.threadId ?? null,
-            event.turnId ?? null,
-            event.attempt ?? null,
-            event.generation ?? null,
-            batch.era.parserVersion,
-            event.repository?.root ?? null,
-            event.repository?.worktree ?? null,
-            event.repository?.branch ?? null,
-            event.payloadRef ?? null,
+            ...Object.values(persistedEvent),
           );
+          if (result.changes === 0) {
+            const existing = db.prepare(`
+              SELECT id, source_artifact_id AS sourceArtifactId, era_id AS eraId,
+                     native_event_id AS nativeEventId, sequence, occurred_at AS occurredAt,
+                     kind, actor, sensitivity, payload_json AS payloadJson,
+                     parent_event_id AS parentEventId, task_id AS taskId, thread_id AS threadId,
+                     turn_id AS turnId, attempt, generation, parser_version AS parserVersion,
+                     repo_root AS repoRoot, worktree_path AS worktreePath,
+                     git_branch AS gitBranch, payload_ref AS payloadRef
+              FROM canonical_events
+              WHERE id = ? OR (source_artifact_id = ? AND native_event_id = ?)
+              LIMIT 1
+            `).get(event.id, artifact.id, event.nativeEventId) as Record<string, unknown> | undefined;
+            if (!existing || JSON.stringify(existing) !== JSON.stringify(persistedEvent)) {
+              throw new Error('Canonical event identity conflict with different evidence');
+            }
+          }
           insertedEvents += result.changes;
         }
 
