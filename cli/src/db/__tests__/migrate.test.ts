@@ -63,6 +63,45 @@ describe('runMigrations — V14 canonical coverage upgrade', () => {
       .toEqual({ name: 'source_ingestion_stats' });
     db.close();
   });
+
+  it('upgrades the intermediate six-counter V13 schema without duplicate columns', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.prepare('DELETE FROM schema_version WHERE version = 14').run();
+    db.exec('DROP TABLE canonical_projection_state');
+
+    expect(() => runMigrations(db)).not.toThrow();
+    const columns = db.prepare('PRAGMA table_info(task_token_deltas)').all() as Array<{ name: string }>;
+    expect(columns.filter((column) => column.name === 'cache_creation_tokens')).toHaveLength(1);
+    expect(columns.filter((column) => column.name === 'compaction_tokens')).toHaveLength(1);
+    expect(db.prepare('SELECT dirty FROM canonical_projection_state WHERE id = 1').get())
+      .toEqual({ dirty: 1 });
+    db.close();
+  });
+
+  it('resumes a partially applied V14 with only one new counter column present', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.prepare('DELETE FROM schema_version WHERE version = 14').run();
+    db.exec(`
+      DROP TABLE canonical_projection_state;
+      CREATE TABLE task_token_deltas_partial AS
+      SELECT event_id, task_id, lane_key, segment, status,
+             input_tokens, cached_input_tokens, cache_creation_tokens,
+             output_tokens, reasoning_tokens
+      FROM task_token_deltas;
+      DROP TABLE task_token_deltas;
+      ALTER TABLE task_token_deltas_partial RENAME TO task_token_deltas;
+    `);
+
+    expect(() => runMigrations(db)).not.toThrow();
+    const columns = db.prepare('PRAGMA table_info(task_token_deltas)').all() as Array<{ name: string }>;
+    expect(columns.filter((column) => column.name === 'cache_creation_tokens')).toHaveLength(1);
+    expect(columns.filter((column) => column.name === 'compaction_tokens')).toHaveLength(1);
+    expect(db.prepare('SELECT dirty FROM canonical_projection_state WHERE id = 1').get())
+      .toEqual({ dirty: 1 });
+    db.close();
+  });
 });
 
 describe('runMigrations — V7 analysis_usage table', () => {

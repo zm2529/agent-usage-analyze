@@ -291,8 +291,8 @@ function mapEnvelope(
   if (['function_call', 'custom_tool_call', 'tool_search_call', 'mcp_tool_call_begin'].includes(inner)) {
     const callId = safeName(body.call_id ?? body.id);
     const event: CanonicalEvent = {
-      ...common, kind: 'tool-call', actor: 'assistant', sensitivity: 'sensitive-content',
-      payload: defined({ toolName: safeName(body.name ?? body.namespace ?? inner), callId }), payloadRef,
+      ...common, kind: 'tool-call', actor: 'assistant', sensitivity: 'metadata',
+      payload: defined({ toolName: safeName(body.name ?? body.namespace ?? inner), callId }),
     };
     if (callId) state.callEvents.set(callId, event.id);
     return { event, edges, unknown: false };

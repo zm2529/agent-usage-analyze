@@ -377,8 +377,14 @@ function applyV13(db: Database.Database): void {
 }
 
 function applyV14(db: Database.Database): void {
-  db.exec(`ALTER TABLE task_token_deltas ADD COLUMN cache_creation_tokens INTEGER`);
-  db.exec(`ALTER TABLE task_token_deltas ADD COLUMN compaction_tokens INTEGER`);
+  const tokenColumns = new Set((db.prepare('PRAGMA table_info(task_token_deltas)').all() as Array<{ name: string }>)
+    .map((column) => column.name));
+  if (!tokenColumns.has('cache_creation_tokens')) {
+    db.exec(`ALTER TABLE task_token_deltas ADD COLUMN cache_creation_tokens INTEGER`);
+  }
+  if (!tokenColumns.has('compaction_tokens')) {
+    db.exec(`ALTER TABLE task_token_deltas ADD COLUMN compaction_tokens INTEGER`);
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS source_ingestion_stats (
       source_artifact_id TEXT PRIMARY KEY REFERENCES source_artifacts(id) ON DELETE CASCADE,
@@ -395,7 +401,8 @@ function applyV14(db: Database.Database): void {
       dirty      INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
-    INSERT OR IGNORE INTO canonical_projection_state (id, dirty) VALUES (1, 0);
+    INSERT INTO canonical_projection_state (id, dirty) VALUES (1, 1)
+      ON CONFLICT(id) DO UPDATE SET dirty = 1, updated_at = datetime('now');
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(14);
 }

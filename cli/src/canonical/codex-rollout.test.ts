@@ -211,6 +211,25 @@ describe('CodexRolloutAdapter', () => {
     db.close();
   });
 
+  it('keeps safe tool-call metadata without retaining a reference to raw arguments', async () => {
+    const home = tempCodexHome();
+    const path = join(home, 'sessions', '2026', '07', '21', 'rollout-tool-call.jsonl');
+    writeFileSync(path, `${rootRollout()[0]}\n${line('response_item', {
+      type: 'function_call', name: 'shell', call_id: 'call-1', arguments: 'PRIVATE_SENTINEL',
+    }, '2026-07-21T08:00:01.000Z')}\n${line('response_item', {
+      type: 'function_call_output', call_id: 'call-1', output: 'PRIVATE_SENTINEL',
+    }, '2026-07-21T08:00:02.000Z')}\n`);
+    const db = new Database(':memory:');
+    runMigrations(db);
+    await ingestSourceAdapter(new CodexRolloutAdapter(home), db);
+    const toolCall = readWorkTaskDetail(db, 'thread-root')?.events.find((event) => event.kind === 'tool-call');
+    const toolResult = readWorkTaskDetail(db, 'thread-root')?.events.find((event) => event.kind === 'tool-result');
+    expect(toolCall).toMatchObject({ sensitivity: 'metadata', payloadRef: null });
+    expect(toolResult).toMatchObject({ sensitivity: 'sensitive-content', payloadRef: expect.stringMatching(/^source:/) });
+    expect(JSON.stringify({ toolCall, toolResult })).not.toContain('PRIVATE_SENTINEL');
+    db.close();
+  });
+
   it('keeps an opaque locator and diagnostic for a complete malformed record', async () => {
     const home = tempCodexHome();
     const path = join(home, 'sessions', '2026', '07', '21', 'rollout-malformed.jsonl');
