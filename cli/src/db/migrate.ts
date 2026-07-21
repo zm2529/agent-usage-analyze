@@ -25,6 +25,7 @@ export interface MigrationResult {
  * Version 11: Add monotonic source cursors, canonical identity edges, and repository locators
  * Version 12: Make parser version part of immutable source identity
  * Version 13: Add work-task tree and segmented token delta projections
+ * Version 14: Complete token counters and add durable per-source ingestion coverage
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -96,6 +97,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 13) {
     applyV13(db);
+  }
+
+  if (currentVersion < 14) {
+    applyV14(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -362,13 +367,19 @@ function applyV13(db: Database.Database): void {
       status              TEXT NOT NULL,
       input_tokens        INTEGER,
       cached_input_tokens INTEGER,
-      cache_creation_tokens INTEGER,
       output_tokens       INTEGER,
-      reasoning_tokens    INTEGER,
-      compaction_tokens   INTEGER
+      reasoning_tokens    INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_task_token_deltas_task ON task_token_deltas(task_id, lane_key, segment);
 
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(13);
+}
+
+function applyV14(db: Database.Database): void {
+  db.exec(`ALTER TABLE task_token_deltas ADD COLUMN cache_creation_tokens INTEGER`);
+  db.exec(`ALTER TABLE task_token_deltas ADD COLUMN compaction_tokens INTEGER`);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS source_ingestion_stats (
       source_artifact_id TEXT PRIMARY KEY REFERENCES source_artifacts(id) ON DELETE CASCADE,
       discovered_count  INTEGER NOT NULL,
@@ -379,6 +390,12 @@ function applyV13(db: Database.Database): void {
       diagnostics_json  TEXT NOT NULL DEFAULT '[]',
       updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS canonical_projection_state (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      dirty      INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    INSERT OR IGNORE INTO canonical_projection_state (id, dirty) VALUES (1, 0);
   `);
-  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(13);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(14);
 }

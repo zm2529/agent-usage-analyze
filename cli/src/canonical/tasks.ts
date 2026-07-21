@@ -181,10 +181,13 @@ export function rebuildTaskProjection(db: Database.Database): void {
            task_id AS taskId, thread_id AS threadId, turn_id AS turnId, era_id AS eraId,
            occurred_at AS occurredAt, kind, payload_json AS payloadJson,
            generation, attempt, sequence, repo_root AS repoRoot,
-           worktree_path AS worktreePath, git_branch AS gitBranch
+           worktree_path AS worktreePath, git_branch AS gitBranch,
+           MIN(occurred_at) OVER (
+             PARTITION BY task_id, source_artifact_id
+           ) AS sourceStartedAt
     FROM canonical_events
     WHERE kind = 'token-snapshot' AND task_id IS NOT NULL
-    ORDER BY task_id, source_artifact_id, sequence
+    ORDER BY task_id, sourceStartedAt, source_artifact_id, sequence
   `).all() as EventRow[];
   type Counters = { inputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; outputTokens: number; reasoningTokens: number; compactionTokens: number };
   const previous = new Map<string, { counters: Counters; occurredAt: string; segment: number }>();
@@ -326,7 +329,9 @@ export function readWorkTaskDetail(db: Database.Database, rootTaskId: string): W
   const diagnosticCounts = new Map<string, { severity: string; code: string; count: number }>();
   for (const row of stats) {
     let values: Array<{ severity: string; code: string; count: number }> = [];
-    try { values = JSON.parse(row.diagnosticsJson) as typeof values; } catch { /* safe empty fallback */ }
+    try { values = JSON.parse(row.diagnosticsJson) as typeof values; } catch {
+      values = [{ severity: 'error', code: 'invalid-stored-diagnostics', count: 1 }];
+    }
     for (const value of values) {
       const key = `${value.severity}:${value.code}`;
       const prior = diagnosticCounts.get(key);

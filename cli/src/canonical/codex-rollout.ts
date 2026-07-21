@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type {
   CanonicalBatch,
   CanonicalEvent,
@@ -42,20 +42,29 @@ function walkRollouts(directory: string, files: string[], depth = 0): void {
   }
 }
 
-function nativeRolloutIdentity(path: string): string {
-  const buffer = readFileSync(path, 'utf8');
-  for (const rawLine of buffer.split('\n').slice(0, 64)) {
+function nativeRolloutIdentity(path: string): string | undefined {
+  const descriptor = openSync(path, 'r');
+  const prefix = Buffer.alloc(64 * 1024);
+  let length = 0;
+  try {
+    length = readSync(descriptor, prefix, 0, prefix.length, 0);
+  } finally {
+    closeSync(descriptor);
+  }
+  for (const rawLine of prefix.subarray(0, length).toString('utf8').split('\n').slice(0, 64)) {
     if (!rawLine.trim()) continue;
     try {
       const raw = asRecord(JSON.parse(rawLine));
       const payload = asRecord(raw.payload);
-      const id = text(payload.id) ?? text(raw.thread_id);
-      if (id) return `${id}:${basename(path)}`;
+      const id = raw.type === 'session_meta'
+        ? text(payload.id)
+        : ['input', 'item.completed'].includes(String(raw.type)) ? text(raw.thread_id) : undefined;
+      if (id) return id;
     } catch {
-      break;
+      continue;
     }
   }
-  return `filename:${basename(path)}`;
+  return undefined;
 }
 
 function normalizeRole(value: unknown, parentThreadId?: string): 'root' | 'subagent' | 'reviewer' | 'worker' | 'unknown' {
@@ -282,7 +291,7 @@ function mapEnvelope(
   if (['function_call', 'custom_tool_call', 'tool_search_call', 'mcp_tool_call_begin'].includes(inner)) {
     const callId = safeName(body.call_id ?? body.id);
     const event: CanonicalEvent = {
-      ...common, kind: 'tool-call', actor: 'assistant', sensitivity: 'metadata',
+      ...common, kind: 'tool-call', actor: 'assistant', sensitivity: 'sensitive-content',
       payload: defined({ toolName: safeName(body.name ?? body.namespace ?? inner), callId }), payloadRef,
     };
     if (callId) state.callEvents.set(callId, event.id);
@@ -349,6 +358,7 @@ export class CodexRolloutAdapter implements SourceAdapter {
     for (const path of files.sort()) {
       const absolute = resolve(path);
       const stableIdentity = nativeRolloutIdentity(absolute);
+      if (!stableIdentity) continue;
       const id = `codex:${hash(stableIdentity)}`;
       this.paths.set(id, absolute);
       artifacts.set(id, {

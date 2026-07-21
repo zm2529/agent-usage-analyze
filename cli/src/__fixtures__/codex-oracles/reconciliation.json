@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "fixture": "rollout-code-insights.jsonl",
+      "taskId": "code-insights-thread",
+      "sourceId": "codex:be1e22cbf41fa61b88f39d4f2861ae34365bae7152510f35ecfa9b4ab580395f",
+      "coverage": { "discovered": 1, "parsed": 4, "skipped": 0, "failed": 0, "unknown": 0 },
+      "diagnostics": [],
+      "events": [
+        { "id": "event:5be8c0160f2616cc5270b51cf0b3ed4310ea0a344ea981449d8d2aff7bbe40ac", "nativeEventId": "code-insights-thread@0", "sequence": 1, "kind": "session-meta", "sensitivity": "metadata" },
+        { "id": "event:2978bdec4e7712d3d2d0da1feb58507ea74559aaa3112df4a9b3c59389d3bf67", "nativeEventId": "event@154", "sequence": 3, "kind": "user-message", "sensitivity": "sensitive-content" },
+        { "id": "event:79bf7f8af6a68d438eeef6c7fb0c07b7dc50c79c72d28f682a28a9e9f4ccd33a", "nativeEventId": "event@273", "sequence": 5, "kind": "assistant-message", "sensitivity": "sensitive-content" },
+        { "id": "event:39efa9f5b1ac975fe69a62638fb900496816bffdf415222bdaf46ebeee7411eb", "nativeEventId": "event@442", "sequence": 7, "kind": "task-completed", "sensitivity": "structural" }
+      ]
+    },
+    {
+      "fixture": "rollout-buildermark.jsonl",
+      "taskId": "buildermark-thread",
+      "sourceId": "codex:b673c037760aeaed36804e0859d1b870e9e09c702da6c2317d9f3edaef169542",
+      "coverage": { "discovered": 1, "parsed": 3, "skipped": 0, "failed": 0, "unknown": 0 },
+      "diagnostics": [],
+      "events": [
+        { "id": "event:ca748bc4ba52911753b2466f8ba920af10716bbd3ffdc2da992d73291fbd5ad5", "nativeEventId": "legacy-session-meta@0", "sequence": 0, "kind": "session-meta", "sensitivity": "metadata" },
+        { "id": "event:67beda595f5677e3275ccfaebe2d8da1d9f0f5d642ff4ea2ad10df8eb160486a", "nativeEventId": "event@0", "sequence": 1, "kind": "user-message", "sensitivity": "sensitive-content" },
+        { "id": "event:338ac025ae52ee8e1c2db2831093b6ca48423dbb7fc8638dff4105a0591561f9", "nativeEventId": "event@147", "sequence": 3, "kind": "assistant-message", "sensitivity": "sensitive-content" }
+      ]
+    },
+    {
+      "fixture": "rollout-entire.jsonl",
+      "taskId": "entire-thread",
+      "sourceId": "codex:649acdb1edb92de0a90d3dc78a4a5a3b84e0763c7a679b68513bdfe2498d3336",
+      "coverage": { "discovered": 1, "parsed": 2, "skipped": 0, "failed": 0, "unknown": 0 },
+      "diagnostics": [],
+      "events": [
+        { "id": "event:f25343f71305293dd36096ac87dd592ee2d5172f3c9fd71285333a085031da75", "nativeEventId": "entire-thread@0", "sequence": 1, "kind": "session-meta", "sensitivity": "metadata" },
+        { "id": "event:3cebde4187d75b891d11dcad914b256b7d40b76865ccafde6e8012a5a27ee893", "nativeEventId": "event@120", "sequence": 3, "kind": "compaction", "sensitivity": "sensitive-content" }
+      ]
+    }
+  ]
+}

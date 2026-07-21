@@ -34,7 +34,33 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    db.close();
+  });
+});
+
+describe('runMigrations — V14 canonical coverage upgrade', () => {
+  it('upgrades the exact pre-fix V13 task projection schema', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.prepare('DELETE FROM schema_version WHERE version = 14').run();
+    db.exec('DROP TABLE source_ingestion_stats');
+    db.exec(`
+      CREATE TABLE task_token_deltas_v13 AS
+      SELECT event_id, task_id, lane_key, segment, status,
+             input_tokens, cached_input_tokens, output_tokens, reasoning_tokens
+      FROM task_token_deltas;
+      DROP TABLE task_token_deltas;
+      ALTER TABLE task_token_deltas_v13 RENAME TO task_token_deltas;
+    `);
+
+    expect(() => runMigrations(db)).not.toThrow();
+    const columns = db.prepare('PRAGMA table_info(task_token_deltas)').all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
+      'cache_creation_tokens', 'compaction_tokens',
+    ]));
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='source_ingestion_stats'").get())
+      .toEqual({ name: 'source_ingestion_stats' });
     db.close();
   });
 });

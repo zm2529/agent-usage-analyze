@@ -415,6 +415,33 @@ function cursorsEqual(left: SourceCursor | null, right: SourceCursor | null): bo
   return left.token === right.token && left.position === right.position;
 }
 
+function mergeDiagnostics(
+  existingJson: string | null,
+  incoming: IngestionDiagnostic[],
+): Array<{ severity: string; code: string; count: number }> {
+  const merged = new Map<string, { severity: string; code: string; count: number }>();
+  if (existingJson) {
+    try {
+      const existing = JSON.parse(existingJson) as Array<{ severity: string; code: string; count: number }>;
+      for (const diagnostic of existing) {
+        if (typeof diagnostic.severity !== 'string' || typeof diagnostic.code !== 'string'
+            || !Number.isSafeInteger(diagnostic.count) || diagnostic.count < 1) continue;
+        merged.set(`${diagnostic.severity}:${diagnostic.code}`, diagnostic);
+      }
+    } catch {
+      merged.set('error:invalid-stored-diagnostics', {
+        severity: 'error', code: 'invalid-stored-diagnostics', count: 1,
+      });
+    }
+  }
+  for (const diagnostic of incoming) {
+    const key = `${diagnostic.severity}:${diagnostic.code}`;
+    const prior = merged.get(key);
+    merged.set(key, { ...diagnostic, count: diagnostic.count + (prior?.count ?? 0) });
+  }
+  return [...merged.values()].sort((left, right) => left.code.localeCompare(right.code));
+}
+
 export async function ingestSourceAdapter(
   adapter: SourceAdapter,
   db: Database.Database,
@@ -609,30 +636,50 @@ export async function ingestSourceAdapter(
           );
         }
 
-        db.prepare(`
-          INSERT INTO source_ingestion_stats (
-            source_artifact_id, discovered_count, parsed_count, skipped_count,
-            failed_count, unknown_count, diagnostics_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(source_artifact_id) DO UPDATE SET
-            discovered_count = excluded.discovered_count,
-            parsed_count = excluded.parsed_count,
-            skipped_count = excluded.skipped_count,
-            failed_count = excluded.failed_count,
-            unknown_count = excluded.unknown_count,
-            diagnostics_json = excluded.diagnostics_json,
-            updated_at = datetime('now')
-        `).run(
-          artifact.id,
-          batch.coverage.discovered,
-          batch.coverage.parsed,
-          batch.coverage.skipped,
-          batch.coverage.failed,
-          batch.coverage.unknown,
-          JSON.stringify(batch.diagnostics.map((diagnostic) => ({
-            severity: diagnostic.severity, code: diagnostic.code, count: diagnostic.count,
-          }))),
-        );
+        const noNewRange = batch.operation !== 'rebuild'
+          && batch.nextCursor.position === (batch.previousCursor?.position ?? 0);
+        const priorStats = db.prepare(`
+          SELECT discovered_count AS discovered, parsed_count AS parsed,
+                 skipped_count AS skipped, failed_count AS failed,
+                 unknown_count AS unknown, diagnostics_json AS diagnosticsJson
+          FROM source_ingestion_stats WHERE source_artifact_id = ?
+        `).get(artifact.id) as (CoverageCounts & { diagnosticsJson: string }) | undefined;
+        if (!priorStats || batch.operation === 'rebuild' || !noNewRange) {
+          const replace = !priorStats || batch.operation === 'rebuild';
+          const sourceCoverage = replace ? batch.coverage : {
+            discovered: Math.max(priorStats.discovered, batch.coverage.discovered),
+            parsed: priorStats.parsed + batch.coverage.parsed,
+            skipped: priorStats.skipped + batch.coverage.skipped,
+            failed: priorStats.failed + batch.coverage.failed,
+            unknown: priorStats.unknown + batch.coverage.unknown,
+          };
+          const diagnostics = mergeDiagnostics(
+            replace ? null : priorStats?.diagnosticsJson ?? null,
+            batch.diagnostics,
+          );
+          db.prepare(`
+            INSERT INTO source_ingestion_stats (
+              source_artifact_id, discovered_count, parsed_count, skipped_count,
+              failed_count, unknown_count, diagnostics_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_artifact_id) DO UPDATE SET
+              discovered_count = excluded.discovered_count,
+              parsed_count = excluded.parsed_count,
+              skipped_count = excluded.skipped_count,
+              failed_count = excluded.failed_count,
+              unknown_count = excluded.unknown_count,
+              diagnostics_json = excluded.diagnostics_json,
+              updated_at = datetime('now')
+          `).run(
+            artifact.id,
+            sourceCoverage.discovered,
+            sourceCoverage.parsed,
+            sourceCoverage.skipped,
+            sourceCoverage.failed,
+            sourceCoverage.unknown,
+            JSON.stringify(diagnostics),
+          );
+        }
 
         const cursorUpdate = db.prepare(`
           UPDATE source_artifacts
@@ -649,7 +696,8 @@ export async function ingestSourceAdapter(
           throw new Error('Stale source cursor: compare-and-swap failed');
         }
         if (batch.operation === 'rebuild' || batch.events.length > 0 || batch.identityEdges.length > 0) {
-          rebuildTaskProjection(db);
+          db.prepare(`UPDATE canonical_projection_state
+            SET dirty = 1, updated_at = datetime('now') WHERE id = 1`).run();
         }
       });
 
@@ -659,6 +707,16 @@ export async function ingestSourceAdapter(
       coverage.skipped += batch.coverage.skipped;
       coverage.failed += batch.coverage.failed;
       coverage.unknown += batch.coverage.unknown;
+    }
+
+    const projectionState = db.prepare('SELECT dirty FROM canonical_projection_state WHERE id = 1')
+      .get() as { dirty: number };
+    if (projectionState.dirty === 1) {
+      db.transaction(() => {
+        rebuildTaskProjection(db);
+        db.prepare(`UPDATE canonical_projection_state
+          SET dirty = 0, updated_at = datetime('now') WHERE id = 1`).run();
+      })();
     }
 
     status = coverage.failed > 0

@@ -182,7 +182,7 @@ describe('CodexRolloutAdapter', () => {
   it('keeps one source identity when a rollout moves from active to archive', async () => {
     const home = tempCodexHome();
     const active = join(home, 'sessions', '2026', '07', '21', 'rollout-moved.jsonl');
-    const archived = join(home, 'archived_sessions', 'rollout-moved.jsonl');
+    const archived = join(home, 'archived_sessions', 'rollout-renamed-after-archive.jsonl');
     writeFileSync(active, `${rootRollout().slice(0, 5).join('\n')}\n`);
     const db = new Database(':memory:');
     runMigrations(db);
@@ -193,6 +193,21 @@ describe('CodexRolloutAdapter', () => {
     expect(moved.insertedEvents).toBe(0);
     expect(db.prepare('SELECT COUNT(*) AS count FROM source_artifacts').get()).toEqual({ count: 1 });
     expect(db.prepare('SELECT COUNT(*) AS count FROM canonical_events').get()).toEqual({ count: 5 });
+    db.close();
+  });
+
+  it('defers an incomplete source until its native session identity is readable', async () => {
+    const home = tempCodexHome();
+    const path = join(home, 'sessions', '2026', '07', '21', 'rollout-growing.jsonl');
+    writeFileSync(path, '{"type":"session_meta"');
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const adapter = new CodexRolloutAdapter(home);
+    expect((await adapter.discover())).toEqual([]);
+    writeFileSync(path, `${rootRollout().slice(0, 2).join('\n')}\n`);
+    await ingestSourceAdapter(adapter, db);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM source_artifacts').get()).toEqual({ count: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM canonical_events').get()).toEqual({ count: 2 });
     db.close();
   });
 
@@ -211,31 +226,43 @@ describe('CodexRolloutAdapter', () => {
     expect(detail?.events.find((event) => event.kind === 'unknown')).toMatchObject({
       sensitivity: 'sensitive-content', payloadRef: expect.stringMatching(/^source:/),
     });
+    const repeated = await ingestSourceAdapter(new CodexRolloutAdapter(home), db);
+    expect(repeated.insertedEvents).toBe(0);
+    expect(readWorkTaskDetail(db, 'thread-root')?.diagnostics).toEqual(expect.arrayContaining([
+      { severity: 'error', code: 'malformed-record', count: 1 },
+    ]));
     db.close();
   });
 
   it('normalizes the frozen Code Insights, Buildermark, and Entire structural oracles', async () => {
     const home = tempCodexHome();
     const fixtureRoot = join(import.meta.dirname, '..', '__fixtures__', 'codex-oracles');
-    for (const name of ['rollout-code-insights.jsonl', 'rollout-buildermark.jsonl', 'rollout-entire.jsonl']) {
+    const reconciliation = JSON.parse(readFileSync(join(fixtureRoot, 'reconciliation.json'), 'utf8')) as {
+      sources: Array<{
+        fixture: string; taskId: string; sourceId: string;
+        coverage: { discovered: number; parsed: number; skipped: number; failed: number; unknown: number };
+        diagnostics: unknown[];
+        events: Array<{ id: string; nativeEventId: string; sequence: number; kind: string; sensitivity: string }>;
+      }>;
+    };
+    for (const source of reconciliation.sources) {
       writeFileSync(
-        join(home, 'sessions', '2026', '07', '21', name),
-        readFileSync(join(fixtureRoot, name)),
+        join(home, 'sessions', '2026', '07', '21', source.fixture),
+        readFileSync(join(fixtureRoot, source.fixture)),
       );
     }
     const db = new Database(':memory:');
     runMigrations(db);
     await ingestSourceAdapter(new CodexRolloutAdapter(home), db);
-    const oracle = {
-      'code-insights-thread': ['session-meta', 'user-message', 'assistant-message', 'task-completed'],
-      'buildermark-thread': ['session-meta', 'user-message', 'assistant-message'],
-      'entire-thread': ['session-meta', 'compaction'],
-    };
-    for (const [taskId, expected] of Object.entries(oracle)) {
-      const detail = readWorkTaskDetail(db, taskId);
-      expect(detail?.events.map((event) => event.kind)).toEqual(expected);
+    for (const source of reconciliation.sources) {
+      const detail = readWorkTaskDetail(db, source.taskId);
+      expect(db.prepare(`SELECT id, native_event_id AS nativeEventId, sequence, kind, sensitivity
+        FROM canonical_events WHERE source_artifact_id = ? ORDER BY sequence`).all(source.sourceId))
+        .toEqual(source.events);
+      expect(detail?.coverage).toEqual(source.coverage);
+      expect(detail?.diagnostics).toEqual(source.diagnostics);
       expect(JSON.stringify(detail)).not.toContain('PRIVATE_SENTINEL');
-      if (taskId === 'entire-thread') {
+      if (source.taskId === 'entire-thread') {
         expect(detail?.events.find((event) => event.kind === 'compaction')?.sensitivity)
           .toBe('sensitive-content');
       }

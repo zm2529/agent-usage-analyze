@@ -298,7 +298,9 @@ describe('canonical ingestion', () => {
     await expect(ingestSourceAdapter(adapter, db)).rejects.toThrow(/more than one parent/i);
     expect(readIngestionHealth(db)).toMatchObject({
       status: 'failed',
-      diagnostics: [{ severity: 'error', code: 'identity-conflict', count: 1 }],
+      diagnostics: expect.arrayContaining([
+        { severity: 'error', code: 'identity-conflict', count: 1 },
+      ]),
     });
     db.close();
   });

@@ -31,6 +31,8 @@ or output values.
   `source.subagent.thread_spawn.parent_thread_id`; repository or timestamp
   proximity is never used as a merge key.
 
-The committed differential test runs every candidate fixture through the same
-`SourceAdapter -> CanonicalBatch -> WorkTaskDetail` oracle and compares event
-identity, type, order, and privacy behavior.
+The committed `reconciliation.json` is the machine-readable contract for all
+three fixtures. The differential test runs each fixture through the same
+`SourceAdapter -> CanonicalBatch -> WorkTaskDetail` path and compares stable
+source/event identity, sequence, type, sensitivity, coverage, diagnostics, and
+privacy behavior.
