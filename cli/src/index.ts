@@ -28,6 +28,7 @@ import {
   gitAiSidecarInspectCommand,
   gitAiSidecarVerifyCommand,
 } from './commands/git-ai-sidecar.js';
+import { advisoryCommand } from './commands/advisory.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
@@ -110,6 +111,14 @@ program
   .description('Explicitly import active and archived Codex rollouts into the canonical store')
   .option('--home <path>', 'Use an isolated Codex home instead of the configured default')
   .action(importCodexCommand);
+
+program
+  .command('advisory [task_id]')
+  .description('Read at most one non-blocking local suggestion for a Codex task')
+  .option('--hook', 'Read task or session context from stdin without echoing the prompt')
+  .option('--timeout-ms <number>', 'Fail-open query budget in milliseconds', '75')
+  .action((taskId: string | undefined, options: { hook?: boolean; timeoutMs?: string }) =>
+    advisoryCommand(taskId, options));
 
 program
   .command('buildermark-gate <evidence>')
@@ -248,7 +257,8 @@ program.action(async () => {
 // Show one-time telemetry disclosure before any command runs
 // Skip for --version/-V and --help/-h since those commands don't need it
 const isVersionOrHelp = process.argv.some(arg => ['--version', '-V', '--help', '-h'].includes(arg));
-if (!isVersionOrHelp) {
+const isReadOnlyAdvisory = process.argv[2] === 'advisory';
+if (!isVersionOrHelp && !isReadOnlyAdvisory) {
   showTelemetryNoticeIfNeeded();
 }
 

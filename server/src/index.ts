@@ -28,6 +28,7 @@ import gitAiSidecarRouter from './routes/git-ai-sidecar.js';
 import semanticAnalysisRouter from './routes/semantic-analysis.js';
 import scorecardsRouter from './routes/scorecards.js';
 import observerOverheadRouter from './routes/observer-overhead.js';
+import adviceRouter from './routes/advice.js';
 
 export interface ServerOptions {
   port: number;
@@ -78,6 +79,7 @@ export function createApp(): Hono {
   app.route('/api/semantic', semanticAnalysisRouter);
   app.route('/api/scorecards', scorecardsRouter);
   app.route('/api/observer-overhead', observerOverheadRouter);
+  app.route('/api/advice', adviceRouter);
 
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true, version: '0.1.0' }));

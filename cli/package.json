@@ -21,6 +21,7 @@
     "./canonical/semantic-analysis": "./dist/canonical/semantic-analysis.js",
     "./canonical/scorecards": "./dist/canonical/scorecards.js",
     "./canonical/observer-overhead": "./dist/canonical/observer-overhead.js",
+    "./canonical/advisory": "./dist/canonical/advisory.js",
     "./sidecars/git-ai-manager": "./dist/sidecars/git-ai-manager.js",
     "./types": "./dist/types.js",
     "./utils/config": "./dist/utils/config.js",

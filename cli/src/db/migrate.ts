@@ -32,6 +32,7 @@ export interface MigrationResult {
  * Version 18: Add managed Git AI prospective sidecar gate reports
  * Version 19: Add privacy-controlled semantic analysis runs and claim details
  * Version 20: Add immutable scorecards, versioned results, and observer overhead
+ * Version 21: Add non-blocking advisory interaction history and mute policy
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -131,6 +132,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 20) {
     applyV20(db);
+  }
+
+  if (currentVersion < 21) {
+    applyV21(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -724,5 +729,51 @@ function applyV20(db: Database.Database): void {
         BEFORE DELETE ON observer_overhead_diagnostics BEGIN SELECT RAISE(ABORT, 'observer overhead diagnostics are immutable'); END;
     `);
     db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(20);
+  })();
+}
+
+function applyV21(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS advisory_events (
+        id                  TEXT PRIMARY KEY,
+        intervention_id     TEXT NOT NULL,
+        issue_key           TEXT NOT NULL,
+        task_id             TEXT NOT NULL,
+        action              TEXT NOT NULL CHECK (action IN ('shown', 'adopted', 'ignored', 'dismissed', 'outcome')),
+        outcome             TEXT CHECK (outcome IS NULL OR outcome IN ('improved', 'not-improved', 'unknown')),
+        observation_era_id  TEXT NOT NULL,
+        coverage            REAL NOT NULL CHECK (coverage >= 0 AND coverage <= 1),
+        evidence_refs_json  TEXT NOT NULL CHECK (json_valid(evidence_refs_json) AND json_type(evidence_refs_json) = 'array'),
+        occurred_at         TEXT NOT NULL,
+        CHECK ((action = 'outcome' AND outcome IS NOT NULL) OR (action != 'outcome' AND outcome IS NULL))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_events_task_issue
+        ON advisory_events(task_id, issue_key, occurred_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_advisory_events_intervention
+        ON advisory_events(intervention_id, occurred_at ASC, id ASC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_events_one_shown
+        ON advisory_events(intervention_id) WHERE action = 'shown';
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_events_one_response
+        ON advisory_events(intervention_id) WHERE action IN ('adopted', 'ignored', 'dismissed');
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_events_one_outcome
+        ON advisory_events(intervention_id) WHERE action = 'outcome';
+      CREATE INDEX IF NOT EXISTS idx_advisory_events_action
+        ON advisory_events(action, occurred_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS advisory_mutes (
+        scope_kind   TEXT NOT NULL CHECK (scope_kind IN ('issue', 'category')),
+        scope_key    TEXT NOT NULL,
+        muted_until  TEXT,
+        updated_at   TEXT NOT NULL,
+        PRIMARY KEY (scope_kind, scope_key)
+      );
+
+      CREATE TRIGGER IF NOT EXISTS advisory_events_no_update
+        BEFORE UPDATE ON advisory_events BEGIN SELECT RAISE(ABORT, 'advisory events are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS advisory_events_no_delete
+        BEFORE DELETE ON advisory_events BEGIN SELECT RAISE(ABORT, 'advisory events are immutable'); END;
+    `);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(21);
   })();
 }

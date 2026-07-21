@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead } from '@/lib/types';
+import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, AdviceState } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -18,6 +18,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`API ${res.status}: ${text}`);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -180,6 +181,31 @@ export function recordAdvisoryOverhead(input: {
   return request<{ recorded: boolean; degraded: boolean }>('/observer-overhead/advisory', {
     method: 'POST', body: JSON.stringify(input),
   });
+}
+
+export function fetchAdvice(taskId?: string) {
+  const query = taskId ? `?${new URLSearchParams({ taskId }).toString()}` : '';
+  return request<AdviceState>(`/advice${query}`);
+}
+
+export function recordAdviceEvent(input:
+  | { taskId: string; issueKey: string; action: 'shown' }
+  | { taskId: string; issueKey: string; action: 'adopted' | 'ignored' | 'dismissed'; interventionId: string }
+  | { taskId: string; issueKey: string; action: 'outcome'; interventionId: string;
+      outcome: 'improved' | 'not-improved' | 'unknown' }) {
+  return request<{ recorded: boolean; degraded: boolean; id?: string; interventionId?: string }>('/advice/events', {
+    method: 'POST', body: JSON.stringify(input),
+  });
+}
+
+export function setAdviceMute(input: {
+  scopeKind: 'issue' | 'category'; scopeKey: string; mutedUntil: string | null;
+}) {
+  return request<void>('/advice/mutes', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function clearAdviceMute(input: { scopeKind: 'issue' | 'category'; scopeKey: string }) {
+  return request<void>('/advice/mutes', { method: 'DELETE', body: JSON.stringify(input) });
 }
 
 export function fetchPatternTrends(currentStart: string, currentEnd: string) {

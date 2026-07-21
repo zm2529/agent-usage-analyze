@@ -13,6 +13,7 @@ import {
   Clock,
   Zap,
   Scale,
+  BellRing,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -55,6 +56,7 @@ const NAV_ITEMS = [
   { label: 'Go to Analytics', href: '/analytics', icon: BarChart3 },
   { label: 'Go to Patterns', href: '/patterns', icon: Sparkles },
   { label: 'Go to Scorecards', href: '/scorecards', icon: Scale },
+  { label: 'Go to Advice', href: '/advice', icon: BellRing },
   { label: 'Go to Export', href: '/export', icon: Download },
   { label: 'Go to Settings', href: '/settings', icon: Settings },
 ];

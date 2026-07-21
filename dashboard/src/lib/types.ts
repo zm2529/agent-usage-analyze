@@ -253,6 +253,43 @@ export interface ObserverOverhead {
   }>;
 }
 
+export interface AdvisorySuggestion {
+  taskId: string;
+  issueKey: string;
+  sourceCategory: 'deterministic' | 'llm-semantic';
+  triggerFact: string;
+  expectedBenefit: string;
+  confidence: number;
+  coverage: number;
+  evidenceRefs: string[];
+  verification: string;
+  muted: boolean;
+}
+
+export interface AdviceState {
+  status: 'ok';
+  active: AdvisorySuggestion[];
+  muted: AdvisorySuggestion[];
+  history: {
+    events: Array<{
+      id: string; interventionId: string; issueKey: string; taskId: string;
+      action: 'shown' | 'adopted' | 'ignored' | 'dismissed' | 'outcome';
+      outcome: 'improved' | 'not-improved' | 'unknown' | null;
+      observationEraId: string; coverage: number; evidenceRefs: string[]; occurredAt: string;
+    }>;
+    comparisons: Array<{
+      interventionId: string; issueKey: string; kind: 'observational-before-after'; causal: false;
+      baseline: { observationEraId: string; coverage: number; occurredAt: string };
+      followup: {
+        observationEraId: string; coverage: number;
+        outcome: 'improved' | 'not-improved' | 'unknown'; occurredAt: string;
+      };
+    }>;
+  };
+  attention: { shown: number; adopted: number; ignored: number; dismissed: number };
+  diagnostics: string[];
+}
+
 export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
 export interface AnalysisClaim {
   id: string;
