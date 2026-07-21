@@ -90,6 +90,35 @@ export interface DeliveryDetail extends Delivery {
   candidates: TaskDeliveryCandidate[];
 }
 
+export type BuildermarkGateStatus = 'disabled' | 'testing' | 'passed' | 'failed';
+export interface BuildermarkGateReport {
+  id: string;
+  helper: 'buildermark';
+  helperVersion: string;
+  helperSourceCommit: string;
+  evidenceSchemaVersion: string;
+  mode: 'synthetic' | 'real';
+  status: 'testing' | 'passed' | 'failed';
+  importedCommits: number;
+  referencedCommits: number;
+  candidates: number;
+  reviewedCandidates: number;
+  obviousMisattributions: number;
+  evidenceCounts: { exact: number; formatting: number; fallback: number; deletion: number };
+  diagnosticCodes: string[];
+  failureCodes: string[];
+  reportHash: string;
+  completedAt: string;
+}
+export interface BuildermarkGateState {
+  status: BuildermarkGateStatus;
+  experimentalEnabled: boolean;
+  latestRun: BuildermarkGateReport | null;
+  realGatePassed: boolean;
+  syntheticGatePassed: boolean;
+  stateError: 'corrupt-report' | null;
+}
+
 export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
 export interface AnalysisClaim {
   id: string;

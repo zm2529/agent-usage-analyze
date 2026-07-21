@@ -59,3 +59,12 @@ export function discoverGitCommits(repositoryPath: string): GitCommitDeliverySou
       };
     });
 }
+
+export function gitCommitExists(repositoryPath: string, objectId: string): boolean {
+  try {
+    git(repositoryPath, ['cat-file', '-e', `${objectId}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}

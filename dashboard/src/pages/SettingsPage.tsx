@@ -20,6 +20,7 @@ import {
   Minus,
   User,
 } from 'lucide-react';
+import { BuildermarkGateCard } from '@/components/settings/BuildermarkGateCard';
 
 // TODO: tech debt — duplicated provider types (this local type mirrors dashboard/src/lib/types.ts LLMConfig.provider)
 type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'llamacpp';
@@ -283,6 +284,8 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground">Configure your Agent Analytics dashboard</p>
       </div>
+
+      <BuildermarkGateCard />
 
       {/* User Profile Card */}
       <Card>

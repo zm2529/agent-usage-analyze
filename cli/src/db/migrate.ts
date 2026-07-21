@@ -28,6 +28,7 @@ export interface MigrationResult {
  * Version 14: Complete token counters and add durable per-source ingestion coverage
  * Version 15: Add evidence-closed, versioned analysis claims
  * Version 16: Add immutable engineering deliveries
+ * Version 17: Add isolated Buildermark helper gate reports
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -111,6 +112,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 16) {
     applyV16(db);
+  }
+
+  if (currentVersion < 17) {
+    applyV17(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -499,4 +504,26 @@ function applyV16(db: Database.Database): void {
       ON task_delivery_corrections(candidate_id, sequence DESC);
   `);
   db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(16);
+}
+
+function applyV17(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS buildermark_gate_runs (
+      sequence                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      id                       TEXT NOT NULL UNIQUE,
+      helper_version           TEXT NOT NULL,
+      helper_source_commit     TEXT NOT NULL,
+      evidence_schema_version  TEXT NOT NULL,
+      mode                     TEXT NOT NULL CHECK (mode IN ('synthetic', 'real')),
+      status                   TEXT NOT NULL CHECK (status IN ('testing', 'passed', 'failed')),
+      repository_identity      TEXT NOT NULL,
+      report_json              TEXT,
+      failure_codes_json       TEXT NOT NULL DEFAULT '[]',
+      started_at               TEXT NOT NULL,
+      completed_at             TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_buildermark_gate_runs_started
+      ON buildermark_gate_runs(sequence DESC);
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(17);
 }

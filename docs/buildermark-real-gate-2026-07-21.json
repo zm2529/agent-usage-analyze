@@ -1,0 +1,46 @@
+{
+  "reportSchemaVersion": "agent-analytics.buildermark-gate-report.v1",
+  "runId": "buildermark-gate:05760edc-ee7c-4b9a-97ba-2ef3c266a020",
+  "completedAt": "2026-07-21T13:18:08.614Z",
+  "helper": {
+    "name": "buildermark",
+    "declaredVersion": "v1.1.0",
+    "sourceCommit": "6c6374bd6b09eaf30595e3b81143baa4c92678ce"
+  },
+  "evidenceSchemaVersion": "agent-analytics.buildermark-evidence.v1",
+  "mode": "real",
+  "status": "failed",
+  "safety": {
+    "offline": true,
+    "loopbackOnly": true,
+    "remoteWrites": false,
+    "historyMutated": false,
+    "rawPromptsStored": false,
+    "rawCodeStored": false
+  },
+  "observations": {
+    "referencedCommits": 11,
+    "importedCommits": 11,
+    "candidateCount": 0,
+    "commitConversationLinks": 0,
+    "coverageRows": 0,
+    "reviewedCandidates": 0,
+    "obviousMisattributions": 0,
+    "evidenceCounts": {
+      "exact": 0,
+      "formatting": 0,
+      "fallback": 0,
+      "deletion": 0
+    }
+  },
+  "failureCodes": [
+    "no-explainable-candidate",
+    "real-review-missing"
+  ],
+  "reportHash": "sha256:e6c6f35d2fd21caab67ecd7206716d97faeda89003328f23e4f49851d904f352",
+  "runtimeDecision": {
+    "buildermarkExperimentEnabled": false,
+    "path": "product-native-delivery-evidence",
+    "reasonCode": "real-backfill-gate-failed"
+  }
+}

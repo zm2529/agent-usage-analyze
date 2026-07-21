@@ -20,6 +20,7 @@ import { doctorCommand } from './commands/doctor/index.js';
 import { showTelemetryNoticeIfNeeded } from './utils/telemetry.js';
 import { ingestFixtureCommand } from './commands/ingest-fixture.js';
 import { importCodexCommand } from './commands/import-codex.js';
+import { buildermarkGateCommand } from './commands/buildermark-gate.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
@@ -102,6 +103,15 @@ program
   .description('Explicitly import active and archived Codex rollouts into the canonical store')
   .option('--home <path>', 'Use an isolated Codex home instead of the configured default')
   .action(importCodexCommand);
+
+program
+  .command('buildermark-gate <evidence>')
+  .description('Run the isolated Buildermark historical-helper gate from sanitized local evidence JSON')
+  .requiredOption('--repository <path>', 'Repository whose immutable commits the evidence references')
+  .action((evidence: string, options: { repository: string }) => {
+    const report = buildermarkGateCommand(evidence, options);
+    if (report.status === 'failed') process.exitCode = 2;
+  });
 
 program
   .command('install-hook')

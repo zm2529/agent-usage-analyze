@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate } from '@/lib/types';
+import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -178,6 +178,10 @@ export function appendDeliveryCorrection(
     `/deliveries/${encodeURIComponent(deliveryId)}/candidates/${encodeURIComponent(candidateId)}/corrections`,
     { method: 'POST', body: JSON.stringify({ decision }) },
   );
+}
+
+export function fetchBuildermarkGateState() {
+  return request<BuildermarkGateState>('/buildermark-gate');
 }
 
 // ── Analysis (Phase 4) ────────────────────────────────────────────────────────
