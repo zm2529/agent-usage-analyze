@@ -240,14 +240,17 @@ export interface ObserverOverhead {
   }>;
   totals: {
     cpuMs: number; wallMs: number; dbBytesDelta: number; inputTokens: number | null;
-    outputTokens: number | null; costUsd: number | null; sidecarMs: number;
+    cachedInputTokens: number | null; outputTokens: number | null;
+    reasoningTokens: number | null; costUsd: number | null; sidecarMs: number;
   };
   advisory: { shown: number; adopted: number; ignored: number; dismissed: number };
   byCategory: Array<{ category: 'import' | 'llm' | 'sidecar' | 'advisory'; eventCount: number; wallMs: number }>;
   recentEvents: Array<{
     id: string; subjectKind: 'observer'; category: 'import' | 'llm' | 'sidecar' | 'advisory';
     observerRunId: string; analyzedTaskId?: string; cpuMs?: number; wallMs?: number;
-    dbBytesDelta?: number; inputTokens?: number; outputTokens?: number; costUsd?: number | null;
+    dbBytesDelta?: number; inputTokens?: number; cachedInputTokens?: number;
+    outputTokens?: number; reasoningTokens?: number; provider?: string; model?: string;
+    costUsd?: number | null;
     sidecarMs?: number; advisoryAction?: 'shown' | 'adopted' | 'ignored' | 'dismissed';
     evidenceRefs: string[]; occurredAt: string;
   }>;

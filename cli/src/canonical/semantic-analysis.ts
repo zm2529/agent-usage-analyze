@@ -96,7 +96,7 @@ const SEMANTIC_KINDS = new Set([
   'thinking', 'compaction',
 ]);
 
-function redactEvidenceText(value: string): string {
+export function redactEvidenceText(value: string): string {
   return value
     .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gi,
       '[redacted-secret]')
@@ -107,6 +107,8 @@ function redactEvidenceText(value: string): string {
       '[redacted-secret]')
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
     .replace(/\/(?:Users|Volumes|home|var|tmp)\/[^\s"'`]+/g, '[redacted-path]')
+    .replace(/\b[A-Z]:[\\/][^\s"'`]+/gi, '[redacted-path]')
+    .replace(/\\\\[A-Z0-9._$-]+\\[^\s"'`]+/gi, '[redacted-path]')
     .slice(0, 1_024);
 }
 
@@ -318,11 +320,13 @@ function safeNullableInteger(value: unknown): value is number | null {
   return value === null || safeInteger(value);
 }
 
-function containsSensitiveOutput(value: string): boolean {
+export function containsSensitiveOutput(value: string): boolean {
   return /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i.test(value)
     || /(?:\bBearer\s+[A-Za-z0-9._~+\/-]{12,}|\bsk-[A-Za-z0-9_-]{6,}|\bgithub_pat_[A-Za-z0-9_]{12,}|\bgh[opusr]_[A-Za-z0-9]{12,}|\bAKIA[A-Z0-9]{16}|["']?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|token|password|secret|api[_-]?key)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+))/i.test(value)
     || /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(value)
     || /\/(?:Users|Volumes|home|var|tmp)\/[^\s"']+/i.test(value)
+    || /\b[A-Z]:[\\/][^\s"']+/i.test(value)
+    || /\\\\[A-Z0-9._$-]+\\[^\s"']+/i.test(value)
     || /```[\s\S]*?```/.test(value);
 }
 

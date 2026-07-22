@@ -21,7 +21,11 @@ export type ObserverOverheadInput = ObserverOverheadBase & (
     category: 'llm';
     wallMs?: number;
     inputTokens?: number;
+    cachedInputTokens?: number;
     outputTokens?: number;
+    reasoningTokens?: number;
+    provider?: string;
+    model?: string;
     costUsd?: number | null;
   }
   | {
@@ -43,7 +47,11 @@ interface ObserverOverheadFields extends ObserverOverheadBase {
   wallMs?: number;
   dbBytesDelta?: number;
   inputTokens?: number;
+  cachedInputTokens?: number;
   outputTokens?: number;
+  reasoningTokens?: number;
+  provider?: string;
+  model?: string;
   costUsd?: number | null;
   sidecarMs?: number;
   advisoryAction?: AdvisoryAction;
@@ -58,7 +66,8 @@ export interface ObserverOverheadSummary {
   }>;
   totals: {
     cpuMs: number; wallMs: number; dbBytesDelta: number; inputTokens: number | null;
-    outputTokens: number | null; costUsd: number | null; sidecarMs: number;
+    cachedInputTokens: number | null; outputTokens: number | null;
+    reasoningTokens: number | null; costUsd: number | null; sidecarMs: number;
   };
   advisory: Record<AdvisoryAction, number>;
   byCategory: Array<{ category: ObserverOverheadCategory; eventCount: number; wallMs: number }>;
@@ -68,7 +77,8 @@ export interface ObserverOverheadSummary {
 const CATEGORIES = new Set<ObserverOverheadCategory>(['import', 'llm', 'sidecar', 'advisory']);
 const ACTIONS = new Set<AdvisoryAction>(['shown', 'adopted', 'ignored', 'dismissed']);
 const ALLOWED_KEYS = ['category', 'observerRunId', 'analyzedTaskId', 'cpuMs', 'wallMs', 'dbBytesDelta',
-  'inputTokens', 'outputTokens', 'costUsd', 'sidecarMs', 'advisoryAction', 'evidenceRefs'];
+  'inputTokens', 'cachedInputTokens', 'outputTokens', 'reasoningTokens', 'costUsd',
+  'provider', 'model', 'sidecarMs', 'advisoryAction', 'evidenceRefs'];
 
 function assertString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length < 1 || value.length > 256 || value.includes('\n')) {
@@ -91,7 +101,10 @@ export function recordObserverOverhead(db: Database.Database, input: ObserverOve
   if (!CATEGORIES.has(value.category)) throw new Error('Unsupported observer overhead category');
   const categoryKeys: Record<ObserverOverheadCategory, string[]> = {
     import: ['cpuMs', 'wallMs', 'dbBytesDelta'],
-    llm: ['wallMs', 'inputTokens', 'outputTokens', 'costUsd'],
+    llm: [
+      'wallMs', 'inputTokens', 'cachedInputTokens', 'outputTokens', 'reasoningTokens',
+      'provider', 'model', 'costUsd',
+    ],
     sidecar: ['cpuMs', 'wallMs', 'sidecarMs'],
     advisory: ['wallMs', 'advisoryAction'],
   };
@@ -104,7 +117,11 @@ export function recordObserverOverhead(db: Database.Database, input: ObserverOve
   assertMetric(value.wallMs, 'Wall milliseconds');
   assertMetric(value.dbBytesDelta, 'Database byte growth', true);
   assertMetric(value.inputTokens, 'Input tokens', true);
+  assertMetric(value.cachedInputTokens, 'Cached input tokens', true);
   assertMetric(value.outputTokens, 'Output tokens', true);
+  assertMetric(value.reasoningTokens, 'Reasoning tokens', true);
+  if (value.provider !== undefined) assertString(value.provider, 'LLM provider');
+  if (value.model !== undefined) assertString(value.model, 'LLM model');
   assertMetric(value.costUsd, 'Cost');
   assertMetric(value.sidecarMs, 'Sidecar milliseconds');
   if (value.category === 'sidecar' && value.sidecarMs === undefined) throw new Error('Sidecar milliseconds are required');
@@ -119,11 +136,13 @@ export function recordObserverOverhead(db: Database.Database, input: ObserverOve
   const id = `observer-overhead:${randomUUID()}`;
   db.prepare(`INSERT INTO observer_overhead_events (
     id, category, observer_run_id, analyzed_task_id, cpu_ms, wall_ms, db_bytes_delta,
-    input_tokens, output_tokens, cost_usd, sidecar_ms, advisory_action, evidence_refs_json
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, cost_usd,
+    llm_provider, llm_model, sidecar_ms, advisory_action, evidence_refs_json
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, value.category, value.observerRunId, value.analyzedTaskId ?? null, value.cpuMs ?? null,
     value.wallMs ?? null, value.dbBytesDelta ?? null, value.inputTokens ?? null,
-    value.outputTokens ?? null, value.costUsd ?? null, value.sidecarMs ?? null,
+    value.cachedInputTokens ?? null, value.outputTokens ?? null, value.reasoningTokens ?? null,
+    value.costUsd ?? null, value.provider ?? null, value.model ?? null, value.sidecarMs ?? null,
     value.advisoryAction ?? null, JSON.stringify(value.evidenceRefs),
   );
   return id;
@@ -167,8 +186,10 @@ export function recordObserverOverheadDiagnostic(
 interface OverheadRow {
   id: string; subjectKind: 'observer'; category: ObserverOverheadCategory; observerRunId: string;
   analyzedTaskId: string | null; cpuMs: number | null; wallMs: number | null;
-  dbBytesDelta: number | null; inputTokens: number | null; outputTokens: number | null;
-  costUsd: number | null; sidecarMs: number | null; advisoryAction: AdvisoryAction | null;
+  dbBytesDelta: number | null; inputTokens: number | null; cachedInputTokens: number | null;
+  outputTokens: number | null; reasoningTokens: number | null;
+  provider: string | null; model: string | null; costUsd: number | null;
+  sidecarMs: number | null; advisoryAction: AdvisoryAction | null;
   evidenceRefsJson: string; occurredAt: string;
 }
 
@@ -176,20 +197,26 @@ export function readObserverOverhead(db: Database.Database): ObserverOverheadSum
   const rows = db.prepare(`SELECT id, subject_kind AS subjectKind, category,
     observer_run_id AS observerRunId, analyzed_task_id AS analyzedTaskId, cpu_ms AS cpuMs,
     wall_ms AS wallMs, db_bytes_delta AS dbBytesDelta, input_tokens AS inputTokens,
-    output_tokens AS outputTokens, cost_usd AS costUsd, sidecar_ms AS sidecarMs,
+    cached_input_tokens AS cachedInputTokens, output_tokens AS outputTokens,
+    reasoning_tokens AS reasoningTokens, llm_provider AS provider, llm_model AS model,
+    cost_usd AS costUsd, sidecar_ms AS sidecarMs,
     advisory_action AS advisoryAction, evidence_refs_json AS evidenceRefsJson,
     occurred_at AS occurredAt FROM observer_overhead_events ORDER BY occurred_at DESC, id DESC`).all() as OverheadRow[];
   const totals: ObserverOverheadSummary['totals'] = {
-    cpuMs: 0, wallMs: 0, dbBytesDelta: 0, inputTokens: 0, outputTokens: 0,
-    costUsd: 0, sidecarMs: 0,
+    cpuMs: 0, wallMs: 0, dbBytesDelta: 0, inputTokens: 0, cachedInputTokens: 0,
+    outputTokens: 0, reasoningTokens: 0, costUsd: 0, sidecarMs: 0,
   };
   const advisory: Record<AdvisoryAction, number> = { shown: 0, adopted: 0, ignored: 0, dismissed: 0 };
   const byCategory = new Map<ObserverOverheadCategory, { eventCount: number; wallMs: number }>();
   let unknownLlmCost = false;
   let unknownInputTokens = false;
+  let unknownCachedInputTokens = false;
   let unknownOutputTokens = false;
+  let unknownReasoningTokens = false;
   let inputTokenTotal = 0;
+  let cachedInputTokenTotal = 0;
   let outputTokenTotal = 0;
+  let reasoningTokenTotal = 0;
   for (const row of rows) {
     totals.cpuMs += row.cpuMs ?? 0;
     totals.wallMs += row.wallMs ?? 0;
@@ -197,8 +224,12 @@ export function readObserverOverhead(db: Database.Database): ObserverOverheadSum
     if (row.category === 'llm') {
       if (row.inputTokens === null) unknownInputTokens = true;
       else inputTokenTotal += row.inputTokens;
+      if (row.cachedInputTokens === null) unknownCachedInputTokens = true;
+      else cachedInputTokenTotal += row.cachedInputTokens;
       if (row.outputTokens === null) unknownOutputTokens = true;
       else outputTokenTotal += row.outputTokens;
+      if (row.reasoningTokens === null) unknownReasoningTokens = true;
+      else reasoningTokenTotal += row.reasoningTokens;
     }
     totals.sidecarMs += row.sidecarMs ?? 0;
     if (row.category === 'llm' && row.costUsd === null) unknownLlmCost = true;
@@ -211,7 +242,9 @@ export function readObserverOverhead(db: Database.Database): ObserverOverheadSum
   }
   if (unknownLlmCost) totals.costUsd = null;
   totals.inputTokens = unknownInputTokens ? null : inputTokenTotal;
+  totals.cachedInputTokens = unknownCachedInputTokens ? null : cachedInputTokenTotal;
   totals.outputTokens = unknownOutputTokens ? null : outputTokenTotal;
+  totals.reasoningTokens = unknownReasoningTokens ? null : reasoningTokenTotal;
   const diagnostics = db.prepare(`SELECT id, category, observer_run_id AS observerRunId,
     code, occurred_at AS occurredAt FROM observer_overhead_diagnostics
     ORDER BY occurred_at DESC, id DESC LIMIT 50`).all() as ObserverOverheadSummary['diagnostics'];
@@ -223,7 +256,9 @@ export function readObserverOverhead(db: Database.Database): ObserverOverheadSum
       observerRunId: row.observerRunId, analyzedTaskId: row.analyzedTaskId ?? undefined,
       cpuMs: row.cpuMs ?? undefined, wallMs: row.wallMs ?? undefined,
       dbBytesDelta: row.dbBytesDelta ?? undefined, inputTokens: row.inputTokens ?? undefined,
-      outputTokens: row.outputTokens ?? undefined, costUsd: row.costUsd,
+      cachedInputTokens: row.cachedInputTokens ?? undefined,
+      outputTokens: row.outputTokens ?? undefined, reasoningTokens: row.reasoningTokens ?? undefined,
+      provider: row.provider ?? undefined, model: row.model ?? undefined, costUsd: row.costUsd,
       sidecarMs: row.sidecarMs ?? undefined, advisoryAction: row.advisoryAction ?? undefined,
       evidenceRefs: JSON.parse(row.evidenceRefsJson) as string[], occurredAt: row.occurredAt,
     })),

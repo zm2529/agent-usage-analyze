@@ -62,6 +62,21 @@ describe('processSettledImport', () => {
     db.close();
   });
 
+  it('distinguishes an imported analysis-ready projection from unavailable source data', async () => {
+    const db = database();
+    const result = await processSettledImport(db, {
+      sourceTool: 'codex-cli', sessionId: 'session', generation: 1,
+      locator: '/codex/session.jsonl', sourceBasis: 'hook-basis',
+    }, dependencies({
+      execution: { effectiveRunner: 'codex-native', reason: 'codex-chatgpt-auth' },
+    }));
+
+    expect(result).toEqual({ status: 'analysis-ready', diagnostic: 'codex-chatgpt-auth' });
+    expect(db.prepare(`SELECT status FROM analysis_queue`).get())
+      .toEqual({ status: 'awaiting-capability' });
+    db.close();
+  });
+
   it('re-settles with a new generation when the source grows during import', async () => {
     const db = database();
     db.prepare(`UPDATE analysis_queue SET attempt_count = 2, error_message = 'older failure'`).run();

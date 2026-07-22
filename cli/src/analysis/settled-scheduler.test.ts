@@ -6,6 +6,7 @@ import { join } from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../db/schema.js';
 import type { SettledImportDependencies } from './settled-import.js';
+import type { SettledAnalysisDependencies } from './settled-analysis.js';
 import {
   acquireSettledWorkerLease,
   claimDueFrontiers,
@@ -116,6 +117,68 @@ describe('settled analysis scheduler', () => {
     db.close();
   });
 
+  it('continues an imported semantic frontier through automatic analysis', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    db.prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, generation, not_before)
+      VALUES ('codex-cli', 'due', 'settling', 'auto', 1, '2026-07-22T03:00:00.000Z')`).run();
+    const importDeps: SettledImportDependencies = {
+      now: () => new Date('2026-07-22T03:01:00Z'), idleSeconds: 90,
+      locate: () => ({ path: '/safe/rollout.jsonl', locatorAccepted: false, diagnostic: null }),
+      contentBasis: () => 'rollout-sha256:stable', ingest: async () => ({ complete: true, diagnostic: null }),
+      prepareProjection: async () => ({ complete: true, diagnostic: null, commit: vi.fn() }),
+      invalidateProjection: vi.fn(),
+      execution: { effectiveRunner: 'codex-native', reason: 'codex-chatgpt-auth' },
+    };
+    const analyze = vi.fn(async (
+      _sessionId: string, _runner: unknown, guard: () => boolean, finalize: () => boolean,
+    ) => {
+      expect(guard()).toBe(true);
+      expect(finalize()).toBe(true);
+    });
+    const analysisDeps: SettledAnalysisDependencies = {
+      now: () => new Date('2026-07-22T03:01:05Z'),
+      buildRunner: () => ({ name: 'codex-native', runAnalysis: vi.fn() }),
+      analyze,
+    };
+
+    await expect(processDueFrontiers(
+      db, new Date('2026-07-22T03:01:00Z'), () => importDeps, () => analysisDeps,
+    )).resolves.toBe(1);
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(db.prepare(`SELECT status, completed_at AS completedAt FROM analysis_queue`).get())
+      .toEqual({ status: 'completed', completedAt: '2026-07-22T03:01:05.000Z' });
+    db.close();
+  });
+
+  it('does not analyze an unavailable source after import retries are exhausted', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    db.prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, generation, not_before, max_attempts)
+      VALUES ('codex-cli', 'missing', 'settling', 'auto', 1, '2026-07-22T03:00:00.000Z', 1)`).run();
+    const importDeps: SettledImportDependencies = {
+      now: () => new Date('2026-07-22T03:01:00Z'), idleSeconds: 90,
+      locate: () => ({ path: null, locatorAccepted: false, diagnostic: 'source-not-found' }),
+      contentBasis: () => 'unused', ingest: vi.fn(), prepareProjection: vi.fn(),
+      invalidateProjection: vi.fn(),
+      execution: { effectiveRunner: 'codex-native', reason: 'codex-chatgpt-auth' },
+    };
+    const analyze = vi.fn();
+
+    await expect(processDueFrontiers(
+      db, new Date('2026-07-22T03:01:00Z'), () => importDeps,
+      () => ({ now: () => new Date(), buildRunner: vi.fn(), analyze }),
+    )).resolves.toBe(1);
+    expect(analyze).not.toHaveBeenCalled();
+    expect(db.prepare(`SELECT status, diagnostic, error_message AS errorMessage
+      FROM analysis_queue`).get()).toEqual({
+      status: 'awaiting-capability', diagnostic: 'source-not-found', errorMessage: null,
+    });
+    db.close();
+  });
+
   it('backs off transient worker failures and fails only at the attempt limit', async () => {
     const db = new Database(':memory:');
     runMigrations(db);
@@ -134,6 +197,8 @@ describe('settled analysis scheduler', () => {
       .resolves.toBe(1);
     expect(db.prepare(`SELECT status, attempt_count, diagnostic FROM analysis_queue`).get())
       .toEqual({ status: 'failed', attempt_count: 2, diagnostic: 'settled-import-failed' });
+    expect(db.prepare(`SELECT error_message AS errorMessage FROM analysis_queue`).get())
+      .toEqual({ errorMessage: 'settled-import-failed' });
     db.close();
   });
 });

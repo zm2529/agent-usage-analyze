@@ -83,7 +83,7 @@ describe('expandProjectContract', () => {
     const second = expandProjectContract({ dbPath, now: '2026-07-21T02:00:00.000Z' });
 
     expect(first).toMatchObject({
-      status: 'migrated', sourceSchemaVersion: 9, targetSchemaVersion: 23,
+      status: 'migrated', sourceSchemaVersion: 9, targetSchemaVersion: 24,
       reconciliation: { legacySessions: 1, canonicalTasks: 1, legacyMessages: 2, canonicalEvents: 2 },
     });
     expect(first.backupPath).toMatch(/\.backup$/);
@@ -93,7 +93,7 @@ describe('expandProjectContract', () => {
 
     const migrated = new Database(dbPath);
     expect(migrated.prepare('SELECT MAX(version) AS version FROM schema_version').get())
-      .toEqual({ version: 23 });
+      .toEqual({ version: 24 });
     expect(migrated.prepare('SELECT COUNT(*) AS count FROM work_tasks').get()).toEqual({ count: 1 });
     expect(migrated.prepare('SELECT COUNT(*) AS count FROM canonical_events').get()).toEqual({ count: 2 });
     expect(JSON.stringify(migrated.prepare('SELECT payload_json FROM canonical_events').all()))
@@ -122,7 +122,7 @@ describe('expandProjectContract', () => {
     const first = expandProjectContract({ dbPath, now: '2026-07-21T01:00:00.000Z' });
     const second = expandProjectContract({ dbPath, now: '2026-07-21T02:00:00.000Z' });
 
-    expect(first).toMatchObject({ status: 'initialized', backupPath: null, targetSchemaVersion: 23 });
+    expect(first).toMatchObject({ status: 'initialized', backupPath: null, targetSchemaVersion: 24 });
     expect(second).toMatchObject({ status: 'current', migrationId: first.migrationId });
   });
 

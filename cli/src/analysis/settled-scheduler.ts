@@ -12,6 +12,11 @@ import {
   type ClaimedSettledImport,
   type SettledImportDependencies,
 } from './settled-import.js';
+import {
+  defaultSettledAnalysisDependencies,
+  processSettledAnalysis,
+  type SettledAnalysisDependencies,
+} from './settled-analysis.js';
 
 const CLI_ENTRY = resolve(fileURLToPath(import.meta.url), '../../index.js');
 
@@ -87,6 +92,11 @@ export type SettledDependenciesFactory = (
   claimed: ClaimedFrontier,
 ) => SettledImportDependencies;
 
+export type SettledAnalysisDependenciesFactory = (
+  db: Database.Database,
+  claimed: ClaimedFrontier,
+) => SettledAnalysisDependencies;
+
 function configuredIdleSeconds(): number {
   const configured = loadConfig()?.dashboard?.analysis?.idleSeconds;
   return Number.isFinite(configured)
@@ -101,13 +111,21 @@ export async function processDueFrontiers(
   dependencies: SettledDependenciesFactory = (database, claimed) => (
     defaultSettledImportDependencies(database, configuredIdleSeconds(), claimed.sessionId)
   ),
+  analysisDependencies: SettledAnalysisDependenciesFactory = () => defaultSettledAnalysisDependencies(),
 ): Promise<number> {
   const claimed = claimDueFrontiers(db, now);
   for (const frontier of claimed) {
+    let phase: 'import' | 'analysis' = 'import';
     try {
-      await processSettledImport(db, frontier, dependencies(db, frontier));
+      const importDeps = dependencies(db, frontier);
+      const imported = await processSettledImport(db, frontier, importDeps);
+      if (imported.status === 'analysis-ready') {
+        phase = 'analysis';
+        await processSettledAnalysis(
+          db, frontier, importDeps.execution, analysisDependencies(db, frontier),
+        );
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       const attempt = db.prepare(
         `SELECT attempt_count, max_attempts FROM analysis_queue
          WHERE source_tool = ? AND session_id = ? AND generation = ? AND status = 'processing'`,
@@ -121,14 +139,16 @@ export async function processDueFrontiers(
           configuredIdleSeconds() * (2 ** Math.max(0, nextAttempt - 1)),
         );
         const retryAt = new Date(now.getTime() + retryDelaySeconds * 1_000).toISOString();
+        const failureCode = phase === 'analysis' ? 'settled-analysis-failed' : 'settled-import-failed';
         db.prepare(
           `UPDATE analysis_queue
            SET status = CASE WHEN ? >= max_attempts THEN 'failed' ELSE 'settling' END,
-               attempt_count = ?, not_before = ?, diagnostic = 'settled-import-failed',
+               attempt_count = ?, not_before = ?, diagnostic = ?,
                error_message = ?, started_at = NULL
            WHERE source_tool = ? AND session_id = ? AND generation = ? AND status = 'processing'`,
         ).run(
-          nextAttempt, nextAttempt, retryAt, message,
+          nextAttempt, nextAttempt, retryAt,
+          failureCode, failureCode,
           frontier.sourceTool, frontier.sessionId, frontier.generation,
         );
       }

@@ -43,6 +43,7 @@
     "./analysis/prompt-quality-normalize": "./dist/analysis/prompt-quality-normalize.js",
     "./analysis/runner-types": "./dist/analysis/runner-types.js",
     "./analysis/native-runner": "./dist/analysis/native-runner.js",
+    "./analysis/codex-native-runner": "./dist/analysis/codex-native-runner.js",
     "./analysis/analysis-db": "./dist/analysis/analysis-db.js",
     "./analysis/analysis-usage-db": "./dist/analysis/analysis-usage-db.js",
     "./analysis/provider-runner": "./dist/analysis/provider-runner.js",

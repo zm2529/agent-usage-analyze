@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
     db.close();
   });
 });
@@ -196,6 +196,19 @@ describe('runMigrations — V21 advisory history and mute policy', () => {
     expect(db.prepare(`SELECT name FROM sqlite_master
       WHERE type = 'trigger' AND name = 'advisory_events_no_update'`).get())
       .toEqual({ name: 'advisory_events_no_update' });
+    db.close();
+  });
+});
+
+describe('runMigrations — V24 native analysis accounting', () => {
+  it('adds cached-input and reasoning counters to the immutable observer ledger', () => {
+    const db = freshDb();
+    runMigrations(db);
+    const columns = db.prepare('PRAGMA table_info(observer_overhead_events)').all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
+      'cached_input_tokens', 'reasoning_tokens', 'llm_provider', 'llm_model',
+    ]));
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 24 });
     db.close();
   });
 });

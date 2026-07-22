@@ -10,7 +10,11 @@ describe('ObserverOverheadCard', () => {
         id: 'diagnostic:one', category: 'llm', observerRunId: 'semantic:one',
         code: 'observer-write-failed', occurredAt: '2026-07-21T00:00:01.000Z',
       }],
-      totals: { cpuMs: 12, wallMs: 120, dbBytesDelta: 4096, inputTokens: 500, outputTokens: 50, costUsd: null, sidecarMs: 35 },
+      totals: {
+        cpuMs: 12, wallMs: 120, dbBytesDelta: 4096, inputTokens: 500,
+        cachedInputTokens: 300, outputTokens: 50, reasoningTokens: 20,
+        costUsd: null, sidecarMs: 35,
+      },
       advisory: { shown: 2, adopted: 1, ignored: 0, dismissed: 0 },
       byCategory: [{ category: 'llm', eventCount: 1, wallMs: 100 }],
       recentEvents: [],
@@ -29,7 +33,11 @@ describe('ObserverOverheadCard', () => {
     render(<ObserverOverheadCard overhead={{
       eventCount: 1,
       degraded: false, diagnostics: [],
-      totals: { cpuMs: 0, wallMs: 40, dbBytesDelta: 0, inputTokens: null, outputTokens: null, costUsd: null, sidecarMs: 0 },
+      totals: {
+        cpuMs: 0, wallMs: 40, dbBytesDelta: 0, inputTokens: null,
+        cachedInputTokens: null, outputTokens: null, reasoningTokens: null,
+        costUsd: null, sidecarMs: 0,
+      },
       advisory: { shown: 0, adopted: 0, ignored: 0, dismissed: 0 },
       byCategory: [{ category: 'llm', eventCount: 1, wallMs: 40 }],
       recentEvents: [{

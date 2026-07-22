@@ -224,7 +224,9 @@ describe('observer overhead', () => {
     });
     recordObserverOverhead(db, {
       category: 'llm', observerRunId: 'semantic:one', analyzedTaskId: 'task:one',
-      wallMs: 100, inputTokens: 500, outputTokens: 50, costUsd: null,
+      wallMs: 100, inputTokens: 500, cachedInputTokens: 300,
+      outputTokens: 50, reasoningTokens: 20, costUsd: null,
+      provider: 'codex-native', model: 'codex-default',
       evidenceRefs: ['semantic:one'],
     });
     recordObserverOverhead(db, {
@@ -238,13 +240,20 @@ describe('observer overhead', () => {
 
     expect(readObserverOverhead(db)).toMatchObject({
       eventCount: 4,
-      totals: { cpuMs: 12, wallMs: 120, dbBytesDelta: 4096, inputTokens: 500, outputTokens: 50, costUsd: null, sidecarMs: 35 },
+      totals: {
+        cpuMs: 12, wallMs: 120, dbBytesDelta: 4096, inputTokens: 500,
+        cachedInputTokens: 300, outputTokens: 50, reasoningTokens: 20,
+        costUsd: null, sidecarMs: 35,
+      },
       advisory: { shown: 1, adopted: 0, ignored: 0, dismissed: 0 },
       byCategory: expect.arrayContaining([expect.objectContaining({ category: 'llm', eventCount: 1 })]),
     });
     const row = db.prepare('SELECT subject_kind AS subjectKind FROM observer_overhead_events LIMIT 1').get();
     expect(row).toEqual({ subjectKind: 'observer' });
     expect(() => db.prepare('UPDATE observer_overhead_events SET wall_ms = 0').run()).toThrow(/immutable/i);
+    expect(readObserverOverhead(db).recentEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'codex-native', model: 'codex-default' }),
+    ]));
     db.close();
   });
 
@@ -271,7 +280,8 @@ describe('observer overhead', () => {
       evidenceRefs: ['semantic:unknown'],
     });
     expect(readObserverOverhead(db).totals).toMatchObject({
-      inputTokens: null, outputTokens: null, costUsd: null,
+      inputTokens: null, cachedInputTokens: null, outputTokens: null,
+      reasoningTokens: null, costUsd: null,
     });
     db.close();
   });

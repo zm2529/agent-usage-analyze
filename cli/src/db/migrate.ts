@@ -35,6 +35,7 @@ export interface MigrationResult {
  * Version 21: Add non-blocking advisory interaction history and mute policy
  * Version 22: Add immutable expand-project-contract migration records
  * Version 23: Expand the analysis queue for turn-settled, source-scoped automation
+ * Version 24: Record cached-input and reasoning tokens in observer overhead
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -146,6 +147,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 23) {
     applyV23(db);
+  }
+
+  if (currentVersion < 24) {
+    applyV24(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -868,6 +873,30 @@ function applyV23(db: Database.Database): void {
     `);
     createV23FrontierSupport(db);
     db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(23);
+  })();
+}
+
+function applyV24(db: Database.Database): void {
+  db.transaction(() => {
+    const columns = new Set(
+      (db.prepare('PRAGMA table_info(observer_overhead_events)').all() as Array<{ name: string }>)
+        .map((column) => column.name),
+    );
+    if (!columns.has('cached_input_tokens')) {
+      db.exec(`ALTER TABLE observer_overhead_events ADD COLUMN cached_input_tokens
+        INTEGER CHECK (cached_input_tokens IS NULL OR cached_input_tokens >= 0)`);
+    }
+    if (!columns.has('reasoning_tokens')) {
+      db.exec(`ALTER TABLE observer_overhead_events ADD COLUMN reasoning_tokens
+        INTEGER CHECK (reasoning_tokens IS NULL OR reasoning_tokens >= 0)`);
+    }
+    if (!columns.has('llm_provider')) {
+      db.exec(`ALTER TABLE observer_overhead_events ADD COLUMN llm_provider TEXT`);
+    }
+    if (!columns.has('llm_model')) {
+      db.exec(`ALTER TABLE observer_overhead_events ADD COLUMN llm_model TEXT`);
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(24);
   })();
 }
 

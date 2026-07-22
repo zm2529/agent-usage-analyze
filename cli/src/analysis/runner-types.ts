@@ -30,6 +30,8 @@ export interface RunAnalysisResult {
   outputTokens: number;
   cacheCreationTokens?: number;
   cacheReadTokens?: number;
+  /** Reasoning output tokens when the runner exposes that split. */
+  reasoningTokens?: number;
   model: string;
   provider: string;
 }

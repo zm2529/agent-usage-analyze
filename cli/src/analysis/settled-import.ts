@@ -35,11 +35,11 @@ export interface SettledImportDependencies {
   ingest(path: string): Promise<{ complete: boolean; diagnostic: string | null }>;
   prepareProjection(path: string): Promise<PreparedSingleFileProjection>;
   invalidateProjection(): void;
-  execution: Pick<AnalysisExecutionState, 'effectiveRunner' | 'reason'>;
+  execution: Pick<AnalysisExecutionState, 'effectiveRunner' | 'reason' | 'model'>;
 }
 
 export interface SettledImportResult {
-  status: 'completed' | 'awaiting-capability' | 'settling' | 'stale';
+  status: 'completed' | 'analysis-ready' | 'awaiting-capability' | 'settling' | 'stale';
   diagnostic: string | null;
 }
 
@@ -227,7 +227,10 @@ export async function processSettledImport(
         terminalStatus, terminalDiagnostic, completedAt,
         claimed.sourceTool, claimed.sessionId, claimed.generation,
       );
-      result = { status: terminalStatus, diagnostic: terminalDiagnostic };
+      result = {
+        status: terminalStatus === 'awaiting-capability' ? 'analysis-ready' : terminalStatus,
+        diagnostic: terminalDiagnostic,
+      };
     }).immediate();
   } catch (error) {
     if (error instanceof SourceGrewDuringProjectionCommit) {
