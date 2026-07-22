@@ -14,6 +14,7 @@ import chalk from 'chalk';
 import { Command } from 'commander';
 import { getQueueStatus, resetFailed, pruneCompleted } from '../db/queue.js';
 import { processQueue } from '../analysis/queue-worker.js';
+import { runSettledScheduler } from '../analysis/settled-scheduler.js';
 
 // ── queue status ──────────────────────────────────────────────────────────────
 
@@ -23,6 +24,8 @@ export async function queueStatusCommand(opts: { quiet?: boolean } = {}): Promis
 
   if (quiet) {
     process.stdout.write(JSON.stringify({
+      settling: status.settling,
+      awaitingCapability: status.awaitingCapability,
       pending: status.pending,
       processing: status.processing,
       completed: status.completed,
@@ -32,6 +35,8 @@ export async function queueStatusCommand(opts: { quiet?: boolean } = {}): Promis
   }
 
   console.log(chalk.cyan('\n  Analysis Queue Status\n'));
+  console.log(chalk.white(`  Settling:   ${status.settling}`));
+  console.log(chalk.white(`  Awaiting:   ${status.awaitingCapability}`));
   console.log(chalk.white(`  Pending:    ${status.pending}`));
   console.log(chalk.white(`  Processing: ${status.processing}`));
   console.log(chalk.white(`  Completed:  ${status.completed}`));
@@ -82,7 +87,7 @@ export async function queueProcessCommand(opts: { quiet?: boolean; model?: strin
 
 export async function queueRetryCommand(
   sessionId: string | undefined,
-  opts: { all?: boolean; quiet?: boolean } = {}
+  opts: { all?: boolean; quiet?: boolean; source?: string } = {}
 ): Promise<void> {
   const { quiet = false } = opts;
 
@@ -91,7 +96,7 @@ export async function queueRetryCommand(
     process.exit(1);
   }
 
-  const count = resetFailed(sessionId);
+  const count = resetFailed(sessionId, opts.source);
   if (!quiet) {
     if (count === 0) {
       console.log(chalk.yellow('[Agent Analytics] No failed items found to retry'));
@@ -128,6 +133,15 @@ export function buildQueueCommand(): Command {
     .action((opts) => queueStatusCommand({ quiet: opts.quiet }));
 
   queueCmd
+    .command('settle')
+    .description('Internal settled-turn scheduler')
+    .option('-q, --quiet', 'Suppress output')
+    .action(async (opts) => {
+      const count = await runSettledScheduler();
+      if (!opts.quiet) console.log(chalk.dim(`[Agent Analytics] Settled ${count} frontier(s)`));
+    });
+
+  queueCmd
     .command('process')
     .description('Process pending queue items (foreground)')
     .option('-q, --quiet', 'Suppress output')
@@ -138,9 +152,10 @@ export function buildQueueCommand(): Command {
     .command('retry [session_id]')
     .description('Reset failed items to pending for retry')
     .option('--all', 'Reset all failed items')
+    .option('--source <tool>', 'Source tool when session IDs overlap')
     .option('-q, --quiet', 'Suppress output')
     .action((sessionId: string | undefined, opts) =>
-      queueRetryCommand(sessionId, { all: opts.all, quiet: opts.quiet })
+      queueRetryCommand(sessionId, { all: opts.all, quiet: opts.quiet, source: opts.source })
     );
 
   queueCmd

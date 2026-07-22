@@ -655,8 +655,9 @@ export function generateDispatchImagePrompt(body: DispatchImagePromptRequest): P
 // ── Analysis Queue ────────────────────────────────────────────────────────────
 
 export interface AnalysisQueueItem {
+  source_tool: string;
   session_id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'settling' | 'awaiting-capability' | 'pending' | 'processing' | 'completed' | 'failed';
   runner_type: string;
   enqueued_at: string;
   started_at: string | null;
@@ -667,6 +668,8 @@ export interface AnalysisQueueItem {
 }
 
 export interface AnalysisQueueStatus {
+  settling: number;
+  awaitingCapability: number;
   pending: number;
   processing: number;
   completed: number;

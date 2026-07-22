@@ -34,6 +34,7 @@ export interface MigrationResult {
  * Version 20: Add immutable scorecards, versioned results, and observer overhead
  * Version 21: Add non-blocking advisory interaction history and mute policy
  * Version 22: Add immutable expand-project-contract migration records
+ * Version 23: Expand the analysis queue for turn-settled, source-scoped automation
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -141,6 +142,10 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 22) {
     applyV22(db);
+  }
+
+  if (currentVersion < 23) {
+    applyV23(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -806,4 +811,77 @@ function applyV22(db: Database.Database): void {
     `);
     db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(22);
   })();
+}
+
+function applyV23(db: Database.Database): void {
+  db.transaction(() => {
+    const currentQueueColumns = db.prepare(`PRAGMA table_info(analysis_queue)`).all() as Array<{ name: string }>;
+    if (currentQueueColumns.some((column) => column.name === 'source_tool')
+        && currentQueueColumns.some((column) => column.name === 'latest_turn_id')) {
+      createV23FrontierSupport(db);
+      db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(23);
+      return;
+    }
+    db.exec(`
+      CREATE TABLE analysis_queue_v23 (
+        source_tool        TEXT NOT NULL DEFAULT 'claude-code',
+        session_id         TEXT NOT NULL,
+        status             TEXT NOT NULL DEFAULT 'pending',
+        runner_type        TEXT NOT NULL DEFAULT 'native',
+        latest_turn_id     TEXT,
+        generation         INTEGER NOT NULL DEFAULT 0,
+        transcript_locator TEXT,
+        source_basis       TEXT,
+        not_before         TEXT,
+        diagnostic         TEXT,
+        enqueued_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        started_at         TEXT,
+        completed_at       TEXT,
+        error_message      TEXT,
+        attempt_count      INTEGER NOT NULL DEFAULT 0,
+        max_attempts       INTEGER NOT NULL DEFAULT 3,
+        PRIMARY KEY (source_tool, session_id)
+      );
+    `);
+    const legacyQueueExists = db.prepare(
+      `SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'analysis_queue'`,
+    ).get();
+    if (legacyQueueExists) {
+      db.exec(`
+        INSERT INTO analysis_queue_v23 (
+        source_tool, session_id, status, runner_type, enqueued_at, started_at,
+        completed_at, error_message, attempt_count, max_attempts
+        )
+        SELECT
+          'claude-code', session_id, status, runner_type, enqueued_at, started_at,
+          completed_at, error_message, attempt_count, max_attempts
+        FROM analysis_queue;
+        DROP TABLE analysis_queue;
+      `);
+    }
+    db.exec(`
+      ALTER TABLE analysis_queue_v23 RENAME TO analysis_queue;
+      CREATE INDEX IF NOT EXISTS idx_analysis_queue_status ON analysis_queue(status);
+      CREATE INDEX IF NOT EXISTS idx_analysis_queue_enqueued_at ON analysis_queue(enqueued_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_analysis_queue_settle_due
+        ON analysis_queue(status, not_before ASC);
+    `);
+    createV23FrontierSupport(db);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(23);
+  })();
+}
+
+function createV23FrontierSupport(db: Database.Database): void {
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS analysis_frontier_events (
+        source_tool  TEXT NOT NULL,
+        session_id   TEXT NOT NULL,
+        turn_id      TEXT NOT NULL,
+        source_basis TEXT NOT NULL DEFAULT '',
+        observed_at  TEXT NOT NULL,
+        PRIMARY KEY (source_tool, session_id, turn_id, source_basis)
+      );
+      CREATE INDEX IF NOT EXISTS idx_analysis_frontier_events_session
+        ON analysis_frontier_events(source_tool, session_id, observed_at DESC);
+  `);
 }

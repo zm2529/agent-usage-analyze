@@ -39,7 +39,7 @@ import { AnalyzeDropdown } from '@/components/analysis/AnalyzeDropdown';
 import { AnalyzeButton } from '@/components/analysis/AnalyzeButton';
 import { useAnalysis } from '@/components/analysis/AnalysisContext';
 import { useMissingFacets, useBackfillFacets } from '@/hooks/useFacets';
-import { useQueuedSessionIds } from '@/hooks/useAnalysisQueue';
+import { analysisQueueKey, useQueuedSessionKeys } from '@/hooks/useAnalysisQueue';
 import { exportSession } from '@/lib/export-session';
 import { CollapsibleInsightItem } from '@/components/sessions/CollapsibleInsightItem';
 import { PromptQualityAnalyzeButton } from '@/components/sessions/PromptQualityAnalyzeButton';
@@ -87,8 +87,10 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
   const pqAnalysisState = getAnalysisState(sessionId, 'prompt_quality');
   const isAnalyzingThisSession =
     sessionAnalysisState?.status === 'analyzing' || pqAnalysisState?.status === 'analyzing';
-  const queuedSessionIds = useQueuedSessionIds();
-  const isQueuedForAnalysis = queuedSessionIds.has(sessionId);
+  const queuedSessionKeys = useQueuedSessionKeys();
+  const isQueuedForAnalysis = session
+    ? queuedSessionKeys.has(analysisQueueKey(session.source_tool ?? 'claude-code', session.id))
+    : false;
   const { data: missingFacetsData } = useMissingFacets();
   const backfillMutation = useBackfillFacets();
   const missingFacetIds = useMemo(

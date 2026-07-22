@@ -20,7 +20,7 @@ import type { Session, Insight, InsightMetadata } from '@/lib/types';
 import { extractPQScore } from '@/lib/score-utils';
 import { SearchX, Terminal, EyeOff, CalendarDays } from 'lucide-react';
 import { useDeletedSessionCount } from '@/hooks/useSessions';
-import { useQueuedSessionIds } from '@/hooks/useAnalysisQueue';
+import { analysisQueueKey, useQueuedSessionKeys } from '@/hooks/useAnalysisQueue';
 import { SaveFilterPopover } from '@/components/filters/SaveFilterPopover';
 import { SavedFiltersDropdown } from '@/components/filters/SavedFiltersDropdown';
 import { SourceToolSelect } from '@/components/filters/SourceToolSelect';
@@ -98,7 +98,7 @@ export function SessionListPanel({
   const { savedFilters, saveFilter, deleteFilter } = useSavedFilters('sessions');
 
   const { data: deletedCount = 0 } = useDeletedSessionCount(projectId);
-  const queuedSessionIds = useQueuedSessionIds();
+  const queuedSessionKeys = useQueuedSessionKeys();
   const analyzedSessionIds = useMemo(
     () => new Set(insights.map((i) => i.session_id)),
     [insights]
@@ -405,7 +405,7 @@ export function SessionListPanel({
                     outcome={sessionOutcomes.get(session.id)}
                     promptQualityScore={promptQualityScores.get(session.id)}
                     missingFacets={analyzedSessionIds.has(session.id) && (missingFacetIds?.has(session.id) ?? false)}
-                    isQueued={queuedSessionIds.has(session.id)}
+                    isQueued={queuedSessionKeys.has(analysisQueueKey(session.source_tool ?? 'claude-code', session.id))}
                     onClick={() => onSelectSession(session.id)}
                   />
                 ))}

@@ -96,6 +96,15 @@ export interface InsightsCommandOptions {
   model?: string;
   /** Pre-built runner to reuse across batch calls. Skips runner construction and validate(). */
   _runner?: AnalysisRunner;
+  /** Queue-only guard, checked under an IMMEDIATE write transaction before any result is persisted. */
+  _commitGuard?: () => boolean;
+}
+
+export class StaleAnalysisGenerationError extends Error {
+  constructor() {
+    super('Stale analysis generation; results were not persisted');
+    this.name = 'StaleAnalysisGenerationError';
+  }
 }
 
 // ── Core logic ────────────────────────────────────────────────────────────────
@@ -183,32 +192,7 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
     throw new Error(`Session analysis failed: ${parsedSession.error.error_message}`);
   }
 
-  // Save session insights (upsert: insert new, delete old)
   const sessionInsights = convertToInsightRows(parsedSession.data, sessionData);
-  saveInsightsToDb(sessionInsights);
-  applyGeneratedTitle(session.id, sessionInsights);
-  deleteSessionInsights(session.id, {
-    excludeTypes: ['prompt_quality'],
-    excludeIds: sessionInsights.map(i => i.id),
-  });
-
-  if (parsedSession.data.facets) {
-    saveFacetsToDb(session.id, parsedSession.data.facets);
-  }
-
-  saveAnalysisUsage({
-    session_id: session.id,
-    analysis_type: 'session',
-    provider: sessionResult.provider,
-    model: sessionResult.model,
-    input_tokens: sessionResult.inputTokens,
-    output_tokens: sessionResult.outputTokens,
-    cache_creation_tokens: sessionResult.cacheCreationTokens,
-    cache_read_tokens: sessionResult.cacheReadTokens,
-    estimated_cost_usd: 0,
-    duration_ms: sessionResult.durationMs,
-    session_message_count: session.message_count,
-  });
 
   // ── Pass 2: Prompt quality analysis ──────────────────────────────────────
 
@@ -230,25 +214,53 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
   }
 
   const pqInsight = convertPQToInsightRow(parsedPQ.data, sessionData);
-  saveInsightsToDb([pqInsight]);
-  deleteSessionInsights(session.id, {
-    excludeTypes: ['summary', 'decision', 'learning'],
-    excludeIds: [pqInsight.id],
-  });
 
-  saveAnalysisUsage({
-    session_id: session.id,
-    analysis_type: 'prompt_quality',
-    provider: pqResult.provider,
-    model: pqResult.model,
-    input_tokens: pqResult.inputTokens,
-    output_tokens: pqResult.outputTokens,
-    cache_creation_tokens: pqResult.cacheCreationTokens,
-    cache_read_tokens: pqResult.cacheReadTokens,
-    estimated_cost_usd: 0,
-    duration_ms: pqResult.durationMs,
-    session_message_count: session.message_count,
-  });
+  const persistResults = () => {
+    if (options._commitGuard && !options._commitGuard()) {
+      throw new StaleAnalysisGenerationError();
+    }
+
+    saveInsightsToDb(sessionInsights);
+    applyGeneratedTitle(session.id, sessionInsights);
+    deleteSessionInsights(session.id, {
+      excludeTypes: ['prompt_quality'],
+      excludeIds: sessionInsights.map(i => i.id),
+    });
+    if (parsedSession.data.facets) saveFacetsToDb(session.id, parsedSession.data.facets);
+    saveAnalysisUsage({
+      session_id: session.id,
+      analysis_type: 'session',
+      provider: sessionResult.provider,
+      model: sessionResult.model,
+      input_tokens: sessionResult.inputTokens,
+      output_tokens: sessionResult.outputTokens,
+      cache_creation_tokens: sessionResult.cacheCreationTokens,
+      cache_read_tokens: sessionResult.cacheReadTokens,
+      estimated_cost_usd: 0,
+      duration_ms: sessionResult.durationMs,
+      session_message_count: session.message_count,
+    });
+
+    saveInsightsToDb([pqInsight]);
+    deleteSessionInsights(session.id, {
+      excludeTypes: ['summary', 'decision', 'learning'],
+      excludeIds: [pqInsight.id],
+    });
+    saveAnalysisUsage({
+      session_id: session.id,
+      analysis_type: 'prompt_quality',
+      provider: pqResult.provider,
+      model: pqResult.model,
+      input_tokens: pqResult.inputTokens,
+      output_tokens: pqResult.outputTokens,
+      cache_creation_tokens: pqResult.cacheCreationTokens,
+      cache_read_tokens: pqResult.cacheReadTokens,
+      estimated_cost_usd: 0,
+      duration_ms: pqResult.durationMs,
+      session_message_count: session.message_count,
+    });
+  };
+  getDb().transaction(persistResults).immediate();
 
   // ── Summary line ──────────────────────────────────────────────────────────
 
@@ -403,4 +415,3 @@ export async function insightsCheckCommand(opts: {
     process.exit(1);
   }
 }
-

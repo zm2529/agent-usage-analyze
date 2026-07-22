@@ -327,7 +327,7 @@ function backfillLegacy(db: Database.Database, migrationId: string): ProductMigr
 function protectLegacyTables(db: Database.Database): void {
   const legacyTables = [
     'projects', 'sessions', 'messages', 'insights', 'session_facets', 'reflect_snapshots',
-    'analysis_usage', 'analysis_queue', 'usage_stats',
+    'analysis_usage', 'usage_stats',
   ];
   for (const table of legacyTables) {
     if (!tableExists(db, table)) continue;

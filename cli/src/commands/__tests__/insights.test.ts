@@ -144,7 +144,7 @@ describe('V8 migration — session_message_count column', () => {
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;
 
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
     db.close();
   });
 
@@ -242,6 +242,25 @@ describe('runInsightsCommand — provider mode (no --native)', () => {
     ).get('sess1') as { session_message_count: number };
 
     expect(row.session_message_count).toBe(12);
+  });
+
+  it('persists nothing when the claimed queue generation became stale', async () => {
+    seedSession(mockDb);
+    mockProviderRunAnalysis
+      .mockResolvedValueOnce({ rawJson: makeAnalysisResponse(), durationMs: 100, inputTokens: 50, outputTokens: 50, model: 'gpt-4', provider: 'openai' })
+      .mockResolvedValueOnce({ rawJson: makePQResponse(), durationMs: 80, inputTokens: 30, outputTokens: 30, model: 'gpt-4', provider: 'openai' });
+
+    const { runInsightsCommand } = await import('../insights.js');
+    await expect(runInsightsCommand({
+      sessionId: 'sess1', native: false, quiet: true, _commitGuard: () => false,
+    })).rejects.toThrow(/stale analysis generation/i);
+
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM insights WHERE session_id = 'sess1'`).get())
+      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM analysis_usage WHERE session_id = 'sess1'`).get())
+      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM session_facets WHERE session_id = 'sess1'`).get())
+      .toEqual({ count: 0 });
   });
 
   it('throws if session not found in DB', async () => {

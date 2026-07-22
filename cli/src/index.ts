@@ -30,6 +30,7 @@ import {
   gitAiSidecarVerifyCommand,
 } from './commands/git-ai-sidecar.js';
 import { advisoryCommand } from './commands/advisory.js';
+import { codexStopCommand } from './commands/codex-stop.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
@@ -186,7 +187,7 @@ program.command('codex-stop')
   .description('Internal fail-open Codex Stop hook entry point')
   .option('-q, --quiet')
   .option('--managed-hook <marker>')
-  .action(() => {});
+  .action((options: { quiet?: boolean; managedHook?: string }) => codexStopCommand(options));
 
 program
   .command('doctor')

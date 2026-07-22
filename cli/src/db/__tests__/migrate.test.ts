@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
     db.close();
   });
 });
@@ -310,6 +310,23 @@ describe('runMigrations — V9 analysis_queue table', () => {
       db.prepare(`INSERT INTO analysis_queue (session_id) VALUES (?)`).run('s0b');
     }).toThrow();
 
+    db.close();
+  });
+});
+
+describe('runMigrations — V23 settled analysis frontier', () => {
+  it('preserves legacy rows and scopes identity by source plus session', () => {
+    const db = freshDb();
+    runMigrations(db);
+
+    db.prepare(`INSERT INTO analysis_queue (session_id, status) VALUES ('same', 'completed')`).run();
+    db.prepare(`INSERT INTO analysis_queue (source_tool, session_id, status) VALUES ('codex-cli', 'same', 'settling')`).run();
+
+    expect(db.prepare(`SELECT source_tool, status FROM analysis_queue WHERE session_id = 'same' ORDER BY source_tool`).all())
+      .toEqual([
+        { source_tool: 'claude-code', status: 'completed' },
+        { source_tool: 'codex-cli', status: 'settling' },
+      ]);
     db.close();
   });
 });

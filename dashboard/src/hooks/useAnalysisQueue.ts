@@ -25,7 +25,7 @@ export function useAnalysisQueue() {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 5000; // Fetch once on mount, then poll if needed
-      const isActive = data.pending > 0 || data.processing > 0;
+      const isActive = data.settling > 0 || data.awaitingCapability > 0 || data.pending > 0 || data.processing > 0;
       return isActive ? 5000 : false;
     },
     // Stale immediately so each manual refetch gets fresh data
@@ -33,7 +33,7 @@ export function useAnalysisQueue() {
   });
 
   const isActive = result.data
-    ? result.data.pending > 0 || result.data.processing > 0
+    ? result.data.settling > 0 || result.data.awaitingCapability > 0 || result.data.pending > 0 || result.data.processing > 0
     : false;
 
   useEffect(() => {
@@ -52,14 +52,20 @@ export function useAnalysisQueue() {
  * Returns the set of session IDs currently in the queue (pending or processing).
  * Used by session list/detail to show "Analyzing..." badges.
  */
-export function useQueuedSessionIds(): Set<string> {
+export function analysisQueueKey(sourceTool: string, sessionId: string): string {
+  return JSON.stringify([sourceTool, sessionId]);
+}
+
+export function queuedSessionKeys(data?: AnalysisQueueStatus): Set<string> {
+  if (!data) return new Set<string>();
+  return new Set(
+    data.items
+      .filter(item => item.status === 'settling' || item.status === 'awaiting-capability' || item.status === 'pending' || item.status === 'processing')
+      .map(item => analysisQueueKey(item.source_tool, item.session_id))
+  );
+}
+
+export function useQueuedSessionKeys(): Set<string> {
   const { data } = useAnalysisQueue();
-  return useMemo(() => {
-    if (!data) return new Set<string>();
-    return new Set(
-      data.items
-        .filter(item => item.status === 'pending' || item.status === 'processing')
-        .map(item => item.session_id)
-    );
-  }, [data]);
+  return useMemo(() => queuedSessionKeys(data), [data]);
 }

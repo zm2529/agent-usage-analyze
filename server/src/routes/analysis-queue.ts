@@ -2,8 +2,7 @@
  * GET /api/analysis/queue
  *
  * Returns current analysis_queue status for dashboard polling.
- * Dashboard polls at 5s intervals when pending > 0 or processing > 0,
- * and stops polling when both reach 0.
+ * Dashboard polls while any actionable lifecycle state remains active.
  */
 
 import { Hono } from 'hono';

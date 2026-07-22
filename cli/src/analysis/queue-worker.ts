@@ -10,7 +10,7 @@
  */
 
 import chalk from 'chalk';
-import { claimNext, markCompleted, markFailed, resetStale } from '../db/queue.js';
+import { claimNext, isProcessingGeneration, markCompleted, markFailed, resetStale } from '../db/queue.js';
 import { runInsightsCommand } from '../commands/insights.js';
 import { ClaudeNativeRunner } from './native-runner.js';
 
@@ -59,13 +59,17 @@ export async function processQueue(options: ProcessQueueOptions = {}): Promise<n
         native: item.runner_type === 'native',
         quiet,
         _runner: item.runner_type === 'native' ? runner : undefined,
+        _commitGuard: () => isProcessingGeneration(item.session_id, item.source_tool, item.generation),
       });
-      markCompleted(item.session_id);
-      successCount++;
-      log(chalk.green(`[Agent Analytics] Session ${item.session_id} analyzed successfully`));
+      if (markCompleted(item.session_id, item.source_tool, item.generation)) {
+        successCount++;
+        log(chalk.green(`[Agent Analytics] Session ${item.session_id} analyzed successfully`));
+      } else {
+        log(chalk.dim(`[Agent Analytics] Ignored stale generation for session ${item.session_id}`));
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      markFailed(item.session_id, errorMessage);
+      markFailed(item.session_id, errorMessage, item.source_tool, item.generation);
       if (!quiet) {
         console.error(chalk.red(`[Agent Analytics] Analysis failed for ${item.session_id}: ${errorMessage}`));
       }
