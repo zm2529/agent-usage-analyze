@@ -659,6 +659,12 @@ export interface AnalysisQueueItem {
   session_id: string;
   status: 'settling' | 'awaiting-capability' | 'pending' | 'processing' | 'completed' | 'failed';
   runner_type: string;
+  latest_turn_id: string | null;
+  generation: number;
+  transcript_locator: string | null;
+  source_basis: string | null;
+  not_before: string | null;
+  diagnostic: string | null;
   enqueued_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -675,6 +681,7 @@ export interface AnalysisQueueStatus {
   completed: number;
   failed: number;
   items: AnalysisQueueItem[];
+  latestAutomatic: AnalysisQueueItem | null;
 }
 
 export function fetchAnalysisQueue() {

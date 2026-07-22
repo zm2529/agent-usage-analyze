@@ -51,6 +51,7 @@ export interface QueueStatus {
   completed: number;
   failed: number;
   items: QueueItem[];
+  latestAutomatic: QueueItem | null;
 }
 
 /**
@@ -238,6 +239,10 @@ export function getQueueStatus(db: Database.Database = getDb()): QueueStatus {
      WHERE status IN ('settling', 'awaiting-capability', 'pending', 'processing', 'failed')
      ORDER BY enqueued_at ASC`
   ).all() as QueueItem[];
+  const latestAutomatic = (db.prepare(
+    `SELECT * FROM analysis_queue WHERE runner_type = 'auto'
+     ORDER BY enqueued_at DESC, generation DESC LIMIT 1`,
+  ).get() as QueueItem | undefined) ?? null;
 
   return {
     settling: counts.settling ?? 0,
@@ -247,6 +252,7 @@ export function getQueueStatus(db: Database.Database = getDb()): QueueStatus {
     completed: counts.completed ?? 0,
     failed: counts.failed ?? 0,
     items,
+    latestAutomatic,
   };
 }
 

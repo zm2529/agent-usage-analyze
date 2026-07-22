@@ -15,12 +15,16 @@ import { Command } from 'commander';
 import { getQueueStatus, resetFailed, pruneCompleted } from '../db/queue.js';
 import { processQueue } from '../analysis/queue-worker.js';
 import { runSettledScheduler, spawnSettledScheduler } from '../analysis/settled-scheduler.js';
+import { buildAutomaticAnalysisStatus } from '../analysis/automatic-status.js';
+import { resolveAnalysisExecutionPolicy } from '../analysis/execution-policy.js';
+import { loadConfig } from '../utils/config.js';
 
 // ── queue status ──────────────────────────────────────────────────────────────
 
 export async function queueStatusCommand(opts: { quiet?: boolean } = {}): Promise<void> {
   const { quiet = false } = opts;
   const status = getQueueStatus();
+  const automatic = buildAutomaticAnalysisStatus(status, resolveAnalysisExecutionPolicy(loadConfig()));
 
   if (quiet) {
     process.stdout.write(JSON.stringify({
@@ -30,6 +34,7 @@ export async function queueStatusCommand(opts: { quiet?: boolean } = {}): Promis
       processing: status.processing,
       completed: status.completed,
       failed: status.failed,
+      automatic,
     }) + '\n');
     return;
   }
@@ -45,6 +50,14 @@ export async function queueStatusCommand(opts: { quiet?: boolean } = {}): Promis
   } else {
     console.log(chalk.white(`  Failed:     ${status.failed}`));
   }
+  console.log(chalk.cyan('\n  Automatic Analysis\n'));
+  console.log(chalk.white(`  Recent status:  ${automatic.recentStatus}`));
+  console.log(chalk.white(`  Runner:         ${automatic.effectiveRunner}`));
+  console.log(chalk.white(`  Authentication: ${automatic.authentication}`));
+  if (automatic.downgradeReason) {
+    console.log(chalk.yellow(`  Downgrade:      ${automatic.downgradeReason}`));
+  }
+  console.log(chalk.white(`  Next action:    ${automatic.nextAction}`));
 
   if (status.items.length > 0) {
     console.log(chalk.cyan('\n  Active Items:\n'));

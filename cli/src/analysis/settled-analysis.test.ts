@@ -105,6 +105,12 @@ describe('processSettledAnalysis', () => {
     }, { effectiveRunner: 'unavailable', reason: 'codex-not-logged-in' }, {
       now: () => new Date(), buildRunner, analyze,
     })).resolves.toEqual({ status: 'awaiting-capability', diagnostic: 'codex-not-logged-in' });
+    await expect(processSettledAnalysis(db, {
+      sourceTool: 'codex-cli', sessionId: 'native-session', generation: 4,
+      locator: null, sourceBasis: null,
+    }, { effectiveRunner: 'unavailable', reason: 'codex-not-logged-in' }, {
+      now: () => new Date(), buildRunner, analyze,
+    })).resolves.toEqual({ status: 'awaiting-capability', diagnostic: 'codex-not-logged-in' });
     expect(buildRunner).not.toHaveBeenCalled();
     expect(analyze).not.toHaveBeenCalled();
     expect(db.prepare(`SELECT status FROM analysis_queue`).get()).toEqual({ status: 'awaiting-capability' });

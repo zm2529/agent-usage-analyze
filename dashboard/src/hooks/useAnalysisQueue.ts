@@ -22,18 +22,13 @@ export function useAnalysisQueue() {
   const result = useQuery<AnalysisQueueStatus>({
     queryKey: ['analysisQueue'],
     queryFn: fetchAnalysisQueue,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (!data) return 5000; // Fetch once on mount, then poll if needed
-      const isActive = data.settling > 0 || data.awaitingCapability > 0 || data.pending > 0 || data.processing > 0;
-      return isActive ? 5000 : false;
-    },
+    refetchInterval: (query) => analysisQueueRefetchInterval(query.state.data),
     // Stale immediately so each manual refetch gets fresh data
     staleTime: 0,
   });
 
   const isActive = result.data
-    ? result.data.settling > 0 || result.data.awaitingCapability > 0 || result.data.pending > 0 || result.data.processing > 0
+    ? result.data.settling > 0 || result.data.pending > 0 || result.data.processing > 0
     : false;
 
   useEffect(() => {
@@ -46,6 +41,11 @@ export function useAnalysisQueue() {
   }, [isActive, queryClient]);
 
   return result;
+}
+
+export function analysisQueueRefetchInterval(data?: AnalysisQueueStatus): 5000 | false {
+  if (!data) return 5000;
+  return data.settling > 0 || data.pending > 0 || data.processing > 0 ? 5000 : false;
 }
 
 /**

@@ -25,8 +25,9 @@ describe('GET /api/analysis/queue', () => {
     for (const [index, status] of [
       'settling', 'awaiting-capability', 'pending', 'processing', 'completed', 'failed',
     ].entries()) {
-      testDb.prepare(`INSERT INTO analysis_queue (source_tool, session_id, status) VALUES ('codex-cli', ?, ?)`).run(
-        `session-${index}`, status,
+      testDb.prepare(`INSERT INTO analysis_queue (source_tool, session_id, status, runner_type, generation)
+        VALUES ('codex-cli', ?, ?, 'auto', ?)`).run(
+        `session-${index}`, status, index + 1,
       );
     }
 
@@ -39,6 +40,7 @@ describe('GET /api/analysis/queue', () => {
       processing: 1,
       completed: 1,
       failed: 1,
+      latestAutomatic: { session_id: 'session-5', status: 'failed', generation: 6 },
     });
   });
 });

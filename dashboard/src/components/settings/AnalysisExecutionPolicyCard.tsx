@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useLlmConfig, useSaveLlmConfig } from '@/hooks/useConfig';
 import type { AnalysisExecutionMode, AnalysisExecutionState } from '@/lib/types';
+import type { AnalysisQueueItem } from '@/lib/api';
+import { useAnalysisQueue } from '@/hooks/useAnalysisQueue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,9 +33,23 @@ const reasonText = (state: Pick<AnalysisExecutionState, 'reason' | 'authenticati
   return `Selected by ${state.reason}.`;
 };
 
+const recoveryText = (reason: string): string => {
+  if (reason === 'codex-not-logged-in') return 'Next: run `codex login`, then `agent-analytics queue retry --all`.';
+  if (reason === 'codex-cli-missing') return 'Next: install Codex CLI, sign in, then retry the analysis queue.';
+  if (reason === 'source-not-found') return 'Next: run `agent-analytics import-codex`, then retry this source and session.';
+  if (reason === 'settled-analysis-failed') return 'Next: inspect `settled-analysis.log`, fix the issue, then run `agent-analytics queue retry --all`.';
+  if (reason === 'settled-import-failed') return 'Next: run `agent-analytics import-codex`, then `agent-analytics queue retry --all`.';
+  return 'Next: resolve the downgrade reason, then run `agent-analytics queue retry --all`.';
+};
+
 export function AnalysisExecutionPolicyStatus({
   mode, effectiveRunner, authentication, locality, reason, pending, onSave,
-}: AnalysisExecutionState & { pending: boolean; onSave: (mode: AnalysisExecutionMode) => void }) {
+  recentAutomatic,
+}: AnalysisExecutionState & {
+  pending: boolean;
+  onSave: (mode: AnalysisExecutionMode) => void;
+  recentAutomatic?: AnalysisQueueItem | null;
+}) {
   const [selected, setSelected] = useState(mode);
   useEffect(() => setSelected(mode), [mode]);
   return (
@@ -62,6 +78,13 @@ export function AnalysisExecutionPolicyStatus({
         </select>
         <p>{reasonText({ reason, authentication })}</p>
         <p className="text-xs text-muted-foreground">Authentication: {authentication}. Subscription usage and observer overhead are recorded; no monetary cost is inferred.</p>
+        {recentAutomatic && (
+          <div className="rounded-md border p-3 text-xs space-y-1" aria-label="Recent automatic analysis">
+            <p>Recent automatic analysis: {recentAutomatic.status}</p>
+            {recentAutomatic.diagnostic && <p>Downgrade: {recentAutomatic.diagnostic}</p>}
+            {recentAutomatic.diagnostic && <p>{recoveryText(recentAutomatic.diagnostic)}</p>}
+          </div>
+        )}
         <Button disabled={pending || selected === mode} onClick={() => onSave(selected)}>Save analysis mode</Button>
       </CardContent>
     </Card>
@@ -71,15 +94,22 @@ export function AnalysisExecutionPolicyStatus({
 export function AnalysisExecutionPolicyCard() {
   const config = useLlmConfig();
   const save = useSaveLlmConfig();
+  const queue = useAnalysisQueue();
   const state = config.data?.analysis;
   if (!state) return null;
   const update = async (mode: AnalysisExecutionMode) => {
     try {
       await save.mutateAsync({ analysisMode: mode });
+      await queue.refetch();
       toast.success('Analysis execution mode updated');
     } catch {
       toast.error('Could not update analysis execution mode');
     }
   };
-  return <AnalysisExecutionPolicyStatus {...state} pending={config.isLoading || save.isPending} onSave={(mode) => { void update(mode); }} />;
+  return <AnalysisExecutionPolicyStatus
+    {...state}
+    recentAutomatic={queue.data?.latestAutomatic}
+    pending={config.isLoading || save.isPending}
+    onSave={(mode) => { void update(mode); }}
+  />;
 }

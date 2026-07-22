@@ -49,4 +49,27 @@ describe('AnalysisExecutionPolicyStatus', () => {
     fireEvent.click(screen.getByRole('button', { name: /save analysis mode/i }));
     expect(onSave).toHaveBeenCalledWith('local-only');
   });
+
+  it('shows recent automatic status, downgrade reason, and an actionable next step', () => {
+    render(<AnalysisExecutionPolicyStatus
+      mode="auto"
+      effectiveRunner="local-only"
+      authentication="not-logged-in"
+      locality="local"
+      reason="codex-not-logged-in"
+      recentAutomatic={{
+        source_tool: 'codex-cli', session_id: 'session', status: 'awaiting-capability',
+        runner_type: 'auto', latest_turn_id: 'turn', generation: 2, transcript_locator: null,
+        source_basis: null, not_before: null, diagnostic: 'codex-not-logged-in',
+        enqueued_at: '2026-07-22T00:00:00Z', started_at: null, completed_at: null,
+        error_message: null, attempt_count: 0, max_attempts: 3,
+      }}
+      pending={false}
+      onSave={() => {}}
+    />);
+
+    expect(screen.getByText(/recent automatic analysis: awaiting-capability/i)).toBeInTheDocument();
+    expect(screen.getByText(/downgrade: codex-not-logged-in/i)).toBeInTheDocument();
+    expect(screen.getByText(/codex login.*queue retry --all/i)).toBeInTheDocument();
+  });
 });
