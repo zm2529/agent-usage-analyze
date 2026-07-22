@@ -3,6 +3,12 @@ import * as path from 'path';
 import * as os from 'os';
 import chalk from 'chalk';
 import { trackEvent, captureError, classifyError } from '../utils/telemetry.js';
+import { spawnSync } from 'child_process';
+import {
+  installCodexHook,
+  uninstallCodexHook,
+  type HookSource,
+} from '../utils/codex-hooks.js';
 import {
   HOOKS_FILE,
   CLI_ENTRY,
@@ -40,7 +46,26 @@ function removeStopHooks(settings: ClaudeSettings): boolean {
  * Running install-hook again removes the old Stop hook (v4.8.x hygiene) and
  * installs a fresh session-end hook.
  */
-export async function installHookCommand(): Promise<void> {
+export async function installHookCommand(options: { source?: HookSource } = {}): Promise<void> {
+  const source = options.source ?? 'claude';
+  if (source === 'auto' || source === 'all') {
+    const hasCodex = source === 'all' || spawnSync('codex', ['--version'], { stdio: 'ignore' }).status === 0;
+    const hasClaude = source === 'all' || spawnSync('claude', ['--version'], { stdio: 'ignore' }).status === 0;
+    if (!hasCodex && !hasClaude) throw new Error('No supported Agent CLI was detected; use --source explicitly.');
+    if (hasCodex) await installHookCommand({ source: 'codex' });
+    if (hasClaude) await installHookCommand({ source: 'claude' });
+    return;
+  }
+  if (source === 'codex') {
+    const result = installCodexHook();
+    console.log(chalk.green(result.changed ? '\nCodex Stop hook installed successfully!' : '\nCodex Stop hook is already installed.'));
+    console.log(chalk.gray(`Configuration: ${result.file}`));
+    if (result.backup) console.log(chalk.gray(`Backup: ${result.backup}`));
+    console.log(chalk.yellow('Open /hooks in Codex and trust the new hook before it can run.'));
+    console.log(chalk.dim('The hook records a settled analysis frontier and never blocks Codex.'));
+    return;
+  }
+  if (source !== 'claude') throw new Error(`Unsupported hook source: ${source}`);
   console.log(chalk.cyan('\nInstall Agent Analytics Hook\n'));
 
   const sessionEndCommand = `node ${CLI_ENTRY} session-end --native -q`;
@@ -113,7 +138,19 @@ export async function installHookCommand(): Promise<void> {
  * Uninstall Agent Analytics hooks.
  * Handles both v4.9+ (SessionEnd session-end) and v4.8.x (Stop sync + SessionEnd insights --hook).
  */
-export async function uninstallHookCommand(): Promise<void> {
+export async function uninstallHookCommand(options: { source?: HookSource } = {}): Promise<void> {
+  const source = options.source ?? 'claude';
+  if (source === 'auto' || source === 'all') {
+    await uninstallHookCommand({ source: 'codex' });
+    await uninstallHookCommand({ source: 'claude' });
+    return;
+  }
+  if (source === 'codex') {
+    const result = uninstallCodexHook();
+    console.log(result.changed ? chalk.green('\nCodex hook uninstalled successfully!') : chalk.yellow('\nNo Agent Analytics Codex hook found.'));
+    return;
+  }
+  if (source !== 'claude') throw new Error(`Unsupported hook source: ${source}`);
   console.log(chalk.cyan('\nUninstall Agent Analytics Hooks\n'));
 
   if (!fs.existsSync(HOOKS_FILE)) {

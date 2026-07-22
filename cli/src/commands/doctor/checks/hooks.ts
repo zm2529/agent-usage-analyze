@@ -8,6 +8,11 @@ import {
   hookAlreadyInstalled,
 } from '../../../utils/hooks-utils.js';
 import type { Check, CheckResult } from '../types.js';
+import {
+  codexConfigPath,
+  codexHooksFeatureEnabled,
+  inspectCodexHook,
+} from '../../../utils/codex-hooks.js';
 
 /** Extract the binary path from a hook command string like "node /path/to/index.js session-end ..." */
 function extractBinaryPath(command: string): string | null {
@@ -17,6 +22,46 @@ function extractBinaryPath(command: string): string | null {
 
 export function hooksChecks(): Check[] {
   return [
+    {
+      id: 'hooks.codex_stop_installed',
+      label: 'Codex Stop hook',
+      run: async (): Promise<CheckResult> => {
+        const state = inspectCodexHook();
+        if (state.parseError) return {
+          id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'fail',
+          detail: state.parseError, hint: `Repair ${state.file} before installing; Agent Analytics will not overwrite malformed JSON.`,
+        };
+        if (state.stale) return {
+          id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'warn',
+          detail: 'Managed hook points to a different Agent Analytics entry',
+          hint: 'Run: agent-analytics install-hook --source codex',
+        };
+        if (!state.installed) return {
+          id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'warn',
+          detail: 'Not installed', hint: 'Run: agent-analytics install-hook --source codex',
+        };
+        return {
+          id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'pass',
+          detail: state.file, hint: 'Open /hooks in Codex to review and trust the exact command if it is pending review.',
+        };
+      },
+    },
+    {
+      id: 'hooks.codex_feature_enabled',
+      label: 'Codex hooks feature',
+      run: async (): Promise<CheckResult> => {
+        const configFile = codexConfigPath();
+        const disabled = fs.existsSync(configFile)
+          && !codexHooksFeatureEnabled(fs.readFileSync(configFile, 'utf8'));
+        return disabled ? {
+          id: 'hooks.codex_feature_enabled', label: 'Codex hooks feature', status: 'warn',
+          detail: 'Disabled in ~/.codex/config.toml', hint: 'Set [features].hooks = true, then review the hook with /hooks.',
+        } : {
+          id: 'hooks.codex_feature_enabled', label: 'Codex hooks feature', status: 'pass',
+          detail: 'Enabled by default or explicitly enabled',
+        };
+      },
+    },
     {
       id: 'hooks.settings_exists',
       label: 'Claude settings',

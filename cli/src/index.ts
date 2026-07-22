@@ -172,13 +172,21 @@ program.command('git-ai-gate <evidence>')
 
 program
   .command('install-hook')
-  .description('Install Claude Code SessionEnd hook for automatic sync and analysis')
-  .action(() => installHookCommand());
+  .description('Install automatic analysis hooks for detected Agent CLIs')
+  .option('--source <source>', 'auto, codex, claude, or all', 'auto')
+  .action((options: { source: 'auto' | 'codex' | 'claude' | 'all' }) => installHookCommand(options));
 
 program
   .command('uninstall-hook')
-  .description('Remove Claude Code hooks (sync and analysis)')
-  .action(uninstallHookCommand);
+  .description('Remove Agent Analytics hooks')
+  .option('--source <source>', 'codex, claude, or all', 'all')
+  .action((options: { source: 'codex' | 'claude' | 'all' }) => uninstallHookCommand(options));
+
+program.command('codex-stop')
+  .description('Internal fail-open Codex Stop hook entry point')
+  .option('-q, --quiet')
+  .option('--managed-hook <marker>')
+  .action(() => {});
 
 program
   .command('doctor')

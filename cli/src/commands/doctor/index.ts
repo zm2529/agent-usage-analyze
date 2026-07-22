@@ -14,6 +14,7 @@ import { dashboardChecks } from './checks/dashboard.js';
 import { runChecks, renderJson } from './runner.js';
 import { renderFirstRun } from './first-run.js';
 import type { Section } from './types.js';
+import { inspectCodexHook } from '../../utils/codex-hooks.js';
 
 function getVersion(): string {
   try {
@@ -43,6 +44,7 @@ function isFirstRun(): boolean {
   if (settings?.hooks?.SessionEnd && hookAlreadyInstalled(settings.hooks.SessionEnd)) {
     return false;
   }
+  if (inspectCodexHook().installed) return false;
 
   return true;
 }
