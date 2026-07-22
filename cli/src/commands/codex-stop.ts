@@ -16,6 +16,7 @@ export interface CodexStopOptions {
 
 export interface CodexStopDependencies {
   isRecursive: boolean;
+  automaticEnabled: boolean;
   idleSeconds: number;
   now: Date;
   record(event: SettledTurnEvent, now: Date, idleSeconds: number): unknown;
@@ -41,6 +42,7 @@ function defaultDependencies(): CodexStopDependencies {
     : 90;
   return {
     isRecursive: Boolean(process.env.AGENT_ANALYTICS_HOOK_ACTIVE),
+    automaticEnabled: loadConfig()?.dashboard?.analysis?.mode !== 'off',
     idleSeconds,
     now: new Date(),
     record: (event, now, idle) => recordSettledFrontier(getDb(), event, now, idle),
@@ -55,7 +57,8 @@ export function handleCodexStopInput(
   dependencies: CodexStopDependencies = defaultDependencies(),
 ): void {
   try {
-    if (dependencies.isRecursive || options.managedHook !== CODEX_HOOK_MARKER) return;
+    if (!dependencies.automaticEnabled || dependencies.isRecursive
+      || options.managedHook !== CODEX_HOOK_MARKER) return;
     if (Buffer.byteLength(input, 'utf8') > MAX_CODEX_HOOK_INPUT_BYTES) return;
 
     const payload = JSON.parse(input) as CodexStopPayload;

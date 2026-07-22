@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { runMigrations } from './schema.js';
-import { claimNext, getQueueStatus, markCompleted, markFailed, resetFailed } from './queue.js';
+import { claimNext, getQueueStatus, markCompleted, markFailed, resetFailed, resetStale } from './queue.js';
 import { recordSettledFrontier } from '../analysis/settled-frontier.js';
 
 describe('settled analysis queue states', () => {
@@ -64,14 +64,43 @@ describe('settled analysis queue states', () => {
     const db = new Database(':memory:');
     runMigrations(db);
     db.prepare(`INSERT INTO analysis_queue (source_tool, session_id, status) VALUES ('claude-code', 'same', 'failed')`).run();
-    db.prepare(`INSERT INTO analysis_queue (source_tool, session_id, status) VALUES ('codex-cli', 'same', 'failed')`).run();
+    db.prepare(`INSERT INTO analysis_queue (source_tool, session_id, status, runner_type)
+      VALUES ('codex-cli', 'same', 'failed', 'auto')`).run();
 
     expect(() => resetFailed('same', undefined, db)).toThrow(/source/i);
     expect(resetFailed('same', 'codex-cli', db)).toBe(1);
     expect(db.prepare(`SELECT source_tool, status FROM analysis_queue ORDER BY source_tool`).all()).toEqual([
       { source_tool: 'claude-code', status: 'failed' },
-      { source_tool: 'codex-cli', status: 'pending' },
+      { source_tool: 'codex-cli', status: 'settling' },
     ]);
+    db.close();
+  });
+
+  it('returns stale auto workers to the settled scheduler rather than the legacy worker', () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    db.prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, started_at)
+      VALUES ('codex-cli', 'auto', 'processing', 'auto', '2000-01-01T00:00:00.000Z')`).run();
+
+    expect(resetStale(db)).toBe(1);
+    expect(db.prepare(`SELECT status, not_before FROM analysis_queue`).get()).toMatchObject({
+      status: 'settling',
+    });
+    db.close();
+  });
+
+  it('lets manual retry resume an awaiting auto frontier', () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    db.prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, attempt_count)
+      VALUES ('codex-cli', 'awaiting', 'awaiting-capability', 'auto', 3)`).run();
+
+    expect(resetFailed('awaiting', 'codex-cli', db)).toBe(1);
+    expect(db.prepare(`SELECT status, attempt_count FROM analysis_queue`).get()).toEqual({
+      status: 'settling', attempt_count: 0,
+    });
     db.close();
   });
 });

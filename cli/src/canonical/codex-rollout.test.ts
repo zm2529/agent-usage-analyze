@@ -72,6 +72,24 @@ afterEach(() => {
 });
 
 describe('CodexRolloutAdapter', () => {
+  it('limits settled import discovery to the selected rollout artifact', async () => {
+    const home = tempCodexHome();
+    const selected = join(home, 'sessions', '2026', '07', '21', 'rollout-selected.jsonl');
+    const sibling = join(home, 'archived_sessions', 'rollout-sibling.jsonl');
+    writeFileSync(selected, `${rootRollout().join('\n')}\n`);
+    writeFileSync(sibling, `${childRollout().join('\n')}\n`);
+    const db = new Database(':memory:');
+    runMigrations(db);
+
+    const result = await ingestSourceAdapter(new CodexRolloutAdapter(home, [selected]), db);
+
+    expect(result).toMatchObject({ advancedSources: 1, status: 'completed' });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM source_artifacts').get()).toEqual({ count: 1 });
+    expect(readWorkTaskDetail(db, 'thread-root')).not.toBeNull();
+    expect(readWorkTaskDetail(db, 'thread-child')).toBeNull();
+    db.close();
+  });
+
   it('resolves an opaque payload reference only from the matching local rollout', async () => {
     const home = tempCodexHome();
     const rootPath = join(home, 'sessions', '2026', '07', '21', 'rollout-root.jsonl');

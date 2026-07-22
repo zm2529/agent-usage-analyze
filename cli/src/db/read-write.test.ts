@@ -38,7 +38,12 @@ vi.mock('../utils/device.js', () => ({
 // Dynamic imports AFTER mocks are declared — vitest hoists vi.mock()
 // above these imports, so the modules receive the mocked dependencies.
 const { sessionExists, getSessions, getProjects, getLastSession, getSessionCount, getProjectList, getDeletedSessionCount } = await import('./read.js');
-const { insertSessionWithProject, insertMessages } = await import('./write.js');
+const {
+  insertSessionWithProject,
+  insertSessionWithProjectAndReturnIsNew,
+  insertMessages,
+  recalculateUsageStats,
+} = await import('./write.js');
 
 // ──────────────────────────────────────────────────────
 // Test suite
@@ -99,6 +104,37 @@ describe('Database read/write operations', () => {
       const projects = getProjects();
       expect(projects).toHaveLength(1);
       expect(projects[0].session_count).toBe(2);
+    });
+
+    it('moves a rewritten session and recalculates old plus new project usage', () => {
+      const usage = (input: number) => ({
+        totalInputTokens: input,
+        totalOutputTokens: 10,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        estimatedCostUsd: input / 1000,
+        modelsUsed: ['model'],
+        primaryModel: 'model',
+        usageSource: 'jsonl' as const,
+      });
+      insertSessionWithProject(makeParsedSession({
+        id: 'rewritten', projectPath: '/repo/old', projectName: 'old', usage: usage(100),
+      }));
+      insertSessionWithProjectAndReturnIsNew(makeParsedSession({
+        id: 'rewritten', projectPath: '/repo/new', projectName: 'new', usage: usage(250),
+      }), true);
+
+      recalculateUsageStats();
+
+      expect(testDb.prepare(`SELECT project_path FROM sessions WHERE id = 'rewritten'`).get())
+        .toEqual({ project_path: '/repo/new' });
+      expect(testDb.prepare(`SELECT path, session_count, total_input_tokens FROM projects ORDER BY path`).all())
+        .toEqual([
+          { path: '/repo/new', session_count: 1, total_input_tokens: 250 },
+          { path: '/repo/old', session_count: 0, total_input_tokens: 0 },
+        ]);
+      expect(testDb.prepare(`SELECT total_input_tokens FROM usage_stats WHERE id = 1`).get())
+        .toEqual({ total_input_tokens: 250 });
     });
   });
 

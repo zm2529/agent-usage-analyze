@@ -25,10 +25,11 @@ vi.mock('../../utils/config.js', () => ({
 
 const mockInsertSession = vi.fn(() => true);
 const mockInsertMessages = vi.fn();
+const mockRecalculateUsageStats = vi.fn(() => ({ sessionsWithUsage: 0 }));
 vi.mock('../../db/write.js', () => ({
   insertSessionWithProjectAndReturnIsNew: mockInsertSession,
   insertMessages: mockInsertMessages,
-  recalculateUsageStats: vi.fn(() => ({ sessionsWithUsage: 0 })),
+  recalculateUsageStats: mockRecalculateUsageStats,
 }));
 
 const mockValidate = vi.fn();
@@ -182,6 +183,7 @@ describe('runInsightsCommand — provider mode (no --native)', () => {
     mockValidate.mockReset();
     mockInsertSession.mockReset();
     mockInsertMessages.mockReset();
+    mockRecalculateUsageStats.mockClear();
     mockProvider.parse.mockReset();
   });
 
@@ -281,6 +283,7 @@ describe('runInsightsCommand — native mode (--native)', () => {
     mockProviderRunAnalysis.mockReset();
     mockInsertSession.mockReset();
     mockInsertMessages.mockReset();
+    mockRecalculateUsageStats.mockClear();
     mockProvider.parse.mockReset();
   });
 
@@ -404,6 +407,7 @@ describe('syncSingleFile', () => {
     runMigrations(mockDb);
     mockInsertSession.mockReset();
     mockInsertMessages.mockReset();
+    mockRecalculateUsageStats.mockClear();
     mockProvider.parse.mockReset();
   });
 
@@ -424,7 +428,7 @@ describe('syncSingleFile', () => {
 
     expect(mockProvider.parse).toHaveBeenCalledWith('/path/to/session.jsonl');
     expect(mockInsertSession).toHaveBeenCalledWith(fakeSession, false);
-    expect(mockInsertMessages).toHaveBeenCalledWith(fakeSession);
+    expect(mockInsertMessages).toHaveBeenCalledWith(fakeSession, false);
   });
 
   it('does nothing if provider.parse() returns null', async () => {
@@ -435,6 +439,105 @@ describe('syncSingleFile', () => {
 
     expect(mockInsertSession).not.toHaveBeenCalled();
     expect(mockInsertMessages).not.toHaveBeenCalled();
+  });
+
+  it('clears a known stale projection and fails closed when required parsing is unavailable', async () => {
+    mockProvider.parse.mockResolvedValueOnce(null);
+    mockDb.pragma('foreign_keys = ON');
+    mockDb.exec(`INSERT INTO projects (id, name, path, last_activity) VALUES ('p', 'p', '/p', datetime('now'));
+      INSERT INTO sessions (id, project_id, project_name, project_path, started_at, ended_at)
+      VALUES ('codex:session', 'p', 'p', '/p', datetime('now'), datetime('now'));
+      INSERT INTO messages (id, session_id, type, timestamp)
+      VALUES ('old', 'codex:session', 'user', datetime('now'));
+      INSERT INTO analysis_usage (session_id, analysis_type, provider, model)
+      VALUES ('codex:session', 'session', 'old', 'old');
+      INSERT INTO session_facets (session_id, outcome_satisfaction, had_course_correction, iteration_count)
+      VALUES ('codex:session', 'unknown', 0, 0);`);
+
+    const { syncSingleFile } = await import('../sync.js');
+    await expect(syncSingleFile({
+      filePath: '/path/to/unavailable.jsonl', sourceTool: 'codex-cli', replace: true,
+      replaceSessionId: 'codex:session', requireParsed: true,
+    })).rejects.toThrow('could not be parsed');
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM sessions WHERE id = 'codex:session'`).get())
+      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM analysis_usage WHERE session_id = 'codex:session'`).get())
+      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM session_facets WHERE session_id = 'codex:session'`).get())
+      .toEqual({ count: 0 });
+  });
+
+  it('atomically replaces the compatibility projection for a rewritten rollout', async () => {
+    const fakeSession = {
+      id: 'parsed-sess', messages: [{ id: 'new', type: 'user', content: 'new' }], messageCount: 3,
+    };
+    mockProvider.parse.mockResolvedValueOnce(fakeSession);
+    mockDb.pragma('foreign_keys = ON');
+    mockDb.exec(`INSERT INTO projects (id, name, path, last_activity) VALUES ('p', 'p', '/p', datetime('now'));
+      INSERT INTO sessions (id, project_id, project_name, project_path, started_at, ended_at)
+      VALUES ('parsed-sess', 'p', 'p', '/p', datetime('now'), datetime('now'));
+      INSERT INTO messages (id, session_id, type, timestamp) VALUES ('old', 'parsed-sess', 'user', datetime('now'));
+      INSERT INTO analysis_usage (session_id, analysis_type, provider, model)
+      VALUES ('parsed-sess', 'session', 'old', 'old');
+      INSERT INTO session_facets (session_id, outcome_satisfaction, had_course_correction, iteration_count)
+      VALUES ('parsed-sess', 'unknown', 0, 0);
+      INSERT INTO insights (
+        id, session_id, project_id, project_name, type, title, content, summary,
+        confidence, timestamp
+      ) VALUES ('old-insight', 'parsed-sess', 'p', 'p', 'summary', 'old', 'old', 'old', 1, datetime('now'));`);
+
+    const { syncSingleFile } = await import('../sync.js');
+    await syncSingleFile({ filePath: '/path/to/session.jsonl', sourceTool: 'codex-cli', replace: true });
+
+    expect(mockInsertSession).toHaveBeenCalledWith(fakeSession, true);
+    expect(mockInsertMessages).toHaveBeenCalledWith(fakeSession, true);
+    expect(mockRecalculateUsageStats).toHaveBeenCalledOnce();
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM messages WHERE session_id = 'parsed-sess'`).get())
+      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM insights WHERE session_id = 'parsed-sess'`).get())
+      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM session_facets WHERE session_id = 'parsed-sess'`).get())
+      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM analysis_usage WHERE session_id = 'parsed-sess'`).get())
+      .toEqual({ count: 0 });
+  });
+
+  it('replaces a stale compatibility projection when a rewrite becomes trivial', async () => {
+    const fakeSession = {
+      id: 'parsed-sess', messages: [], messageCount: 2,
+    };
+    mockProvider.parse.mockResolvedValueOnce(fakeSession);
+    mockDb.exec(`INSERT INTO projects (id, name, path, last_activity) VALUES ('p', 'p', '/p', datetime('now'));
+      INSERT INTO sessions (id, project_id, project_name, project_path, started_at, ended_at)
+      VALUES ('parsed-sess', 'p', 'p', '/p', datetime('now'), datetime('now'));
+      INSERT INTO messages (id, session_id, type, timestamp) VALUES ('old', 'parsed-sess', 'user', datetime('now'));`);
+
+    const { syncSingleFile } = await import('../sync.js');
+    await syncSingleFile({ filePath: '/path/to/session.jsonl', sourceTool: 'codex-cli', replace: true });
+
+    expect(mockInsertSession).toHaveBeenCalledWith(fakeSession, true);
+    expect(mockInsertMessages).not.toHaveBeenCalled();
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM sessions WHERE id = 'parsed-sess'`).get())
+      .toEqual({ count: 1 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM messages WHERE session_id = 'parsed-sess'`).get())
+      .toEqual({ count: 0 });
+    expect(mockRecalculateUsageStats).toHaveBeenCalledOnce();
+  });
+
+  it('invalidates the known projection when parsed session identity mismatches', async () => {
+    mockProvider.parse.mockResolvedValueOnce({ id: 'codex:other', messages: [], messageCount: 3 });
+    mockDb.exec(`INSERT INTO projects (id, name, path, last_activity) VALUES ('p', 'p', '/p', datetime('now'));
+      INSERT INTO sessions (id, project_id, project_name, project_path, started_at, ended_at)
+      VALUES ('codex:expected', 'p', 'p', '/p', datetime('now'), datetime('now'));`);
+
+    const { syncSingleFile } = await import('../sync.js');
+    await expect(syncSingleFile({
+      filePath: '/path/to/mismatch.jsonl', sourceTool: 'codex-cli', replace: true,
+      replaceSessionId: 'codex:expected', requireParsed: true,
+    })).rejects.toThrow('could not be parsed');
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM sessions WHERE id = 'codex:expected'`).get())
+      .toEqual({ count: 0 });
+    expect(mockInsertSession).not.toHaveBeenCalled();
   });
 });
 

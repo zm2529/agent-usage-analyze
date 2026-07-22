@@ -435,12 +435,19 @@ export class CodexRolloutAdapter implements SourceAdapter {
   readonly name = PARSER_VERSION;
   private readonly paths = new Map<string, string>();
 
-  constructor(private readonly codexHome = process.env.AGENT_ANALYTICS_CODEX_HOME ?? process.env.CODEX_HOME ?? join(homedir(), '.codex')) {}
+  constructor(
+    private readonly codexHome = process.env.AGENT_ANALYTICS_CODEX_HOME ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'),
+    private readonly selectedPaths?: readonly string[],
+  ) {}
 
   async discover(): Promise<SourceArtifact[]> {
     const files: string[] = [];
-    walkRollouts(join(this.codexHome, 'sessions'), files);
-    walkRollouts(join(this.codexHome, 'archived_sessions'), files);
+    if (this.selectedPaths) {
+      files.push(...this.selectedPaths.filter((path) => existsSync(path)));
+    } else {
+      walkRollouts(join(this.codexHome, 'sessions'), files);
+      walkRollouts(join(this.codexHome, 'archived_sessions'), files);
+    }
     const artifacts = new Map<string, SourceArtifact>();
     for (const path of files.sort()) {
       const absolute = resolve(path);

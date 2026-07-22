@@ -13,6 +13,7 @@ const validInput = JSON.stringify({
 function dependencies(overrides: Record<string, unknown> = {}) {
   return {
     isRecursive: false,
+    automaticEnabled: true,
     idleSeconds: 90,
     now: new Date('2026-07-22T03:00:00Z'),
     record: vi.fn(),
@@ -58,6 +59,13 @@ describe('Codex Stop hook entry point', () => {
     const failing = dependencies({ record: vi.fn(() => { throw new Error('disk unavailable'); }) });
     expect(() => handleCodexStopInput(validInput, { managedHook: CODEX_HOOK_MARKER }, failing)).not.toThrow();
     expect(failing.spawnScheduler).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue or start a worker when automatic analysis is off', () => {
+    const deps = dependencies({ automaticEnabled: false });
+    handleCodexStopInput(validInput, { managedHook: CODEX_HOOK_MARKER }, deps);
+    expect(deps.record).not.toHaveBeenCalled();
+    expect(deps.spawnScheduler).not.toHaveBeenCalled();
   });
 
   it('never writes hook protocol output', () => {

@@ -162,7 +162,9 @@ export function markFailed(
 export function resetStale(db: Database.Database = getDb()): number {
   const result = db.prepare(
     `UPDATE analysis_queue
-     SET status = 'pending', started_at = NULL
+     SET status = CASE WHEN runner_type = 'auto' THEN 'settling' ELSE 'pending' END,
+         not_before = CASE WHEN runner_type = 'auto' THEN datetime('now') ELSE not_before END,
+         started_at = NULL
      WHERE status = 'processing'
        AND started_at < datetime('now', '-10 minutes')`
   ).run();
@@ -181,7 +183,8 @@ export function resetFailed(
   if (sessionId) {
     if (!sourceTool) {
       const matches = db.prepare(
-        `SELECT COUNT(*) AS count FROM analysis_queue WHERE session_id = ? AND status = 'failed'`,
+        `SELECT COUNT(*) AS count FROM analysis_queue
+         WHERE session_id = ? AND status IN ('failed', 'awaiting-capability')`,
       ).get(sessionId) as { count: number };
       if (matches.count > 1) {
         throw new Error(`Session ID ${sessionId} is ambiguous; provide a source tool`);
@@ -189,15 +192,19 @@ export function resetFailed(
     }
     const result = db.prepare(
       `UPDATE analysis_queue
-       SET status = 'pending', attempt_count = 0, error_message = NULL, started_at = NULL
-       WHERE session_id = ? AND status = 'failed'${sourceTool ? ' AND source_tool = ?' : ''}`
+       SET status = CASE WHEN runner_type = 'auto' THEN 'settling' ELSE 'pending' END,
+           not_before = CASE WHEN runner_type = 'auto' THEN datetime('now') ELSE not_before END,
+           attempt_count = 0, error_message = NULL, diagnostic = NULL, started_at = NULL
+       WHERE session_id = ? AND status IN ('failed', 'awaiting-capability')${sourceTool ? ' AND source_tool = ?' : ''}`
     ).run(sessionId, ...(sourceTool ? [sourceTool] : []));
     return result.changes;
   }
   const result = db.prepare(
     `UPDATE analysis_queue
-     SET status = 'pending', attempt_count = 0, error_message = NULL, started_at = NULL
-     WHERE status = 'failed'`
+     SET status = CASE WHEN runner_type = 'auto' THEN 'settling' ELSE 'pending' END,
+         not_before = CASE WHEN runner_type = 'auto' THEN datetime('now') ELSE not_before END,
+         attempt_count = 0, error_message = NULL, diagnostic = NULL, started_at = NULL
+     WHERE status IN ('failed', 'awaiting-capability')`
   ).run();
   return result.changes;
 }

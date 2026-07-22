@@ -10,7 +10,7 @@ import { getDb, getMigrationResult } from '../db/client.js';
 import { getAllProviders, getProvider } from '../providers/registry.js';
 import { setProviderVerbose } from '../providers/context.js';
 import type { SessionProvider } from '../providers/types.js';
-import type { SyncState } from '../types.js';
+import type { ParsedSession, SyncState } from '../types.js';
 import { splitVirtualPath } from '../utils/paths.js';
 
 interface SyncOptions {
@@ -363,20 +363,91 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
  * Used by the insights --hook path to guarantee fresh data before analysis.
  * Much faster than full sync (no directory scanning, no other providers).
  */
-export async function syncSingleFile(options: {
+export interface SingleFileProjectionOptions {
   filePath: string;
   sourceTool?: string;
   quiet?: boolean;
-}): Promise<void> {
+  replace?: boolean;
+  replaceSessionId?: string;
+  requireParsed?: boolean;
+}
+
+export interface PreparedSingleFileProjection {
+  complete: boolean;
+  diagnostic: string | null;
+  commit(): void;
+}
+
+export function invalidateCompatibilityProjection(sessionId: string): void {
+  const database = getDb();
+  database.transaction(() => {
+    database.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
+    database.prepare('DELETE FROM insights WHERE session_id = ?').run(sessionId);
+    database.prepare('DELETE FROM session_facets WHERE session_id = ?').run(sessionId);
+    database.prepare('DELETE FROM analysis_usage WHERE session_id = ?').run(sessionId);
+    database.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    recalculateUsageStats();
+  }).immediate();
+}
+
+function projectionWriter(session: ParsedSession, replace: boolean): () => void {
+  return () => {
+    const writeProjection = () => {
+      if (replace) {
+        getDb().prepare('DELETE FROM messages WHERE session_id = ?').run(session.id);
+        getDb().prepare('DELETE FROM insights WHERE session_id = ?').run(session.id);
+        getDb().prepare('DELETE FROM session_facets WHERE session_id = ?').run(session.id);
+        getDb().prepare('DELETE FROM analysis_usage WHERE session_id = ?').run(session.id);
+      }
+      insertSessionWithProjectAndReturnIsNew(session, replace);
+      if (session.messageCount > 2) insertMessages(session, replace);
+    };
+    if (replace) {
+      getDb().transaction(() => {
+        writeProjection();
+        recalculateUsageStats();
+      }).immediate();
+    } else if (session.messageCount > 2) {
+      writeProjection();
+    }
+  };
+}
+
+/** Parse without writing so callers can verify source/generation before commit. */
+export async function prepareSingleFileProjection(
+  options: SingleFileProjectionOptions,
+): Promise<PreparedSingleFileProjection> {
   const provider = getProvider(options.sourceTool ?? 'claude-code');
   const session = await provider.parse(options.filePath);
-  if (!session) return;
+  if (!session) {
+    return {
+      complete: false,
+      diagnostic: 'compatibility-projection-unavailable',
+      commit: () => {
+        if (options.replace && options.replaceSessionId) {
+          invalidateCompatibilityProjection(options.replaceSessionId);
+        }
+      },
+    };
+  }
+  if (options.replaceSessionId && session.id !== options.replaceSessionId) {
+    return {
+      complete: false,
+      diagnostic: 'compatibility-projection-session-mismatch',
+      commit: () => {
+        if (options.replace) invalidateCompatibilityProjection(options.replaceSessionId!);
+      },
+    };
+  }
+  return { complete: true, diagnostic: null, commit: projectionWriter(session, Boolean(options.replace)) };
+}
 
-  // Data quality invariant: skip trivial sessions (matches runSync filter at line ~194)
-  if (session.messageCount <= 2) return;
-
-  insertSessionWithProjectAndReturnIsNew(session, false);
-  insertMessages(session);
+export async function syncSingleFile(options: SingleFileProjectionOptions): Promise<void> {
+  const prepared = await prepareSingleFileProjection(options);
+  prepared.commit();
+  if (options.requireParsed && !prepared.complete) {
+    throw new Error('Compatibility projection source could not be parsed');
+  }
 }
 
 /**

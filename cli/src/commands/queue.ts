@@ -14,7 +14,7 @@ import chalk from 'chalk';
 import { Command } from 'commander';
 import { getQueueStatus, resetFailed, pruneCompleted } from '../db/queue.js';
 import { processQueue } from '../analysis/queue-worker.js';
-import { runSettledScheduler } from '../analysis/settled-scheduler.js';
+import { runSettledScheduler, spawnSettledScheduler } from '../analysis/settled-scheduler.js';
 
 // ── queue status ──────────────────────────────────────────────────────────────
 
@@ -92,16 +92,17 @@ export async function queueRetryCommand(
   const { quiet = false } = opts;
 
   if (!sessionId && !opts.all) {
-    console.error(chalk.red('Provide a session ID to retry, or use --all to retry all failed items'));
+    console.error(chalk.red('Provide a session ID to retry, or use --all to retry all blocked items'));
     process.exit(1);
   }
 
   const count = resetFailed(sessionId, opts.source);
+  if (count > 0) spawnSettledScheduler();
   if (!quiet) {
     if (count === 0) {
-      console.log(chalk.yellow('[Agent Analytics] No failed items found to retry'));
+      console.log(chalk.yellow('[Agent Analytics] No failed or awaiting items found to retry'));
     } else {
-      console.log(chalk.green(`[Agent Analytics] Reset ${count} failed item(s) to pending`));
+      console.log(chalk.green(`[Agent Analytics] Reset ${count} blocked item(s) for retry`));
     }
   }
 }

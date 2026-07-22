@@ -106,6 +106,10 @@ function getStmts() {
         ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
+        project_id              = excluded.project_id,
+        project_name            = excluded.project_name,
+        project_path            = excluded.project_path,
+        git_remote_url          = excluded.git_remote_url,
         generated_title         = COALESCE(sessions.generated_title, excluded.generated_title),
         title_source            = excluded.title_source,
         session_character       = excluded.session_character,
@@ -118,6 +122,9 @@ function getStmts() {
         compact_count           = excluded.compact_count,
         auto_compact_count      = excluded.auto_compact_count,
         slash_commands          = excluded.slash_commands,
+        git_branch              = excluded.git_branch,
+        claude_version          = excluded.claude_version,
+        source_tool             = excluded.source_tool,
         total_input_tokens      = excluded.total_input_tokens,
         total_output_tokens     = excluded.total_output_tokens,
         cache_creation_tokens   = excluded.cache_creation_tokens,
@@ -425,6 +432,15 @@ export function recalculateUsageStats(): { sessionsWithUsage: number; totalToken
       total_cost: number | null;
       last_activity: string;
     }>;
+
+    db.prepare(`UPDATE projects SET
+      session_count = 0,
+      total_input_tokens = 0,
+      total_output_tokens = 0,
+      cache_creation_tokens = 0,
+      cache_read_tokens = 0,
+      estimated_cost_usd = 0,
+      updated_at = datetime('now')`).run();
 
     const updateProject = db.prepare(`
       UPDATE projects SET
