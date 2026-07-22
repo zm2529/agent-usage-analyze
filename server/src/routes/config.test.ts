@@ -34,6 +34,19 @@ vi.mock('../llm/providers/ollama.js', () => ({
   discoverOllamaModels: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock('@agent-analytics/cli/analysis/execution-policy', () => ({
+  isAnalysisExecutionMode: (value: unknown) => [
+    'auto', 'codex-native', 'claude-native', 'provider', 'local-only', 'off',
+  ].includes(String(value)),
+  resolveAnalysisExecutionPolicy: (config: { dashboard?: { analysis?: { mode?: string }; llm?: unknown } } | null) => ({
+    mode: config?.dashboard?.analysis?.mode ?? 'auto',
+    effectiveRunner: config?.dashboard?.llm ? 'provider' : 'codex-native',
+    authentication: config?.dashboard?.llm ? 'provider' : 'chatgpt',
+    locality: 'remote',
+    reason: config?.dashboard?.llm ? 'configured-provider' : 'codex-chatgpt-auth',
+  }),
+}));
+
 const { createApp } = await import('../index.js');
 
 // ──────────────────────────────────────────────────────
@@ -72,6 +85,10 @@ describe('Config routes', () => {
       expect(body.provider).toBeUndefined();
       expect(body.model).toBeUndefined();
       expect(body.semanticAnalysisEnabled).toBe(false);
+      expect(body.analysis).toEqual({
+        mode: 'auto', effectiveRunner: 'codex-native', authentication: 'chatgpt',
+        locality: 'remote', reason: 'codex-chatgpt-auth',
+      });
     });
   });
 
@@ -106,6 +123,29 @@ describe('Config routes', () => {
   });
 
   describe('PUT /api/config/llm', () => {
+    it('persists a valid analysis execution mode without requiring a provider', async () => {
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysisMode: 'local-only' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(saveConfig)).toHaveBeenCalledWith(expect.objectContaining({
+        dashboard: expect.objectContaining({ analysis: { mode: 'local-only' } }),
+      }));
+    });
+
+    it('rejects an unknown analysis execution mode', async () => {
+      const response = await createApp().request('/api/config/llm', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysisMode: 'free-magic' }),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/analysisMode/) });
+    });
+
     it('returns 400 for port above valid range', async () => {
       const app = createApp();
       const res = await app.request('/api/config/llm', {

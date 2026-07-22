@@ -24,6 +24,7 @@ import { BuildermarkGateCard } from '@/components/settings/BuildermarkGateCard';
 import { GitAiSidecarCard } from '@/components/settings/GitAiSidecarCard';
 import { SemanticAnalysisSettingsCard } from '@/components/settings/SemanticAnalysisSettingsCard';
 import { LocalRuntimeCard } from '@/components/settings/LocalRuntimeCard';
+import { AnalysisExecutionPolicyCard } from '@/components/settings/AnalysisExecutionPolicyCard';
 
 // TODO: tech debt — duplicated provider types (this local type mirrors dashboard/src/lib/types.ts LLMConfig.provider)
 type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'llamacpp';
@@ -387,6 +388,8 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+
+      <AnalysisExecutionPolicyCard />
 
       {/* LLM Provider Configuration */}
       <Card>

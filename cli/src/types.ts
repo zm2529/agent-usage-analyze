@@ -337,6 +337,20 @@ export interface LLMProviderConfig {
   baseUrl?: string;      // for Ollama or custom endpoints
 }
 
+export type AnalysisExecutionMode =
+  | 'auto'
+  | 'codex-native'
+  | 'claude-native'
+  | 'provider'
+  | 'local-only'
+  | 'off';
+
+export interface AnalysisExecutionConfig {
+  mode: AnalysisExecutionMode;
+  codexModel?: string;
+  idleSeconds?: number;
+}
+
 export interface ProviderModelOption {
   id: string;
   name: string;
@@ -362,6 +376,7 @@ export interface ClaudeInsightConfig {
     port?: number;
     llm?: LLMProviderConfig;
     semanticAnalysisEnabled?: boolean;
+    analysis?: AnalysisExecutionConfig;
   };
   telemetry?: boolean;              // default false (local-first opt-in)
 }

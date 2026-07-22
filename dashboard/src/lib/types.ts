@@ -591,6 +591,19 @@ export interface LLMConfig {
   baseUrl?: string;
   semanticProviderLocality?: 'local' | 'remote';
   semanticAnalysisEnabled: boolean;
+  analysis: AnalysisExecutionState;
+}
+
+export type AnalysisExecutionMode = 'auto' | 'codex-native' | 'claude-native' | 'provider' | 'local-only' | 'off';
+
+export interface AnalysisExecutionState {
+  mode: AnalysisExecutionMode;
+  effectiveRunner: 'provider' | 'codex-native' | 'claude-native' | 'local-only' | 'off' | 'unavailable';
+  authentication: 'chatgpt' | 'api-key' | 'access-token' | 'not-logged-in' | 'unknown' | 'cli-missing' | 'provider' | 'claude-auth-unverified' | 'none';
+  locality: 'local' | 'remote';
+  reason: string;
+  provider?: string;
+  model?: string;
 }
 
 export interface RuntimeConfig {
@@ -599,6 +612,7 @@ export interface RuntimeConfig {
   sources: Array<{ kind: string; count: number }>;
   eras: Array<{ mode: string; parserVersion: string; count: number }>;
   llm: { configured: boolean; provider?: string; model?: string; locality?: 'local' | 'remote'; enabled: boolean };
+  analysis: AnalysisExecutionState;
   migration: { databaseSchema: number; status: string; completedAt: string | null };
   dataActions: {
     exportPath: string; archiveCommand: string; rebuildCommand: string; scope: string; recovery: string;

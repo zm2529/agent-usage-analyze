@@ -18,6 +18,7 @@ export function useSaveLlmConfig() {
       apiKey?: string;
       baseUrl?: string;
       semanticAnalysisEnabled?: boolean;
+      analysisMode?: import('@/lib/types').AnalysisExecutionMode;
     }) => saveLlmConfig(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config', 'llm'] });

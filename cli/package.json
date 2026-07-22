@@ -46,6 +46,7 @@
     "./analysis/analysis-db": "./dist/analysis/analysis-db.js",
     "./analysis/analysis-usage-db": "./dist/analysis/analysis-usage-db.js",
     "./analysis/provider-runner": "./dist/analysis/provider-runner.js",
+    "./analysis/execution-policy": "./dist/analysis/execution-policy.js",
     "./analysis/schemas/session-analysis.json": "./dist/analysis/schemas/session-analysis.json",
     "./analysis/schemas/prompt-quality.json": "./dist/analysis/schemas/prompt-quality.json"
   },

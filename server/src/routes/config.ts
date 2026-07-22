@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import { getDb } from '@agent-analytics/cli/db/client';
 import { getConfigDir, loadConfig, saveConfig } from '@agent-analytics/cli/utils/config';
-import type { ClaudeInsightConfig, LLMProviderConfig } from '@agent-analytics/cli/types';
+import type { AnalysisExecutionMode, ClaudeInsightConfig, LLMProviderConfig } from '@agent-analytics/cli/types';
 import { loadLLMConfig, testLLMConfig } from '../llm/client.js';
 import { discoverOllamaModels } from '../llm/providers/ollama.js';
 import { discoverLlamaCppModels } from '../llm/providers/llamacpp.js';
 import { semanticProviderLocality } from '@agent-analytics/cli/canonical/semantic-analysis';
+import {
+  isAnalysisExecutionMode,
+  resolveAnalysisExecutionPolicy,
+} from '@agent-analytics/cli/analysis/execution-policy';
 
 const app = new Hono();
 
@@ -20,6 +24,7 @@ app.get('/runtime', (c) => {
   const config = loadConfig();
   const port = config?.dashboard?.port ?? 7890;
   const llm = config?.dashboard?.llm;
+  const analysis = resolveAnalysisExecutionPolicy(config);
   const db = getDb();
   const sources = db.prepare(`SELECT source_kind AS kind, COUNT(*) AS count
     FROM source_artifacts GROUP BY source_kind ORDER BY source_kind`).all() as Array<{
@@ -48,6 +53,7 @@ app.get('/runtime', (c) => {
       locality: llm ? semanticProviderLocality(llm.provider, llm.baseUrl) : undefined,
       enabled: config?.dashboard?.semanticAnalysisEnabled === true,
     },
+    analysis,
     migration: {
       databaseSchema,
       status: migration?.status ?? 'not-recorded',
@@ -76,6 +82,7 @@ app.get('/llm', (c) => {
     baseUrl: llm?.baseUrl,
     semanticProviderLocality: llm ? semanticProviderLocality(llm.provider, llm.baseUrl) : undefined,
     semanticAnalysisEnabled: config?.dashboard?.semanticAnalysisEnabled === true,
+    analysis: resolveAnalysisExecutionPolicy(config),
   });
 });
 
@@ -88,6 +95,7 @@ app.put('/llm', async (c) => {
     apiKey?: string;
     baseUrl?: string;
     semanticAnalysisEnabled?: boolean;
+    analysisMode?: AnalysisExecutionMode;
   }>();
 
   const config: ClaudeInsightConfig = loadConfig() ?? {
@@ -95,6 +103,19 @@ app.put('/llm', async (c) => {
   };
 
   let changed = false;
+
+  if (body.analysisMode !== undefined) {
+    if (!isAnalysisExecutionMode(body.analysisMode)) {
+      return c.json({
+        error: 'analysisMode must be one of: auto, codex-native, claude-native, provider, local-only, off',
+      }, 400);
+    }
+    config.dashboard = {
+      ...config.dashboard,
+      analysis: { ...config.dashboard?.analysis, mode: body.analysisMode },
+    };
+    changed = true;
+  }
 
   // Update dashboard port if provided
   if (body.dashboardPort !== undefined) {

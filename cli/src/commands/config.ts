@@ -5,6 +5,11 @@ import { loadConfig, saveConfig, isConfigured } from '../utils/config.js';
 import { trackEvent } from '../utils/telemetry.js';
 import { PROVIDERS, getDefaultModel } from '../constants/llm-providers.js';
 import type { ClaudeInsightConfig, LLMProviderConfig } from '../types.js';
+import type { AnalysisExecutionMode } from '../types.js';
+import {
+  isAnalysisExecutionMode,
+  resolveAnalysisExecutionPolicy,
+} from '../analysis/execution-policy.js';
 
 /**
  * Show current configuration summary.
@@ -53,6 +58,10 @@ function showConfigAction(): void {
       console.log(chalk.gray(`    Base URL: ${llm.baseUrl}`));
     }
   }
+
+  const savedAnalysisMode = config.dashboard?.analysis?.mode ?? 'auto';
+  console.log(chalk.white('\n  Analysis execution:'));
+  console.log(chalk.gray(`    Mode: ${savedAnalysisMode}`));
 
   // Telemetry — default is enabled; env vars can override at runtime
   console.log(chalk.white('\n  Telemetry:'));
@@ -302,3 +311,38 @@ function saveLLMConfig(llmConfig: LLMProviderConfig): void {
 
 // Suppress unused variable warning — llmCommand is registered via .command() side-effect
 void llmCommand;
+
+// ── config analysis ──────────────────────────────────────────────────────────
+
+const analysisCommand = configCommand
+  .command('analysis')
+  .description('Configure automatic analysis execution')
+  .option('--mode <mode>', 'auto, codex-native, claude-native, provider, local-only, or off')
+  .option('--show', 'Show the saved and effective analysis execution policy')
+  .action((options: { mode?: string; show?: boolean }) => {
+    const current = loadConfig() ?? {
+      sync: { claudeDir: '~/.claude/projects', excludeProjects: [] },
+    };
+    if (options.mode !== undefined) {
+      if (!isAnalysisExecutionMode(options.mode)) {
+        console.error(chalk.red('\nInvalid analysis mode. Use auto, codex-native, claude-native, provider, local-only, or off.\n'));
+        process.exitCode = 1;
+        return;
+      }
+      current.dashboard = {
+        ...current.dashboard,
+        analysis: { ...current.dashboard?.analysis, mode: options.mode as AnalysisExecutionMode },
+      };
+      saveConfig(current);
+    }
+
+    const state = resolveAnalysisExecutionPolicy(current);
+    console.log(chalk.cyan('\n  Analysis Execution\n'));
+    console.log(chalk.gray(`    Mode:           ${state.mode}`));
+    console.log(chalk.gray(`    Effective:      ${state.effectiveRunner}`));
+    console.log(chalk.gray(`    Authentication: ${state.authentication}`));
+    console.log(chalk.gray(`    Locality:       ${state.locality}`));
+    console.log(chalk.gray(`    Reason:         ${state.reason}\n`));
+  });
+
+void analysisCommand;

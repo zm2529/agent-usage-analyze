@@ -283,6 +283,7 @@ export function saveLlmConfig(body: {
   apiKey?: string;
   baseUrl?: string;
   semanticAnalysisEnabled?: boolean;
+  analysisMode?: import('./types').AnalysisExecutionMode;
 }) {
   return request<{ ok: boolean }>('/config/llm', {
     method: 'PUT',
