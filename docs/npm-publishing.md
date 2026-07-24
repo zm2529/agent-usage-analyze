@@ -51,7 +51,8 @@ pnpm package:smoke
 pnpm release:check-publish
 pnpm release:verify-tag v0.1.0
 
-npm publish ./cli --access public
+cd cli
+npm publish --access public
 ```
 
 发布前必须确认：

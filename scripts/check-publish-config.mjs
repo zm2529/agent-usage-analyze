@@ -15,7 +15,7 @@ function requireValue(condition, message) {
 
 requireValue(pkg.name === 'agent-usage-analyze',
   'cli/package.json name must be agent-usage-analyze');
-requireValue(pkg.bin?.['agent-usage-analyze'] === './dist/index.js',
+requireValue(pkg.bin?.['agent-usage-analyze'] === 'dist/index.js',
   'cli/package.json must expose the agent-usage-analyze binary');
 requireValue(pkg.repository?.url === 'git+https://github.com/zm2529/agent-usage-analyze.git',
   'cli/package.json repository.url must match zm2529/agent-usage-analyze exactly');
@@ -34,8 +34,8 @@ requireValue(/node-version:\s*['"]24['"]/.test(workflow),
   'publish.yml must use Node 24 or newer for npm Trusted Publishing');
 requireValue(/npm install --global npm@latest/.test(workflow),
   'publish.yml must install an OIDC-capable npm CLI');
-requireValue(/npm publish \.\/cli --access public/.test(workflow),
-  'publish.yml must publish the public CLI package directory');
+requireValue(/working-directory:\s*cli[\s\S]*?npm publish --access public/.test(workflow),
+  'publish.yml must publish from the public CLI package directory');
 requireValue(!/(?:NODE_AUTH_TOKEN|NPM_TOKEN|_authToken)/.test(workflow),
   'publish.yml must not use a long-lived npm publish token');
 

@@ -56,4 +56,5 @@ jobs:
         run: pnpm package:smoke
 
       - name: Publish with npm Trusted Publishing
-        run: npm publish ./cli --access public
+        working-directory: cli
+        run: npm publish --access public

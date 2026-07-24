@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const pkg = JSON.parse(readFileSync(join(root, 'cli/package.json'), 'utf8'));
-if (pkg.name !== 'agent-usage-analyze' || pkg.bin?.['agent-usage-analyze'] !== './dist/index.js') {
+if (pkg.name !== 'agent-usage-analyze' || pkg.bin?.['agent-usage-analyze'] !== 'dist/index.js') {
   throw new Error('Public package identity must remain agent-usage-analyze with its matching binary');
 }
 const sandbox = mkdtempSync(join(tmpdir(), 'agent-usage-analyze-install-smoke-'));

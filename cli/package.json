@@ -68,7 +68,7 @@
     "./analysis/schemas/prompt-quality.json": "./dist/analysis/schemas/prompt-quality.json"
   },
   "bin": {
-    "agent-usage-analyze": "./dist/index.js"
+    "agent-usage-analyze": "dist/index.js"
   },
   "scripts": {
     "build": "tsc && node -e \"const{cpSync,mkdirSync}=require('fs');mkdirSync('dist/analysis/schemas',{recursive:true});cpSync('src/analysis/schemas/session-analysis.json','dist/analysis/schemas/session-analysis.json');cpSync('src/analysis/schemas/prompt-quality.json','dist/analysis/schemas/prompt-quality.json');\"",
