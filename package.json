@@ -13,6 +13,7 @@
     "package:prepare": "node scripts/prepare-cli-package.mjs",
     "package:clean": "node scripts/clean-cli-package.mjs",
     "package:smoke": "node scripts/package-install-smoke.mjs",
+    "release:check-publish": "node scripts/check-publish-config.mjs",
     "release:verify-tag": "node scripts/verify-release-tag.mjs"
   },
   "engines": {

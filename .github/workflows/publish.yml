@@ -40,6 +40,9 @@ jobs:
       - name: Verify tag and package version
         run: pnpm release:verify-tag
 
+      - name: Verify npm package and OIDC configuration
+        run: pnpm release:check-publish
+
       - name: Run deterministic release tests
         run: pnpm test:release
 
