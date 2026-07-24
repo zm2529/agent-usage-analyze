@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { readObserverOverhead, tryRecordObserverOverhead } from '@agent-analytics/cli/canonical/observer-overhead';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { readObserverOverhead, tryRecordObserverOverhead } from 'agent-usage-analyze/canonical/observer-overhead';
 
 const app = new Hono();
 

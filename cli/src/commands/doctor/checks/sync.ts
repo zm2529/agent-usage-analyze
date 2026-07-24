@@ -22,7 +22,7 @@ export function syncChecks(): Check[] {
           label: 'Sync history',
           status: 'warn',
           detail: 'Never synced',
-          hint: 'Run: agent-analytics sync',
+          hint: 'Run: agent-usage-analyze sync',
         };
       },
     },
@@ -44,7 +44,7 @@ export function syncChecks(): Check[] {
             label: 'Sync state file',
             status: 'fail',
             detail: 'sync-state.json is corrupt',
-            hint: 'Run: agent-analytics sync --force',
+            hint: 'Run: agent-usage-analyze sync --force',
           };
         }
       },
@@ -74,7 +74,7 @@ export function syncChecks(): Check[] {
           label: 'Sync state size',
           status: 'warn',
           detail: `${sizeMB.toFixed(1)} MB — sync state is large`,
-          hint: 'Run: agent-analytics sync --force (rebuilds sync state)',
+          hint: 'Run: agent-usage-analyze sync --force (rebuilds sync state)',
         };
       },
     },

@@ -18,7 +18,7 @@ export function environmentChecks(): Check[] {
           label: 'Config directory',
           status: 'fail',
           detail: `${dir} does not exist`,
-          hint: 'Run: agent-analytics init',
+          hint: 'Run: agent-usage-analyze init',
         };
       },
     },

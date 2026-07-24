@@ -65,7 +65,7 @@ export async function modelsAction(flags: StatsFlags): Promise<void> {
     if (models.length === 0) {
       console.log(sectionHeader('MODEL USAGE', periodLabel));
       console.log(`\n  No model data available.\n`);
-      console.log(colors.hint('Model data is captured from Claude Code usage logs'));
+      console.log(colors.hint('Model data is captured when it is present in Codex task history'));
       console.log();
       return;
     }

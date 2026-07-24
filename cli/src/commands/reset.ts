@@ -47,7 +47,7 @@ export const resetCommand = new Command('reset')
     } catch (error) {
       spinner.fail(`Failed to archive local data: ${error instanceof Error ? error.message : error}`);
       console.error(chalk.red('\nAborted. Any partial moves were rolled back.'));
-      console.error(chalk.dim('Run `agent-analytics doctor` if the problem persists.'));
+      console.error(chalk.dim('Run `agent-usage-analyze doctor` if the problem persists.'));
       const { error_type, error_message } = classifyError(error);
       trackEvent('cli_reset', { success: false, error_type, error_message });
       captureError(error, { command: 'reset', error_type });

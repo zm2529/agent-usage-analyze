@@ -253,6 +253,38 @@ describe('detectSessionCharacter', () => {
 // ── generateTitle ──
 
 describe('generateTitle', () => {
+  it('uses the explicit request instead of the attached-file wrapper', () => {
+    const session = makeSession({
+      messages: [makeMessage({
+        type: 'user',
+        content: '# Files mentioned by the user:\n\n## artifact: /tmp/logs\n\n## My request for Codex:\n投屏是否有异常',
+      })],
+    });
+
+    expect(generateTitle(session).title).toBe('投屏是否有异常');
+  });
+
+  it('extracts the user goal from Codex internal wrappers', () => {
+    const session = makeSession({
+      messages: [makeMessage({
+        type: 'user',
+        content: '<codex_internal_context source="goal"><objective>完成自动分析闭环</objective></codex_internal_context>',
+      })],
+    });
+
+    expect(generateTitle(session).title).toBe('完成自动分析闭环');
+  });
+
+  it('turns a bare skill invocation into a readable title', () => {
+    const session = makeSession({
+      messages: [makeMessage({
+        type: 'user',
+        content: '[$oh-my-codex:ai-slop-cleaner](/tmp/SKILL.md)',
+      })],
+    });
+
+    expect(generateTitle(session).title).toBe('Use skill oh-my-codex:ai-slop-cleaner');
+  });
   it('uses claude summary when available', () => {
     const session = makeSession({
       summary: 'Fixed authentication bug in login flow',

@@ -1,4 +1,4 @@
-// Core types for Agent Analytics
+// Core types for Agent Usage Analyzer
 
 export interface ClaudeMessage {
   type: 'user' | 'assistant' | 'system';
@@ -351,6 +351,15 @@ export interface AnalysisExecutionConfig {
   idleSeconds?: number;
 }
 
+export interface AnalysisCapabilityConfig {
+  hookCapture?: boolean;
+  sessionLlmAnalysis?: boolean;
+  automaticBehaviorReport?: boolean;
+  contextDocumentAnalysis?: boolean;
+  tokenEfficiencyAnalysis?: boolean;
+  skillOpportunityAnalysis?: boolean;
+}
+
 export interface ProviderModelOption {
   id: string;
   name: string;
@@ -369,7 +378,7 @@ export interface ProviderInfo {
 
 export interface ClaudeInsightConfig {
   sync: {
-    claudeDir: string;
+    claudeDir?: string;
     excludeProjects: string[];
   };
   dashboard?: {
@@ -377,6 +386,7 @@ export interface ClaudeInsightConfig {
     llm?: LLMProviderConfig;
     semanticAnalysisEnabled?: boolean;
     analysis?: AnalysisExecutionConfig;
+    capabilities?: AnalysisCapabilityConfig;
   };
   telemetry?: boolean;              // default false (local-first opt-in)
 }
@@ -393,6 +403,7 @@ export interface FileSyncState {
   lastSyncedLine: number;
   sessionId: string;
   syncedSessionIds?: string[];  // For providers where 1 file = N sessions (e.g., Cursor SQLite)
+  parserVersion?: string;
 }
 
 // ── Dispatch feature (blog post generator) ───────────────────────────────────

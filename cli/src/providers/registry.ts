@@ -38,5 +38,5 @@ export function getProvider(name: string): SessionProvider {
  * Get all registered providers
  */
 export function getAllProviders(): SessionProvider[] {
-  return [codex];
+  return [codex, claudeCode, cursor, copilotCli, copilot];
 }

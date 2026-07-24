@@ -1,5 +1,5 @@
-// SQL schema for local SQLite database at ~/.agent-analytics/data.db
-// Local SQLite schema for Agent Analytics session data.
+// SQL schema for local SQLite database at ~/.agent-usage-analyze/data.db
+// Local SQLite schema for Agent Usage Analyzer session data.
 // All timestamps are ISO 8601 strings (SQLite has no native datetime).
 // Arrays and nested objects are stored as JSON strings.
 
@@ -128,6 +128,6 @@ CREATE TABLE IF NOT EXISTS usage_stats (
 );
 `;
 
-export const CURRENT_SCHEMA_VERSION = 24;
+export const CURRENT_SCHEMA_VERSION = 28;
 
 export { runMigrations } from './migrate.js';

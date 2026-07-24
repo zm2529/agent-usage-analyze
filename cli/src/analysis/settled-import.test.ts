@@ -31,7 +31,7 @@ function dependencies(overrides: Partial<SettledImportDependencies> = {}): Settl
 }
 
 describe('processSettledImport', () => {
-  it('short-circuits an explicit off policy before touching source data', async () => {
+  it('keeps local capture active when LLM analysis is explicitly off', async () => {
     const db = database();
     const deps = dependencies({ execution: { effectiveRunner: 'off', reason: 'explicit-off' } });
 
@@ -39,8 +39,8 @@ describe('processSettledImport', () => {
       sourceTool: 'codex-cli', sessionId: 'session', generation: 1,
       locator: null, sourceBasis: 'hook-basis',
     }, deps)).toEqual({ status: 'completed', diagnostic: 'explicit-off' });
-    expect(deps.ingest).not.toHaveBeenCalled();
-    expect(deps.prepareProjection).not.toHaveBeenCalled();
+    expect(deps.ingest).toHaveBeenCalledOnce();
+    expect(deps.prepareProjection).toHaveBeenCalledOnce();
     db.close();
   });
 

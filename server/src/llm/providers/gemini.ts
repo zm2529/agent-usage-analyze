@@ -57,7 +57,7 @@ export function createGeminiClient(apiKey: string, model: string): LLMClient {
         const error = await response.json().catch(() => ({})) as { error?: { message?: string } };
         const detail = error.error?.message;
         if (response.status === 401 || response.status === 403) {
-          throw new Error(`Invalid API key. Check your Gemini API key in \`agent-analytics config llm\`.${detail ? ` (${detail})` : ''}`);
+          throw new Error(`Invalid API key. Check your Gemini API key in \`agent-usage-analyze config llm\`.${detail ? ` (${detail})` : ''}`);
         }
         if (response.status === 429) {
           throw new Error(`Rate limited or quota exceeded. Check your Gemini account usage.${detail ? ` (${detail})` : ''}`);

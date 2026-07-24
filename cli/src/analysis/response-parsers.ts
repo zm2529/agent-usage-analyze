@@ -183,7 +183,9 @@ export function parsePromptQualityResponse(response: string): ParseResult<Prompt
 
   // Clamp dimension scores
   for (const key of Object.keys(parsed.dimension_scores) as Array<keyof PromptQualityDimensionScores>) {
-    parsed.dimension_scores[key] = Math.max(0, Math.min(100, Math.round(parsed.dimension_scores[key] ?? 50)));
+    const value = parsed.dimension_scores[key];
+    if (key === 'correction_quality' && value === null) continue;
+    parsed.dimension_scores[key] = Math.max(0, Math.min(100, Math.round(value ?? 50)));
   }
 
   // Validation: check for missing category or unexpected type values in findings.

@@ -23,7 +23,7 @@ export function databaseChecks(): Check[] {
             detail: msg,
             hint: isBindingMismatch
               ? 'Run: npm rebuild better-sqlite3'
-              : 'Run: agent-analytics init',
+              : 'Run: agent-usage-analyze init',
             fix: isBindingMismatch
               ? async () => {
                   const { execFileSync } = await import('child_process');
@@ -67,6 +67,35 @@ export function databaseChecks(): Check[] {
       },
     },
     {
+      id: 'db.frontier_support',
+      label: 'Hook analysis frontier',
+      gate: true,
+      run: async () => {
+        try {
+          const db = getDb();
+          const row = db.prepare(`SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'analysis_frontier_events'`).get() as { name: string } | undefined;
+          if (row?.name === 'analysis_frontier_events') {
+            return { id: 'db.frontier_support', label: 'Hook analysis frontier', status: 'pass' };
+          }
+          return {
+            id: 'db.frontier_support',
+            label: 'Hook analysis frontier',
+            status: 'fail',
+            detail: 'analysis_frontier_events table is missing',
+            hint: 'Run: agent-usage-analyze doctor --fix',
+          };
+        } catch (err) {
+          return {
+            id: 'db.frontier_support',
+            label: 'Hook analysis frontier',
+            status: 'fail',
+            detail: err instanceof Error ? err.message : String(err),
+          };
+        }
+      },
+    },
+    {
       id: 'db.integrity',
       label: 'Integrity check',
       run: async () => {
@@ -100,7 +129,7 @@ export function databaseChecks(): Check[] {
           label: 'WAL size',
           status: 'warn',
           detail: `${sizeMB.toFixed(1)} MB (> 50 MB)`,
-          hint: 'Run: agent-analytics doctor --fix (will checkpoint WAL)',
+          hint: 'Run: agent-usage-analyze doctor --fix (will checkpoint WAL)',
           fix: async () => {
             const db = getDb();
             db.pragma('wal_checkpoint(TRUNCATE)');

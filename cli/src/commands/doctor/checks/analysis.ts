@@ -28,9 +28,9 @@ export function analysisChecks(): Check[] {
             'LLM analysis surfaces patterns, prompt quality, and decisions across sessions.',
             'Free options (no API key):',
             '  ollama  -> brew install ollama && ollama pull llama3.3',
-            '            agent-analytics config set-provider ollama llama3.3',
+            '            agent-usage-analyze config set-provider ollama llama3.3',
             'Paid:',
-            '  agent-analytics config set-provider anthropic claude-sonnet-4-20250514',
+            '  agent-usage-analyze config set-provider anthropic claude-sonnet-4-20250514',
           ],
         };
       },
@@ -112,7 +112,7 @@ export function analysisChecks(): Check[] {
             label: 'Failed queue items',
             status: 'warn',
             detail: `${row.cnt} failed — last error: ${row.last_error ?? 'unknown'}`,
-            hint: 'Run: agent-analytics queue retry',
+            hint: 'Run: agent-usage-analyze queue retry',
           };
         } catch {
           return { id: 'analysis.queue_failed', label: 'Failed queue items', status: 'skip' };
@@ -126,7 +126,8 @@ export function analysisChecks(): Check[] {
         try {
           const db = getDb();
           const row = db.prepare(
-            `SELECT COUNT(*) as cnt FROM analysis_queue WHERE status = 'processing' AND started_at < datetime('now', '-10 minutes')`
+            `SELECT COUNT(*) as cnt FROM analysis_queue
+             WHERE status = 'processing' AND datetime(started_at) < datetime('now', '-10 minutes')`
           ).get() as { cnt: number };
           if (row.cnt === 0) {
             return { id: 'analysis.queue_stuck', label: 'Stuck queue items', status: 'pass' };
@@ -136,7 +137,7 @@ export function analysisChecks(): Check[] {
             label: 'Stuck queue items',
             status: 'warn',
             detail: `${row.cnt} item(s) stuck in processing > 10 minutes`,
-            hint: 'Run: agent-analytics doctor --fix (will reset stale items)',
+            hint: 'Run: agent-usage-analyze doctor --fix (will reset stale items)',
             fix: async () => {
               const { resetStale } = await import('../../../db/queue.js');
               resetStale();

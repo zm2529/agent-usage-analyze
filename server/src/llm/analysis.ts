@@ -42,6 +42,7 @@ import {
 } from './analysis-internal.js';
 import { calculateAnalysisCost } from './analysis-pricing.js';
 import { saveAnalysisUsage } from './analysis-usage-db.js';
+import { assessAnalysisEligibility, analysisUnavailableMessage } from 'agent-usage-analyze/analysis/analysis-eligibility';
 
 // Re-export from sub-modules so existing imports of these from analysis.ts keep working.
 export { analyzePromptQuality } from './prompt-quality-analysis.js';
@@ -65,15 +66,17 @@ export async function analyzeSession(
     return {
       success: false,
       insights: [],
-      error: 'LLM not configured. Run `agent-analytics config llm` to configure a provider.',
+      error: 'LLM not configured. Run `agent-usage-analyze config llm` to configure a provider.',
     };
   }
 
-  if (messages.length === 0) {
+  const eligibility = assessAnalysisEligibility(messages, 'session');
+  if (!eligibility.eligible) {
     return {
       success: false,
       insights: [],
-      error: 'No messages found for this session.',
+      error: analysisUnavailableMessage(eligibility),
+      error_type: 'insufficient_evidence',
     };
   }
 

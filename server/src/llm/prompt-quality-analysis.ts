@@ -6,6 +6,7 @@ import { calculateAnalysisCost } from './analysis-pricing.js';
 import { saveAnalysisUsage } from './analysis-usage-db.js';
 import type { SQLiteMessageRow } from './prompt-types.js';
 import { formatMessagesForAnalysis, classifyStoredUserMessage } from './message-format.js';
+import { assessAnalysisEligibility, analysisUnavailableMessage } from 'agent-usage-analyze/analysis/analysis-eligibility';
 import { parsePromptQualityResponse } from './response-parsers.js';
 import { SHARED_ANALYST_SYSTEM_PROMPT, buildCacheableConversationBlock, buildPromptQualityInstructions } from './prompts.js';
 import {
@@ -28,31 +29,23 @@ export async function analyzePromptQuality(
     return {
       success: false,
       insights: [],
-      error: 'LLM not configured. Run `agent-analytics config llm` to configure a provider.',
+      error: 'LLM not configured. Run `agent-usage-analyze config llm` to configure a provider.',
     };
   }
 
-  if (messages.length === 0) {
+  const eligibility = assessAnalysisEligibility(messages, 'prompt_quality');
+  if (!eligibility.eligible) {
     return {
       success: false,
       insights: [],
-      error: 'No messages found for this session.',
+      error: analysisUnavailableMessage(eligibility),
+      error_type: 'insufficient_evidence',
     };
   }
 
-  // Change 2: Filter to genuine human messages only (not tool-results or system artifacts).
-  // Pre-change: a session with 1 human + 50 tool-result rows passed the gate incorrectly.
-  // This prevented wasted LLM calls on sessions where there is nothing to evaluate.
   const humanMessages = messages.filter(m =>
     m.type === 'user' && classifyStoredUserMessage(m.content) === 'human'
   );
-  if (humanMessages.length < 2) {
-    return {
-      success: false,
-      insights: [],
-      error: 'Not enough user messages to analyze prompt quality (need at least 2).',
-    };
-  }
 
   try {
     const startTime = Date.now();

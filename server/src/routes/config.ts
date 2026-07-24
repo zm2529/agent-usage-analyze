@@ -1,19 +1,31 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { getConfigDir, loadConfig, saveConfig } from '@agent-analytics/cli/utils/config';
-import type { AnalysisExecutionMode, ClaudeInsightConfig, LLMProviderConfig } from '@agent-analytics/cli/types';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { getConfigDir, loadConfig, saveConfig } from 'agent-usage-analyze/utils/config';
+import type { AnalysisCapabilityConfig, AnalysisExecutionMode, ClaudeInsightConfig, LLMProviderConfig } from 'agent-usage-analyze/types';
 import { loadLLMConfig, testLLMConfig } from '../llm/client.js';
 import { discoverOllamaModels } from '../llm/providers/ollama.js';
 import { discoverLlamaCppModels } from '../llm/providers/llamacpp.js';
-import { semanticProviderLocality } from '@agent-analytics/cli/canonical/semantic-analysis';
+import { semanticProviderLocality } from 'agent-usage-analyze/canonical/semantic-analysis';
 import {
   isAnalysisExecutionMode,
   resolveAnalysisExecutionPolicy,
-} from '@agent-analytics/cli/analysis/execution-policy';
+} from 'agent-usage-analyze/analysis/execution-policy';
 
 const app = new Hono();
 
 const VALID_PROVIDERS = ['openai', 'anthropic', 'gemini', 'ollama', 'llamacpp'] as const;
+const DEFAULT_CAPABILITIES: Required<AnalysisCapabilityConfig> = {
+  hookCapture: true,
+  sessionLlmAnalysis: true,
+  automaticBehaviorReport: true,
+  contextDocumentAnalysis: true,
+  tokenEfficiencyAnalysis: true,
+  skillOpportunityAnalysis: true,
+};
+
+function resolvedCapabilities(config: ClaudeInsightConfig | null): Required<AnalysisCapabilityConfig> {
+  return { ...DEFAULT_CAPABILITIES, ...config?.dashboard?.capabilities };
+}
 
 function maskApiKey(key: string | undefined): string | undefined {
   if (!key || key.length < 8) return key ? '***' : undefined;
@@ -54,6 +66,7 @@ app.get('/runtime', (c) => {
       enabled: config?.dashboard?.semanticAnalysisEnabled === true,
     },
     analysis,
+    capabilities: resolvedCapabilities(config),
     migration: {
       databaseSchema,
       status: migration?.status ?? 'not-recorded',
@@ -61,8 +74,8 @@ app.get('/runtime', (c) => {
     },
     dataActions: {
       exportPath: '/api/export/sanitized',
-      archiveCommand: 'agent-analytics reset',
-      rebuildCommand: 'agent-analytics import-codex',
+      archiveCommand: 'agent-usage-analyze reset',
+      rebuildCommand: 'agent-usage-analyze import-codex',
       scope: 'Local analysis data only; imported sources and Git repositories are unchanged.',
       recovery: 'Reset creates timestamped backups under the data directory.',
     },
@@ -83,6 +96,7 @@ app.get('/llm', (c) => {
     semanticProviderLocality: llm ? semanticProviderLocality(llm.provider, llm.baseUrl) : undefined,
     semanticAnalysisEnabled: config?.dashboard?.semanticAnalysisEnabled === true,
     analysis: resolveAnalysisExecutionPolicy(config),
+    capabilities: resolvedCapabilities(config),
   });
 });
 
@@ -96,6 +110,7 @@ app.put('/llm', async (c) => {
     baseUrl?: string;
     semanticAnalysisEnabled?: boolean;
     analysisMode?: AnalysisExecutionMode;
+    capabilities?: Partial<AnalysisCapabilityConfig>;
   }>();
 
   const config: ClaudeInsightConfig = loadConfig() ?? {
@@ -103,6 +118,22 @@ app.put('/llm', async (c) => {
   };
 
   let changed = false;
+
+  if (body.capabilities !== undefined) {
+    if (!body.capabilities || typeof body.capabilities !== 'object'
+      || Object.values(body.capabilities).some((value) => typeof value !== 'boolean')) {
+      return c.json({ error: 'capabilities must contain boolean values' }, 400);
+    }
+    const allowed = new Set(Object.keys(DEFAULT_CAPABILITIES));
+    if (Object.keys(body.capabilities).some((key) => !allowed.has(key))) {
+      return c.json({ error: 'capabilities contains an unsupported key' }, 400);
+    }
+    config.dashboard = {
+      ...config.dashboard,
+      capabilities: { ...config.dashboard?.capabilities, ...body.capabilities },
+    };
+    changed = true;
+  }
 
   if (body.analysisMode !== undefined) {
     if (!isAnalysisExecutionMode(body.analysisMode)) {
@@ -226,7 +257,7 @@ app.post('/llm/test', async (c) => {
   if (!testConfig) {
     return c.json({
       success: false,
-      error: 'No LLM config found. Run `agent-analytics config llm` or provide config in request body.',
+      error: 'No LLM config found. Run `agent-usage-analyze config llm` or provide config in request body.',
     }, 400);
   }
 

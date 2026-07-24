@@ -1,9 +1,11 @@
 /**
- * insights command — analyze a session using configured LLM or native claude -p.
+ * insights command — analyze a session using the configured automatic policy
+ * or an explicitly requested native claude -p runner.
  *
  * Two modes:
  *   --native   Use claude -p (user's Claude subscription, zero config)
- *   (default)  Use configured LLM provider (OpenAI, Anthropic, Gemini, Ollama)
+ *   (default)  Use the Settings policy (configured provider first, then the
+ *              best available signed-in Agent runner)
  *
  * Resume detection:
  *   Skips analysis if analysis_usage.session_message_count matches current
@@ -16,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import chalk from 'chalk';
 import { getDb } from '../db/client.js';
 import { ClaudeNativeRunner } from '../analysis/native-runner.js';
-import { ProviderRunner } from '../analysis/provider-runner.js';
+import { createAnalysisRunnerFromPolicy } from '../analysis/runner-factory.js';
 import {
   SHARED_ANALYST_SYSTEM_PROMPT,
   buildSessionAnalysisInstructions,
@@ -32,8 +34,10 @@ import {
   convertToInsightRows,
   convertPQToInsightRow,
   applyGeneratedTitle,
+  ANALYSIS_VERSION,
 } from '../analysis/analysis-db.js';
 import { saveAnalysisUsage } from '../analysis/analysis-usage-db.js';
+import { recordAnalysisRun } from '../analysis/analysis-run-db.js';
 import type { AnalysisRunner, RunAnalysisResult } from '../analysis/runner-types.js';
 import { tryRecordObserverOverhead } from '../canonical/observer-overhead.js';
 import type { SQLiteMessageRow } from '../analysis/prompt-types.js';
@@ -42,6 +46,10 @@ import {
   buildAutomaticAnalysisBoundary,
   validateAutomaticStructuredJson,
 } from '../analysis/automatic-analysis-boundary.js';
+import {
+  AnalysisEligibilityError,
+  assessAnalysisEligibility,
+} from '../analysis/analysis-eligibility.js';
 
 const SESSION_ANALYSIS_SCHEMA = JSON.parse(readFileSync(
   new URL('../analysis/schemas/session-analysis.json', import.meta.url), 'utf8',
@@ -139,18 +147,8 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
     if (options._commitGuard && !options._commitGuard()) throw new StaleAnalysisGenerationError();
   };
 
-  // 1. Build the runner (or reuse a pre-built one from batch callers)
-  let runner: AnalysisRunner;
-  if (options._runner) {
-    runner = options._runner;
-  } else if (options.native) {
-    ClaudeNativeRunner.validate();
-    runner = new ClaudeNativeRunner({ model: options.model });
-  } else {
-    runner = ProviderRunner.fromConfig();
-  }
-
-  // 2. Load session from DB
+  // 1. Load the source and prove that a complete conversation exists before
+  // constructing a runner or consuming any model quota.
   const session = loadSessionForAnalysis(options.sessionId);
   if (!session) {
     throw new Error(`Session '${options.sessionId}' not found in local database.`);
@@ -172,8 +170,36 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
     }
   }
 
-  // 4. Load messages
+  // 2. Load messages and apply the shared evidence gate.
   const messages = loadSessionMessages(options.sessionId);
+  const sessionEligibility = assessAnalysisEligibility(messages, 'session');
+  if (!sessionEligibility.eligible) {
+    getDb().transaction(() => {
+      recordAnalysisRun({
+        analysisType: 'session', sessionId: session.id, status: 'unavailable',
+        unavailableReason: sessionEligibility.reason, promptVersion: ANALYSIS_VERSION,
+        inputSummary: { ...sessionEligibility, sourceMessageCount: messages.length },
+      });
+      getDb().prepare(`UPDATE insights SET source = 'invalidated',
+        metadata = json_set(COALESCE(metadata, '{}'), '$.analysis_state', 'unavailable',
+          '$.unavailable_reason', ?)
+        WHERE session_id = ?`).run(sessionEligibility.reason, session.id);
+      getDb().prepare(`DELETE FROM analysis_usage WHERE session_id = ?`).run(session.id);
+    }).immediate();
+    throw new AnalysisEligibilityError(sessionEligibility);
+  }
+  const promptQualityEligibility = assessAnalysisEligibility(messages, 'prompt_quality');
+
+  // 3. Build the runner (or reuse a pre-built one from batch callers).
+  let runner: AnalysisRunner;
+  if (options._runner) {
+    runner = options._runner;
+  } else if (options.native) {
+    ClaudeNativeRunner.validate();
+    runner = new ClaudeNativeRunner({ model: options.model });
+  } else {
+    runner = createAnalysisRunnerFromPolicy().runner;
+  }
 
   // Session metadata for prompt builders
   const slashCommands = (() => {
@@ -245,6 +271,16 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
 
   const parsedSession = parseAnalysisResponse(sessionResult.rawJson);
   if (!parsedSession.success) {
+    recordAnalysisRun({
+      analysisType: 'session', sessionId: session.id, status: 'failed',
+      unavailableReason: parsedSession.error.error_type, provider: sessionResult.provider,
+      model: sessionResult.model, promptVersion: ANALYSIS_VERSION,
+      systemPrompt: analystSystemPrompt, inputPrompt: sessionUserPrompt,
+      inputSummary: { ...sessionEligibility, sourceMessageCount: messages.length,
+        automaticPrivacy: Boolean(automaticBoundary) },
+      outputJson: sessionResult.rawJson, inputTokens: sessionResult.inputTokens,
+      outputTokens: sessionResult.outputTokens, durationMs: sessionResult.durationMs,
+    });
     throw new Error(`Session analysis failed: ${parsedSession.error.error_message}`);
   }
   automaticBoundary?.validateSessionOutput(parsedSession.data);
@@ -254,28 +290,44 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
 
   // ── Pass 2: Prompt quality analysis ──────────────────────────────────────
 
-  const pqInstructions = buildPromptQualityInstructions(
-    promptProjectName,
-    { humanMessageCount, assistantMessageCount, toolExchangeCount },
-    promptSessionMeta,
-  );
-  const pqUserPrompt = `${buildCacheableConversationBlock(formattedMessages).text}\n${pqInstructions}${evidenceReferenceInstruction}`;
+  let pqResult: RunAnalysisResult | null = null;
+  let pqInsight: ReturnType<typeof convertPQToInsightRow> | null = null;
+  let pqScore: number | null = null;
+  let pqUserPrompt: string | null = null;
+  if (promptQualityEligibility.eligible) {
+    const pqInstructions = buildPromptQualityInstructions(
+      promptProjectName,
+      { humanMessageCount, assistantMessageCount, toolExchangeCount },
+      promptSessionMeta,
+    );
+    pqUserPrompt = `${buildCacheableConversationBlock(formattedMessages).text}\n${pqInstructions}${evidenceReferenceInstruction}`;
 
-  const pqResult = await runner.runAnalysis({
-    systemPrompt: analystSystemPrompt,
-    userPrompt: pqUserPrompt,
-    jsonSchema: PROMPT_QUALITY_SCHEMA,
-  });
-  recordCodexObserverCall(pqResult, 'prompt_quality');
-  if (automaticBoundary) validateAutomaticStructuredJson(pqResult.rawJson, PROMPT_QUALITY_SCHEMA);
+    pqResult = await runner.runAnalysis({
+      systemPrompt: analystSystemPrompt,
+      userPrompt: pqUserPrompt,
+      jsonSchema: PROMPT_QUALITY_SCHEMA,
+    });
+    recordCodexObserverCall(pqResult, 'prompt_quality');
+    if (automaticBoundary) validateAutomaticStructuredJson(pqResult.rawJson, PROMPT_QUALITY_SCHEMA);
 
-  const parsedPQ = parsePromptQualityResponse(pqResult.rawJson);
-  if (!parsedPQ.success) {
-    throw new Error(`Prompt quality analysis failed: ${parsedPQ.error.error_message}`);
+    const parsedPQ = parsePromptQualityResponse(pqResult.rawJson);
+    if (!parsedPQ.success) {
+      recordAnalysisRun({
+        analysisType: 'prompt_quality', sessionId: session.id, status: 'failed',
+        unavailableReason: parsedPQ.error.error_type, provider: pqResult.provider,
+        model: pqResult.model, promptVersion: ANALYSIS_VERSION,
+        systemPrompt: analystSystemPrompt, inputPrompt: pqUserPrompt,
+        inputSummary: { ...promptQualityEligibility, sourceMessageCount: messages.length,
+          automaticPrivacy: Boolean(automaticBoundary) },
+        outputJson: pqResult.rawJson, inputTokens: pqResult.inputTokens,
+        outputTokens: pqResult.outputTokens, durationMs: pqResult.durationMs,
+      });
+      throw new Error(`Prompt quality analysis failed: ${parsedPQ.error.error_message}`);
+    }
+    automaticBoundary?.validatePromptQualityOutput(parsedPQ.data);
+    pqInsight = convertPQToInsightRow(parsedPQ.data, sessionData);
+    pqScore = parsedPQ.data.efficiency_score;
   }
-  automaticBoundary?.validatePromptQualityOutput(parsedPQ.data);
-
-  const pqInsight = convertPQToInsightRow(parsedPQ.data, sessionData);
 
   const persistResults = () => {
     assertCurrentGeneration();
@@ -303,25 +355,61 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
       duration_ms: sessionResult.durationMs,
       session_message_count: session.message_count,
     });
+    recordAnalysisRun({
+      analysisType: 'session', sessionId: session.id, status: 'completed',
+      provider: sessionResult.provider, model: sessionResult.model,
+      promptVersion: ANALYSIS_VERSION, systemPrompt: analystSystemPrompt,
+      inputPrompt: sessionUserPrompt,
+      inputSummary: { ...sessionEligibility, sourceMessageCount: messages.length,
+        automaticPrivacy: Boolean(automaticBoundary) },
+      outputJson: sessionResult.rawJson, inputTokens: sessionResult.inputTokens,
+      outputTokens: sessionResult.outputTokens, durationMs: sessionResult.durationMs,
+    });
 
-    saveInsightsToDb([pqInsight]);
-    deleteSessionInsights(session.id, {
-      excludeTypes: ['summary', 'decision', 'learning'],
-      excludeIds: [pqInsight.id],
-    });
-    saveAnalysisUsage({
-      session_id: session.id,
-      analysis_type: 'prompt_quality',
-      provider: pqResult.provider,
-      model: pqResult.model,
-      input_tokens: pqResult.inputTokens,
-      output_tokens: pqResult.outputTokens,
-      cache_creation_tokens: pqResult.cacheCreationTokens,
-      cache_read_tokens: pqResult.cacheReadTokens,
-      estimated_cost_usd: 0,
-      duration_ms: pqResult.durationMs,
-      session_message_count: session.message_count,
-    });
+    if (pqInsight && pqResult) {
+      saveInsightsToDb([pqInsight]);
+      deleteSessionInsights(session.id, {
+        excludeTypes: ['summary', 'decision', 'learning'],
+        excludeIds: [pqInsight.id],
+      });
+      saveAnalysisUsage({
+        session_id: session.id,
+        analysis_type: 'prompt_quality',
+        provider: pqResult.provider,
+        model: pqResult.model,
+        input_tokens: pqResult.inputTokens,
+        output_tokens: pqResult.outputTokens,
+        cache_creation_tokens: pqResult.cacheCreationTokens,
+        cache_read_tokens: pqResult.cacheReadTokens,
+        estimated_cost_usd: 0,
+        duration_ms: pqResult.durationMs,
+        session_message_count: session.message_count,
+      });
+      recordAnalysisRun({
+        analysisType: 'prompt_quality', sessionId: session.id, status: 'completed',
+        provider: pqResult.provider, model: pqResult.model,
+        promptVersion: ANALYSIS_VERSION, systemPrompt: analystSystemPrompt,
+        inputPrompt: pqUserPrompt,
+        inputSummary: { ...promptQualityEligibility, sourceMessageCount: messages.length,
+          automaticPrivacy: Boolean(automaticBoundary) },
+        outputJson: pqResult.rawJson, inputTokens: pqResult.inputTokens,
+        outputTokens: pqResult.outputTokens, durationMs: pqResult.durationMs,
+      });
+    } else {
+      getDb().prepare(`UPDATE insights SET source = 'invalidated',
+        metadata = json_set(COALESCE(metadata, '{}'), '$.analysis_state', 'unavailable',
+          '$.unavailable_reason', ?)
+        WHERE session_id = ? AND type = 'prompt_quality'`).run(
+        promptQualityEligibility.reason, session.id,
+      );
+      getDb().prepare(`DELETE FROM analysis_usage
+        WHERE session_id = ? AND analysis_type = 'prompt_quality'`).run(session.id);
+      recordAnalysisRun({
+        analysisType: 'prompt_quality', sessionId: session.id, status: 'unavailable',
+        unavailableReason: promptQualityEligibility.reason, promptVersion: ANALYSIS_VERSION,
+        inputSummary: { ...promptQualityEligibility, sourceMessageCount: messages.length },
+      });
+    }
     if (options._finalize && !options._finalize()) throw new StaleAnalysisGenerationError();
   };
   getDb().transaction(persistResults).immediate();
@@ -330,8 +418,8 @@ export async function runInsightsCommand(options: InsightsCommandOptions): Promi
 
   // Non-PQ insight count (excludes summary's own entry which is always saved)
   const insightCount = sessionInsights.length;
-  const pqScore = parsedPQ.data.efficiency_score;
-  log(chalk.green(`[Agent Analytics] Session analyzed: ${insightCount} insights, PQ ${pqScore}/100`));
+  const pqLabel = pqScore === null ? 'PQ unavailable (insufficient evidence)' : `PQ ${pqScore}/100`;
+  log(chalk.green(`[Agent Usage Analyzer] Session analyzed: ${insightCount} insights, ${pqLabel}`));
 }
 
 // ── CLI command entry point ───────────────────────────────────────────────────
@@ -353,7 +441,7 @@ export async function insightsCommand(
     if (opts.hook) {
       // --hook was removed in v4.9. Show a clear error so users know what to do.
       console.error(chalk.red(
-        'The --hook flag has been removed. Run `agent-analytics install-hook` to install the updated hook.'
+        'The --hook flag has been removed. Run `agent-usage-analyze install-hook` to install the updated hook.'
       ));
       process.exit(1);
     }
@@ -372,7 +460,7 @@ export async function insightsCommand(
     });
   } catch (error) {
     if (!quiet) {
-      console.error(chalk.red(`[Agent Analytics] ${error instanceof Error ? error.message : 'Analysis failed'}`));
+      console.error(chalk.red(`[Agent Usage Analyzer] ${error instanceof Error ? error.message : 'Analysis failed'}`));
     }
     process.exit(1);
   }
@@ -421,7 +509,7 @@ export async function insightsCheckCommand(opts: {
 
     // --analyze: process all found sessions with progress output
     if (analyze) {
-      const runner = ProviderRunner.fromConfig();
+      const runner = createAnalysisRunnerFromPolicy().runner;
       let successCount = 0;
 
       for (let i = 0; i < rows.length; i++) {
@@ -437,7 +525,7 @@ export async function insightsCheckCommand(opts: {
           successCount++;
         } catch (err) {
           process.stdout.write('failed\n');
-          console.error(chalk.red(`  [Agent Analytics] ${err instanceof Error ? err.message : 'Analysis failed'}`));
+          console.error(chalk.red(`  [Agent Usage Analyzer] ${err instanceof Error ? err.message : 'Analysis failed'}`));
         }
       }
 
@@ -447,7 +535,7 @@ export async function insightsCheckCommand(opts: {
 
     // Auto-analyze silently when 1-2 unanalyzed sessions
     if (count <= 2) {
-      const runner = ProviderRunner.fromConfig();
+      const runner = createAnalysisRunnerFromPolicy().runner;
       for (const row of rows) {
         try {
           await runInsightsCommand({ sessionId: row.id, native: false, quiet: true, _runner: runner });
@@ -460,8 +548,8 @@ export async function insightsCheckCommand(opts: {
 
     // 3-10: print count + suggestion
     if (count <= 10) {
-      log(chalk.yellow(`[Agent Analytics] ${count} unanalyzed session${count > 1 ? 's' : ''} in the last ${days} days.`));
-      log(chalk.dim(`  Run: agent-analytics insights check --analyze to process them`));
+      log(chalk.yellow(`[Agent Usage Analyzer] ${count} unanalyzed session${count > 1 ? 's' : ''} in the last ${days} days.`));
+      log(chalk.dim(`  Run: agent-usage-analyze insights check --analyze to process them`));
       return;
     }
 
@@ -469,12 +557,12 @@ export async function insightsCheckCommand(opts: {
     const estimateSecs = count * SECONDS_PER_SESSION;
     const estimateMins = Math.round(estimateSecs / 60);
     const timeLabel = estimateMins < 2 ? `~${estimateSecs}s` : `~${estimateMins} min`;
-    log(chalk.yellow(`[Agent Analytics] ${count} unanalyzed session${count > 1 ? 's' : ''} in the last ${days} days.`));
+    log(chalk.yellow(`[Agent Usage Analyzer] ${count} unanalyzed session${count > 1 ? 's' : ''} in the last ${days} days.`));
     log(chalk.dim(`  Estimated time: ${timeLabel} (~${SECONDS_PER_SESSION}s each)`));
-    log(chalk.dim(`  Run: agent-analytics insights check --analyze to process them`));
+    log(chalk.dim(`  Run: agent-usage-analyze insights check --analyze to process them`));
   } catch (error) {
     if (!quiet) {
-      console.error(chalk.red(`[Agent Analytics] ${error instanceof Error ? error.message : 'Check failed'}`));
+      console.error(chalk.red(`[Agent Usage Analyzer] ${error instanceof Error ? error.message : 'Check failed'}`));
     }
     process.exit(1);
   }

@@ -2,13 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeDb, getDb } from '@agent-analytics/cli/db/client';
+import { closeDb, getDb } from 'agent-usage-analyze/db/client';
 import {
   createScorecardVersion,
   evaluateScorecard,
   transitionScorecardVersion,
-} from '@agent-analytics/cli/canonical/scorecards';
-import { recordObserverOverhead } from '@agent-analytics/cli/canonical/observer-overhead';
+} from 'agent-usage-analyze/canonical/scorecards';
+import { recordObserverOverhead } from 'agent-usage-analyze/canonical/observer-overhead';
 import { createApp } from '../index.js';
 
 let dataDir: string;

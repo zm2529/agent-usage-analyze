@@ -1,5 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
+import { statSync } from 'fs';
 import type Database from 'better-sqlite3';
 import { CodexRolloutAdapter } from '../canonical/codex-rollout.js';
 import { ingestSourceAdapter } from '../canonical/ingestion.js';
@@ -18,6 +19,13 @@ import {
   locateCodexRollout,
   type CodexRolloutLocation,
 } from './codex-source-locator.js';
+import { recordIngestionLog } from './ingestion-log.js';
+
+// Large active rollouts can contain repeated compacted/forked history. Rebuilding
+// the legacy message projection for them on every append can hold SQLite for
+// minutes. The canonical event projection still advances; the full legacy
+// projection is left to the explicit history sync.
+const LIVE_PROJECTION_MAX_BYTES = 8 * 1024 * 1024;
 
 export interface ClaimedSettledImport {
   sourceTool: string;
@@ -157,14 +165,6 @@ export async function processSettledImport(
   claimed: ClaimedSettledImport,
   deps: SettledImportDependencies,
 ): Promise<SettledImportResult> {
-  if (deps.execution.effectiveRunner === 'off') {
-    return guardedUpdate(
-      db, claimed,
-      `status = 'completed', diagnostic = ?, completed_at = ?, started_at = NULL`,
-      [deps.execution.reason, deps.now().toISOString()],
-    ) ? { status: 'completed', diagnostic: deps.execution.reason } : stale();
-  }
-
   const location = deps.locate(claimed);
   if (!location.path) {
     const diagnostic = location.diagnostic ?? 'source-not-found';
@@ -202,7 +202,7 @@ export async function processSettledImport(
     return resettleUnavailable(db, claimed, deps, diagnostic);
   }
 
-  const terminalStatus = deps.execution.effectiveRunner === 'local-only'
+  const terminalStatus = deps.execution.effectiveRunner === 'local-only' || deps.execution.effectiveRunner === 'off'
     ? 'completed'
     : 'awaiting-capability';
   const terminalDiagnostic = combinedDiagnostic(location.diagnostic, deps.execution.reason);
@@ -253,6 +253,11 @@ export function defaultSettledImportDependencies(
   idleSeconds: number,
   sessionId?: string,
 ): SettledImportDependencies {
+  const config = loadConfig();
+  const policy = resolveAnalysisExecutionPolicy(config);
+  const execution = config?.dashboard?.capabilities?.sessionLlmAnalysis === false
+    ? { effectiveRunner: 'local-only' as const, reason: 'session-llm-analysis-disabled', model: undefined }
+    : policy;
   return {
     now: () => new Date(),
     idleSeconds,
@@ -278,16 +283,29 @@ export function defaultSettledImportDependencies(
         diagnostic: complete ? null : incomplete?.code ?? `canonical-import-${summary.status}`,
       };
     },
-    prepareProjection: async (path) => prepareSingleFileProjection({
-      filePath: path,
-      sourceTool: 'codex-cli',
-      replace: true,
-      ...(sessionId ? { replaceSessionId: `codex:${sessionId}` } : {}),
-      quiet: true,
-    }),
+    prepareProjection: async (path) => {
+      const sizeBytes = statSync(path).size;
+      const existing = sessionId
+        ? db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(`codex:${sessionId}`)
+        : null;
+      if (sizeBytes > LIVE_PROJECTION_MAX_BYTES && existing) {
+        recordIngestionLog({
+          stage: 'projection', outcome: 'deferred-large-existing-session',
+          sessionId, sourcePath: path, sizeBytes,
+        });
+        return { complete: true, diagnostic: 'large-source-projection-deferred', commit() {} };
+      }
+      return prepareSingleFileProjection({
+        filePath: path,
+        sourceTool: 'codex-cli',
+        replace: true,
+        ...(sessionId ? { replaceSessionId: `codex:${sessionId}` } : {}),
+        quiet: true,
+      });
+    },
     invalidateProjection: () => {
       if (sessionId) invalidateCompatibilityProjection(`codex:${sessionId}`);
     },
-    execution: resolveAnalysisExecutionPolicy(loadConfig()),
+    execution,
   };
 }

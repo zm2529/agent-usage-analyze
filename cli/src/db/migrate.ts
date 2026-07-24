@@ -36,6 +36,10 @@ export interface MigrationResult {
  * Version 22: Add immutable expand-project-contract migration records
  * Version 23: Expand the analysis queue for turn-settled, source-scoped automation
  * Version 24: Record cached-input and reasoning tokens in observer overhead
+ * Version 25: Record live source progress for background canonical imports
+ * Version 26: Add immutable, locally inspectable LLM analysis run records
+ * Version 27: Repair missing settled-frontier support in databases already marked v23+
+ * Version 28: Add event-time hourly Token usage projection
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -151,6 +155,22 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 24) {
     applyV24(db);
+  }
+
+  if (currentVersion < 25) {
+    applyV25(db);
+  }
+
+  if (currentVersion < 26) {
+    applyV26(db);
+  }
+
+  if (currentVersion < 27) {
+    applyV27(db);
+  }
+
+  if (currentVersion < 28) {
+    applyV28(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -900,6 +920,92 @@ function applyV24(db: Database.Database): void {
   })();
 }
 
+function applyV25(db: Database.Database): void {
+  db.transaction(() => {
+    const columns = new Set(
+      (db.prepare('PRAGMA table_info(ingestion_runs)').all() as Array<{ name: string }>)
+        .map((column) => column.name),
+    );
+    if (!columns.has('processed_source_count')) {
+      db.exec(`ALTER TABLE ingestion_runs ADD COLUMN processed_source_count INTEGER NOT NULL DEFAULT 0`);
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(25);
+  })();
+}
+
+function applyV26(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS analysis_runs (
+        id                 TEXT PRIMARY KEY,
+        analysis_type      TEXT NOT NULL,
+        session_id         TEXT REFERENCES sessions(id),
+        status             TEXT NOT NULL CHECK (status IN ('completed', 'unavailable', 'failed', 'rejected')),
+        unavailable_reason TEXT,
+        provider           TEXT,
+        model              TEXT,
+        prompt_version     TEXT NOT NULL,
+        system_prompt      TEXT,
+        input_prompt       TEXT,
+        input_summary_json TEXT NOT NULL CHECK (json_valid(input_summary_json)),
+        output_json        TEXT,
+        input_tokens       INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+        output_tokens      INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+        duration_ms        INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+        created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_analysis_runs_session
+        ON analysis_runs(session_id, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_analysis_runs_type
+        ON analysis_runs(analysis_type, created_at DESC, id DESC);
+      CREATE TRIGGER IF NOT EXISTS analysis_runs_no_update
+        BEFORE UPDATE ON analysis_runs BEGIN
+          SELECT RAISE(ABORT, 'analysis run records are immutable');
+        END;
+      CREATE TRIGGER IF NOT EXISTS analysis_runs_no_delete
+        BEFORE DELETE ON analysis_runs BEGIN
+          SELECT RAISE(ABORT, 'analysis run records are immutable');
+        END;
+    `);
+
+    // Legacy prompt scores produced without any imported conversation are not
+    // evidence. Preserve the row for local audit, but remove it from normal UI
+    // queries and resume detection so a corrected import can be analyzed again.
+    const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{ name: string }>;
+    const tableNames = new Set(tables.map((row) => row.name));
+    const sessionColumns = tableNames.has('sessions')
+      ? new Set((db.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>).map((row) => row.name))
+      : new Set<string>();
+    const supportsEligibilityAudit = sessionColumns.has('user_message_count')
+      && sessionColumns.has('assistant_message_count');
+    if (tableNames.has('insights') && supportsEligibilityAudit) {
+      db.exec(`
+        UPDATE insights
+        SET source = 'invalidated',
+            metadata = json_set(COALESCE(metadata, '{}'),
+              '$.analysis_state', 'unavailable',
+              '$.unavailable_reason', 'legacy-insufficient-evidence')
+        WHERE type = 'prompt_quality'
+          AND session_id IN (
+            SELECT id FROM sessions
+            WHERE user_message_count < 2 OR assistant_message_count < 1
+          );
+      `);
+    }
+    if (tableNames.has('analysis_usage') && supportsEligibilityAudit) {
+      db.exec(`
+        DELETE FROM analysis_usage
+        WHERE analysis_type = 'prompt_quality'
+          AND session_id IN (
+            SELECT id FROM sessions
+            WHERE user_message_count < 2 OR assistant_message_count < 1
+          );
+      `);
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(26);
+  })();
+}
+
 function createV23FrontierSupport(db: Database.Database): void {
   db.exec(`
       CREATE TABLE IF NOT EXISTS analysis_frontier_events (
@@ -913,4 +1019,36 @@ function createV23FrontierSupport(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_analysis_frontier_events_session
         ON analysis_frontier_events(source_tool, session_id, observed_at DESC);
   `);
+}
+
+function applyV27(db: Database.Database): void {
+  db.transaction(() => {
+    // Early v23 builds could persist the version marker after expanding
+    // analysis_queue without creating its companion frontier table. Re-run the
+    // idempotent support DDL so Stop hooks never fail silently on those DBs.
+    createV23FrontierSupport(db);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(27);
+  })();
+}
+
+function applyV28(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS token_usage_hourly (
+        hour                  TEXT PRIMARY KEY,
+        input_tokens          INTEGER NOT NULL DEFAULT 0,
+        output_tokens         INTEGER NOT NULL DEFAULT 0,
+        cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens      INTEGER NOT NULL DEFAULT 0,
+        event_count           INTEGER NOT NULL DEFAULT 0,
+        updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_source_artifacts_locator_latest
+        ON source_artifacts(locator_hash, created_at, id);
+    `);
+    db.prepare(`UPDATE canonical_projection_state
+      SET dirty = 1, updated_at = datetime('now') WHERE id = 1`).run();
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(28);
+  })();
 }

@@ -66,9 +66,9 @@ export async function overviewAction(flags: StatsFlags): Promise<void> {
     if (sessions.length === 0 && !opts.periodStart) {
       console.log(`\n  No sessions found.\n`);
       console.log(`  Get started:`);
-      console.log(`    1. Use Claude Code, Cursor, or Codex on a project`);
-      console.log(`    2. Run ${colors.value('agent-analytics sync')} to upload your sessions`);
-      console.log(`    3. Run ${colors.value('agent-analytics stats')} to see your analytics\n`);
+      console.log(`    1. Complete a Codex task`);
+      console.log(`    2. Run ${colors.value('agent-usage-analyze start')} to import local history`);
+      console.log(`    3. Run ${colors.value('agent-usage-analyze stats')} for terminal analytics\n`);
       showTip('stats');
       return;
     }
@@ -76,7 +76,7 @@ export async function overviewAction(flags: StatsFlags): Promise<void> {
     // Empty state: no sessions in period
     if (sessions.length === 0) {
       const periodLabel = formatPeriodLabel(flags.period);
-      console.log(sectionHeader('CODE INSIGHTS', periodLabel));
+      console.log(sectionHeader('AGENT USAGE ANALYZER', periodLabel));
       console.log(`\n  No sessions in the ${periodLabel.toLowerCase()}.\n`);
       const lastSession = await source.getLastSession({ sourceTool: opts.sourceTool, projectId: opts.projectId });
       if (lastSession) {
@@ -93,7 +93,7 @@ export async function overviewAction(flags: StatsFlags): Promise<void> {
     const periodLabel = formatPeriodLabel(flags.period);
 
     // Header
-    let headerTitle = 'CODE INSIGHTS';
+    let headerTitle = 'AGENT USAGE ANALYZER';
     if (flags.project) headerTitle += ` \u2014 ${flags.project}`;
     if (flags.source) headerTitle += ` \u2014 ${flags.source} only`;
     console.log(sectionHeader(headerTitle, periodLabel));

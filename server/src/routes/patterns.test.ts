@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeDb } from '@agent-analytics/cli/db/client';
+import { closeDb } from 'agent-usage-analyze/db/client';
 import { createApp } from '../index.js';
 
 let dataDir: string;
@@ -19,6 +19,12 @@ afterEach(() => {
 });
 
 describe('pattern trend API', () => {
+  it('returns a history-wide deterministic overview without model configuration', async () => {
+    const response = await createApp().request('/api/patterns/overview');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ analyzedTaskCount: 0, patterns: [] });
+  });
+
   it('returns equal adjacent windows, era metadata, coverage, and evidence-closed trends', async () => {
     const response = await createApp().request(
       '/api/patterns/trends?currentStart=2026-07-14T00%3A00%3A00.000Z&currentEnd=2026-07-21T00%3A00%3A00.000Z',

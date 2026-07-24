@@ -29,12 +29,19 @@ export function getHookCommand(hook: string | { type: string; command: string })
   return typeof hook === 'string' ? hook : hook.command;
 }
 
-/** Check if a hook array already contains a agent-analytics hook */
+/** Match both the current product command and legacy hook commands for safe migration/removal. */
+export function isAgentUsageAnalyzerHookCommand(command: string): boolean {
+  return command.includes('agent-usage-analyze')
+    || command.includes('agent-analytics')
+    || command.includes('session-end --native -q');
+}
+
+/** Check if a hook array already contains a agent-usage-analyze hook */
 export function hookAlreadyInstalled(hookList: HookConfig[]): boolean {
   return hookList.some(
     (h) => h.hooks.some((hook) => {
       const command = getHookCommand(hook);
-      return command.includes('agent-analytics') || command.includes('session-end --native -q');
+      return isAgentUsageAnalyzerHookCommand(command);
     })
   );
 }

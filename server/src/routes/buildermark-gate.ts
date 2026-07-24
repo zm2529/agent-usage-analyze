@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { readBuildermarkGateState } from '@agent-analytics/cli/canonical/buildermark-gate';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { readBuildermarkGateState } from 'agent-usage-analyze/canonical/buildermark-gate';
 
 const app = new Hono();
 

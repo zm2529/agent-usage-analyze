@@ -41,7 +41,7 @@ describe('work task identity projection', () => {
       id, source_artifact_id, era_id, native_event_id, sequence, occurred_at,
       kind, actor, sensitivity, payload_json, task_id, thread_id, turn_id,
       generation, attempt, parser_version
-    ) VALUES (?, ?, 'era', ?, ?, ?, ?, 'system', 'structural', ?, 'task', 'task', 'turn', 1, 1, 'v1')`);
+    ) VALUES (?, ?, 'era', ?, ?, ?, ?, 'system', 'structural', ?, 'task', 'task', 'turn', NULL, NULL, 'v1')`);
     event.run('meta', 'source-z', 'meta', 0, '2026-07-21T00:00:00Z', 'session-meta', '{"taskRole":"root"}');
     event.run('later', 'source-a', 'later', 1, '2026-07-21T00:02:00Z', 'token-snapshot', '{"inputTokens":150,"cachedInputTokens":30,"cacheCreationTokens":4,"outputTokens":20,"reasoningTokens":8,"compactionTokens":1}');
     event.run('earlier', 'source-z', 'earlier', 1, '2026-07-21T00:01:00Z', 'token-snapshot', '{"inputTokens":100,"cachedInputTokens":20,"cacheCreationTokens":2,"outputTokens":10,"reasoningTokens":5,"compactionTokens":0}');
@@ -49,9 +49,41 @@ describe('work task identity projection', () => {
     rebuildTaskProjection(db);
     expect(db.prepare(`SELECT event_id AS eventId, status, input_tokens AS inputTokens
       FROM task_token_deltas ORDER BY event_id`).all()).toEqual([
-      { eventId: 'earlier', status: 'unknown-baseline', inputTokens: null },
+      { eventId: 'earlier', status: 'known', inputTokens: 100 },
       { eventId: 'later', status: 'known', inputTokens: 50 },
     ]);
+    db.close();
+  });
+
+  it('uses source identity when native generation metadata is absent', () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    db.prepare(`INSERT INTO observation_eras (id, name, mode, parser_version, capabilities_json, starts_at)
+      VALUES ('era', 'era', 'historical-backfill', 'v1', '[]', '2026-07-21T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO source_artifacts (
+      id, source_kind, parser_version, locator_hash, observed_at, era_id, cursor_position
+    ) VALUES ('source', 'codex-rollout', 'v1', 'sha256:a', '2026-07-21T00:00:00Z', 'era', 0)`).run();
+    const event = db.prepare(`INSERT INTO canonical_events (
+      id, source_artifact_id, era_id, native_event_id, sequence, occurred_at,
+      kind, actor, sensitivity, payload_json, task_id, thread_id, parser_version
+    ) VALUES (?, 'source', 'era', ?, ?, ?, ?, 'system', 'structural', ?, 'task', 'task', 'v1')`);
+    event.run('meta', 'meta', 0, '2026-07-21T00:00:00Z', 'session-meta', '{"taskRole":"root"}');
+    event.run('first', 'first', 1, '2026-07-21T00:01:00Z', 'token-snapshot', '{"inputTokens":100,"cachedInputTokens":20,"outputTokens":10}');
+    event.run('second', 'second', 2, '2026-07-21T00:02:00Z', 'token-snapshot', '{"inputTokens":150,"cachedInputTokens":30,"cacheCreationTokens":4,"outputTokens":20,"reasoningTokens":8,"compactionTokens":1}');
+
+    rebuildTaskProjection(db);
+    expect(db.prepare(`SELECT status, input_tokens AS inputTokens
+      FROM task_token_deltas ORDER BY event_id`).all()).toEqual([
+      { status: 'known', inputTokens: 100 },
+      { status: 'known', inputTokens: 50 },
+    ]);
+    expect(db.prepare(`SELECT input_tokens AS inputTokens, cache_read_tokens AS cacheReadTokens,
+      output_tokens AS outputTokens, event_count AS eventCount FROM token_usage_hourly`).get()).toEqual({
+      inputTokens: 150,
+      cacheReadTokens: 30,
+      outputTokens: 20,
+      eventCount: 2,
+    });
     db.close();
   });
 });

@@ -37,6 +37,19 @@ describe('Codex Stop hook entry point', () => {
     expect(deps.spawnScheduler).toHaveBeenCalledOnce();
   });
 
+  it('records UserPromptSubmit so a new session is visible before Stop fires', () => {
+    const deps = dependencies();
+    const result = handleCodexStopInput(
+      validInput.replace('"Stop"', '"UserPromptSubmit"'),
+      { managedHook: CODEX_HOOK_MARKER },
+      deps,
+    );
+
+    expect(result).toEqual({ status: 'recorded', reason: 'frontier-recorded' });
+    expect(deps.record).toHaveBeenCalledOnce();
+    expect(deps.spawnScheduler).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ['bad marker', validInput, 'somebody-else'],
     ['invalid json', '{', CODEX_HOOK_MARKER],

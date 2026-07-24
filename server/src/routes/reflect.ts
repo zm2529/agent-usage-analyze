@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { getDb } from '@agent-analytics/cli/db/client';
+import { getDb } from 'agent-usage-analyze/db/client';
 import { jsonrepair } from 'jsonrepair';
 import { createLLMClient } from '../llm/client.js';
 import { requireLLM } from './route-helpers.js';
@@ -14,7 +14,7 @@ import {
   generateWorkingStylePrompt,
 } from '../llm/reflect-prompts.js';
 import { buildWhereClause, buildPeriodFilter, parseIsoWeek, formatIsoWeek, getAggregatedData } from './shared-aggregation.js';
-import type { ReflectSection } from '@agent-analytics/cli/types';
+import type { ReflectSection } from 'agent-usage-analyze/types';
 
 const app = new Hono();
 

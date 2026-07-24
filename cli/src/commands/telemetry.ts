@@ -9,7 +9,7 @@ import type { ClaudeInsightConfig } from '../types.js';
  * explicitly opts in/out of telemetry before running `init`.
  */
 const MINIMAL_CONFIG: ClaudeInsightConfig = {
-  sync: { claudeDir: '~/.claude/projects', excludeProjects: [] },
+  sync: { excludeProjects: [] },
 };
 
 /**
@@ -60,8 +60,8 @@ function statusAction(): void {
   }
 
   console.log(chalk.white('\n  To change:'));
-  console.log(chalk.gray('    agent-analytics telemetry disable'));
-  console.log(chalk.gray('    agent-analytics telemetry enable'));
+  console.log(chalk.gray('    agent-usage-analyze telemetry disable'));
+  console.log(chalk.gray('    agent-usage-analyze telemetry enable'));
   console.log(chalk.gray('    Or set env: AGENT_ANALYTICS_TELEMETRY_DISABLED=1\n'));
 }
 

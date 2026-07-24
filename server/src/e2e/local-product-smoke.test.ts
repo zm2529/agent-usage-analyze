@@ -6,25 +6,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 import {
   ingestSourceAdapter,
   type CanonicalBatch,
   type CanonicalEvent,
   type SourceAdapter,
   type SourceArtifact,
-} from '@agent-analytics/cli/canonical/ingestion';
-import { comparePatternWindows } from '@agent-analytics/cli/canonical/patterns';
-import { discoverCanonicalTestRunDeliveries } from '@agent-analytics/cli/canonical/deliveries';
+} from 'agent-usage-analyze/canonical/ingestion';
+import { comparePatternWindows } from 'agent-usage-analyze/canonical/patterns';
+import { discoverCanonicalTestRunDeliveries } from 'agent-usage-analyze/canonical/deliveries';
 import {
   createScorecardVersion,
   evaluateScorecard,
   transitionScorecardVersion,
-} from '@agent-analytics/cli/canonical/scorecards';
+} from 'agent-usage-analyze/canonical/scorecards';
 
 let db: Database.Database;
-vi.mock('@agent-analytics/cli/db/client', () => ({ getDb: () => db, closeDb: () => {} }));
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({ getDb: () => db, closeDb: () => {} }));
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   trackEvent: vi.fn(), captureError: vi.fn(), shutdownTelemetry: vi.fn(),
 }));
 

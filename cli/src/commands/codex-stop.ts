@@ -1,17 +1,25 @@
 import type { Readable } from 'stream';
 import { isAbsolute } from 'path';
 import { createHash } from 'crypto';
+import { renameSync, writeFileSync } from 'fs';
+import { join } from 'path';
 import { getDb } from '../db/client.js';
 import { recordSettledFrontier, type SettledTurnEvent } from '../analysis/settled-frontier.js';
 import { spawnSettledScheduler } from '../analysis/settled-scheduler.js';
 import { CODEX_HOOK_MARKER } from '../utils/codex-hooks.js';
-import { loadConfig } from '../utils/config.js';
+import { ensureConfigDir, getConfigDir, loadConfig } from '../utils/config.js';
+import { recordIngestionLog } from '../analysis/ingestion-log.js';
 
 export const MAX_CODEX_HOOK_INPUT_BYTES = 64 * 1024;
 
 export interface CodexStopOptions {
   quiet?: boolean;
   managedHook?: string;
+}
+
+export interface CodexStopResult {
+  status: 'recorded' | 'ignored' | 'failed';
+  reason: string;
 }
 
 export interface CodexStopDependencies {
@@ -39,10 +47,10 @@ function defaultDependencies(): CodexStopDependencies {
   const configuredIdle = loadConfig()?.dashboard?.analysis?.idleSeconds;
   const idleSeconds = Number.isFinite(configuredIdle)
     ? Math.min(3_600, Math.max(5, Math.round(configuredIdle!)))
-    : 90;
+    : 10;
   return {
     isRecursive: Boolean(process.env.AGENT_ANALYTICS_HOOK_ACTIVE),
-    automaticEnabled: loadConfig()?.dashboard?.analysis?.mode !== 'off',
+    automaticEnabled: loadConfig()?.dashboard?.capabilities?.hookCapture !== false,
     idleSeconds,
     now: new Date(),
     record: (event, now, idle) => recordSettledFrontier(getDb(), event, now, idle),
@@ -55,18 +63,21 @@ export function handleCodexStopInput(
   input: string,
   options: CodexStopOptions,
   dependencies: CodexStopDependencies = defaultDependencies(),
-): void {
+): CodexStopResult {
   try {
     if (!dependencies.automaticEnabled || dependencies.isRecursive
-      || options.managedHook !== CODEX_HOOK_MARKER) return;
-    if (Buffer.byteLength(input, 'utf8') > MAX_CODEX_HOOK_INPUT_BYTES) return;
+      || options.managedHook !== CODEX_HOOK_MARKER) return { status: 'ignored', reason: 'inactive-boundary' };
+    if (Buffer.byteLength(input, 'utf8') > MAX_CODEX_HOOK_INPUT_BYTES) return { status: 'ignored', reason: 'oversized-input' };
 
     const payload = JSON.parse(input) as CodexStopPayload;
-    if (!payload || typeof payload !== 'object' || payload.hook_event_name !== 'Stop') return;
-    if (!boundedString(payload.session_id, 256) || !boundedString(payload.turn_id, 256)) return;
-    if (!boundedString(payload.cwd, 8_192) || !isAbsolute(payload.cwd)) return;
+    if (!payload || typeof payload !== 'object'
+      || !['UserPromptSubmit', 'Stop'].includes(String(payload.hook_event_name))) {
+      return { status: 'ignored', reason: 'unsupported-event' };
+    }
+    if (!boundedString(payload.session_id, 256) || !boundedString(payload.turn_id, 256)) return { status: 'ignored', reason: 'invalid-identity' };
+    if (!boundedString(payload.cwd, 8_192) || !isAbsolute(payload.cwd)) return { status: 'ignored', reason: 'invalid-cwd' };
     if (payload.transcript_path !== undefined && payload.transcript_path !== null
-      && !boundedString(payload.transcript_path, 8_192)) return;
+      && !boundedString(payload.transcript_path, 8_192)) return { status: 'ignored', reason: 'invalid-transcript' };
 
     dependencies.record({
       source: 'codex-cli',
@@ -76,8 +87,23 @@ export function handleCodexStopInput(
       basis: `hook-sha256:${createHash('sha256').update(input).digest('hex')}`,
     }, dependencies.now, dependencies.idleSeconds);
     dependencies.spawnScheduler();
+    return { status: 'recorded', reason: 'frontier-recorded' };
   } catch {
     // Hook failures must never block or alter the Codex turn.
+    return { status: 'failed', reason: 'hook-processing-failed' };
+  }
+}
+
+function writeHookStatus(result: CodexStopResult): void {
+  try {
+    ensureConfigDir();
+    const destination = join(getConfigDir(), 'codex-hook-status.json');
+    const temporary = `${destination}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify({ ...result, observedAt: new Date().toISOString() }, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporary, destination);
+    recordIngestionLog({ stage: 'hook', outcome: result.status, diagnostic: result.reason });
+  } catch {
+    // Status telemetry is best-effort and must preserve the Hook fail-open contract.
   }
 }
 
@@ -97,7 +123,7 @@ async function readBoundedStdin(stream: Readable = process.stdin): Promise<strin
 export async function codexStopCommand(options: CodexStopOptions = {}): Promise<void> {
   try {
     const input = await readBoundedStdin();
-    if (input !== null) handleCodexStopInput(input, options);
+    if (input !== null) writeHookStatus(handleCodexStopInput(input, options));
   } catch {
     // Explicit fail-open contract: exit 0 with no stdout/stderr.
   }

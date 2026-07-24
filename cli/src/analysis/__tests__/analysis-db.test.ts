@@ -129,7 +129,7 @@ const PQ_RESPONSE: PromptQualityResponse = {
 
 describe('ANALYSIS_VERSION', () => {
   it('is 3.0.0', () => {
-    expect(ANALYSIS_VERSION).toBe('3.0.0');
+    expect(ANALYSIS_VERSION).toBe('3.1.0');
   });
 });
 
@@ -147,6 +147,23 @@ describe('convertToInsightRows', () => {
     expect(summary!.scope).toBe('session');
     expect(JSON.parse(summary!.bullets)).toEqual(['Added login endpoint', 'Added token refresh']);
     expect(JSON.parse(summary!.metadata!)).toMatchObject({ outcome: 'completed' });
+  });
+
+  it('persists session-level Skill fit assessments with the summary insight', () => {
+    const response: AnalysisResponse = {
+      ...ANALYSIS_RESPONSE,
+      summary: {
+        ...ANALYSIS_RESPONSE.summary,
+        skill_usage: [{
+          name: 'diagnose', fit: 'appropriate', observation: 'Used before editing to establish the root cause.',
+          issue: null, recommendation: 'Keep using it for ambiguous defects.', evidence: ['User#1: $diagnose'],
+        }],
+      },
+    };
+    const summary = convertToInsightRows(response, SESSION).find((row) => row.type === 'summary');
+    expect(JSON.parse(summary!.metadata!)).toMatchObject({
+      skill_usage: [{ name: 'diagnose', fit: 'appropriate' }],
+    });
   });
 
   it('produces a decision row for confidence >= 70', () => {
@@ -271,8 +288,8 @@ describe('saveFacetsToDb analysisVersion parameter', () => {
     expect(row.analysis_version).toBe('2.5.0');
   });
 
-  it('default ANALYSIS_VERSION constant is 3.0.0', () => {
+  it('default ANALYSIS_VERSION constant is 3.1.0', () => {
     // Verifies the constant that will be used as the default
-    expect(ANALYSIS_VERSION).toBe('3.0.0');
+    expect(ANALYSIS_VERSION).toBe('3.1.0');
   });
 });

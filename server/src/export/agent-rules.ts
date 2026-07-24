@@ -28,7 +28,7 @@ export function formatAgentRules(sessions: SessionRow[], insights: InsightRow[])
 
   const lines: string[] = [
     `# Agent Rules Export`,
-    `> Generated from ${sessions.length} session${sessions.length !== 1 ? 's' : ''} analyzed by Agent Analytics`,
+    `> Generated from ${sessions.length} session${sessions.length !== 1 ? 's' : ''} analyzed by Agent Usage Analyzer`,
     `> Project: ${projectName} | Period: ${dateRange}`,
     '',
   ];

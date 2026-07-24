@@ -8,10 +8,20 @@ const CONTENT_MAX = 10000;
 const THINKING_MAX = 5000;
 const TOOL_RESULT_MAX = 2000;
 const TOOL_INPUT_MAX = 1000;
+const TOOL_RESULTS_PER_MESSAGE_MAX = 50;
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 20) + '\n... [truncated]';
+}
+
+function truncateToolOutput(value: unknown): string {
+  const text = typeof value === 'string'
+    ? value
+    : (() => {
+        try { return JSON.stringify(value); } catch { return String(value); }
+      })();
+  return truncate(text, TOOL_RESULT_MAX);
 }
 
 // ──────────────────────────────────────────────────────
@@ -30,6 +40,7 @@ let _stmtUpsertProjectBase: BetterSqlite3.Statement | null = null;
 let _stmtUpdateProjectWithUsage: BetterSqlite3.Statement | null = null;
 let _stmtUpdateProjectCountOnly: BetterSqlite3.Statement | null = null;
 let _stmtUpsertSession: BetterSqlite3.Statement | null = null;
+let _stmtRepairInjectedTitle: BetterSqlite3.Statement | null = null;
 let _stmtInsertMessage: BetterSqlite3.Statement | null = null;
 let _stmtReplaceMessage: BetterSqlite3.Statement | null = null;
 let _stmtUpsertUsageStatsIncrement: BetterSqlite3.Statement | null = null;
@@ -43,6 +54,7 @@ function getStmts() {
     _stmtUpdateProjectWithUsage = null;
     _stmtUpdateProjectCountOnly = null;
     _stmtUpsertSession = null;
+    _stmtRepairInjectedTitle = null;
     _stmtInsertMessage = null;
     _stmtReplaceMessage = null;
     _stmtUpsertUsageStatsIncrement = null;
@@ -146,6 +158,25 @@ function getStmts() {
     `);
   }
 
+  if (!_stmtRepairInjectedTitle) {
+    _stmtRepairInjectedTitle = db.prepare(`
+      UPDATE sessions SET generated_title = ?, title_source = ?
+      WHERE id = ? AND (
+        generated_title IS NULL OR trim(generated_title) = ''
+        OR lower(trim(generated_title)) LIKE '<recommended_plugins>%'
+        OR lower(trim(generated_title)) LIKE '<recommendedplugins>%'
+        OR lower(trim(generated_title)) LIKE '<codex_internal_context%'
+        OR lower(trim(generated_title)) LIKE '<codexinternalcontext%'
+        OR lower(trim(generated_title)) LIKE '<codex_delegation%'
+        OR lower(trim(generated_title)) LIKE '<codexdelegation%'
+        OR lower(trim(generated_title)) LIKE '<skill>%'
+        OR lower(trim(generated_title)) LIKE 'files mentioned by the user:%'
+        OR lower(trim(generated_title)) IN
+          ('no coding activity captured', 'no coding-session activity captured')
+      )
+    `);
+  }
+
   if (!_stmtReplaceMessage) {
     // Used by --force sync to overwrite existing message content (e.g. after a parsing fix).
     _stmtReplaceMessage = db.prepare(`
@@ -176,6 +207,7 @@ function getStmts() {
     updateProjectWithUsage: _stmtUpdateProjectWithUsage,
     updateProjectCountOnly: _stmtUpdateProjectCountOnly,
     upsertSession: _stmtUpsertSession,
+    repairInjectedTitle: _stmtRepairInjectedTitle,
     insertMessage: _stmtInsertMessage,
     replaceMessage: _stmtReplaceMessage,
     upsertUsageStatsIncrement: _stmtUpsertUsageStatsIncrement,
@@ -211,6 +243,9 @@ function insertSessionWithProjectInternal(session: ParsedSession, isForce: boole
   const tx = db.transaction(() => {
     upsertProject(projectId, session, projectIdSource, gitRemoteUrl, isNew, isForce);
     upsertSession(session, projectId, gitRemoteUrl, deviceInfo);
+    if (session.generatedTitle) {
+      getStmts().repairInjectedTitle.run(session.generatedTitle, session.titleSource, session.id);
+    }
     if (isNew) {
       updateGlobalUsageStats(session, isForce);
     }
@@ -320,6 +355,12 @@ export function insertMessages(session: ParsedSession, isForce = false): void {
   const stmts = getStmts();
 
   const tx = db.transaction((messages: ParsedMessage[]) => {
+    // A force sync is a full projection replacement. Deleting inside the same
+    // transaction prevents stale rows from older parser versions surviving,
+    // while also keeping the previous projection intact if insertion fails.
+    if (isForce) {
+      db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.id);
+    }
     const stmt = isForce ? stmts.replaceMessage : stmts.insertMessage;
     for (const msg of messages) {
       stmt.run(
@@ -336,10 +377,16 @@ export function insertMessages(session: ParsedSession, isForce = false): void {
             })))
           : null,
         msg.toolResults.length > 0
-          ? JSON.stringify(msg.toolResults.map(tr => ({
+          ? JSON.stringify([
+            ...msg.toolResults.slice(0, TOOL_RESULTS_PER_MESSAGE_MAX).map(tr => ({
               toolUseId: tr.toolUseId,
-              output: truncate(tr.output, TOOL_RESULT_MAX),
-            })))
+              output: truncateToolOutput(tr.output),
+            })),
+            ...(msg.toolResults.length > TOOL_RESULTS_PER_MESSAGE_MAX ? [{
+              toolUseId: '__projection_truncated__',
+              output: `${msg.toolResults.length - TOOL_RESULTS_PER_MESSAGE_MAX} additional tool results remain available in the original local session history.`,
+            }] : []),
+          ])
           : null,
         msg.usage ? JSON.stringify(msg.usage) : null,
         msg.timestamp.toISOString(),

@@ -5,7 +5,7 @@ import { trackEvent } from '../utils/telemetry.js';
 import { openUrl } from '../utils/browser.js';
 
 // Phase 3: local Hono server will listen on this port.
-// `agent-analytics dashboard` command will start the server first.
+// `agent-usage-analyze dashboard` command will start the server first.
 const DEFAULT_DASHBOARD_PORT = 7890;
 
 interface OpenOptions {
@@ -14,7 +14,7 @@ interface OpenOptions {
 
 /**
  * Open the local dashboard in the default browser.
- * Note: requires `agent-analytics dashboard` server to be running (Phase 3).
+ * Note: requires `agent-usage-analyze dashboard` server to be running (Phase 3).
  */
 export async function openCommand(options: OpenOptions): Promise<void> {
   const config = loadConfig();
@@ -32,7 +32,7 @@ export async function openCommand(options: OpenOptions): Promise<void> {
   }
 
   console.log(chalk.cyan(`\n  Opening ${url}\n`));
-  console.log(chalk.gray('  (Run `agent-analytics dashboard` to start the local server if needed)\n'));
+  console.log(chalk.gray('  (Run `agent-usage-analyze dashboard` to start the local server if needed)\n'));
 
   try {
     openUrl(url);

@@ -87,6 +87,6 @@ export async function autoDetectOllama(): Promise<void> {
   console.log(
     chalk.green(`\n  Ollama detected — configured ${chalk.bold(model)} for AI analysis (free & local).`) +
     chalk.dim('\n  Open the dashboard and click "Analyze" on any session to get insights.') +
-    chalk.dim('\n  Run `agent-analytics config llm` to change provider.\n'),
+    chalk.dim('\n  Run `agent-usage-analyze config llm` to change provider.\n'),
   );
 }

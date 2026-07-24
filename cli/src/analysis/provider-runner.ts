@@ -267,12 +267,12 @@ export class ProviderRunner implements AnalysisRunner {
     const config = loadConfig();
     const llm = config?.dashboard?.llm;
     if (!llm) {
-      throw new Error('LLM not configured. Run `agent-analytics config llm` to configure a provider.');
+      throw new Error('LLM not configured. Run `agent-usage-analyze config llm` to configure a provider.');
     }
     // Local providers (ollama, llamacpp) do not require an API key
     if (llm.provider !== 'ollama' && llm.provider !== 'llamacpp' && !llm.apiKey) {
       throw new Error(
-        `LLM provider '${llm.provider}' requires an API key. Run \`agent-analytics config llm\` to set it.`
+        `LLM provider '${llm.provider}' requires an API key. Run \`agent-usage-analyze config llm\` to set it.`
       );
     }
     return new ProviderRunner(llm);

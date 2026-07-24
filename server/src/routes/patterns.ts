@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { comparePatternWindows } from '@agent-analytics/cli/canonical/patterns';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { comparePatternWindows, summarizeTaskPatterns } from 'agent-usage-analyze/canonical/patterns';
 
 const app = new Hono();
+
+app.get('/overview', (c) => c.json(summarizeTaskPatterns(getDb())));
 
 app.get('/trends', (c) => {
   const currentStart = c.req.query('currentStart');

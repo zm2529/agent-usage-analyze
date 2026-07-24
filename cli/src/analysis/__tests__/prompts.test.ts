@@ -68,6 +68,11 @@ describe('classifyStoredUserMessage', () => {
     expect(classifyStoredUserMessage(content)).toBe('system-artifact');
   });
 
+  it('classifies projected primary-session tool activity as a system artifact', () => {
+    const content = '<observed_from_primary_session>\n<what_happened>Bash</what_happened>\n<parameters>rc=$?; exit $rc</parameters>';
+    expect(classifyStoredUserMessage(content)).toBe('system-artifact');
+  });
+
   it('classifies single-line slash command as system-artifact', () => {
     expect(classifyStoredUserMessage('/compact')).toBe('system-artifact');
     expect(classifyStoredUserMessage('/review')).toBe('system-artifact');

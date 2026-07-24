@@ -110,10 +110,12 @@ describe('Codex zero-config automatic analysis loop', () => {
     )).resolves.toBe(1);
 
     expect(analyzeJob).toHaveBeenCalledOnce();
-    expect(runAnalysis).toHaveBeenCalledTimes(2);
+    // A one-prompt task has enough evidence for a session summary, but not for
+    // a prompt-quality score. The second LLM call must be skipped.
+    expect(runAnalysis).toHaveBeenCalledTimes(1);
     expect(testDb.prepare('SELECT status FROM analysis_queue').get()).toEqual({ status: 'completed' });
-    expect(testDb.prepare('SELECT COUNT(*) AS count FROM insights').get()).toEqual({ count: 3 });
+    expect(testDb.prepare('SELECT COUNT(*) AS count FROM insights').get()).toEqual({ count: 2 });
     expect(testDb.prepare(`SELECT COUNT(*) AS count FROM observer_overhead_events
-      WHERE llm_provider = 'codex-native'`).get()).toEqual({ count: 2 });
+      WHERE llm_provider = 'codex-native'`).get()).toEqual({ count: 1 });
   });
 });

@@ -154,6 +154,17 @@ export interface IngestionSummary {
   status: 'completed' | 'completed-with-errors' | 'failed';
 }
 
+export interface IngestionProgress {
+  runId: string;
+  phase: 'discovering' | 'processing' | 'projecting' | 'completed' | 'failed';
+  discoveredSources: number;
+  processedSources: number;
+}
+
+export interface IngestionOptions {
+  onProgress?: (progress: IngestionProgress) => void;
+}
+
 const EMPTY_COVERAGE: CoverageCounts = {
   discovered: 0,
   parsed: 0,
@@ -453,6 +464,7 @@ function mergeDiagnostics(
 export async function ingestSourceAdapter(
   adapter: SourceAdapter,
   db: Database.Database,
+  options: IngestionOptions = {},
 ): Promise<IngestionSummary> {
   const runId = `ingestion:${randomUUID()}`;
   const overheadStartedAt = Date.now();
@@ -472,7 +484,20 @@ export async function ingestSourceAdapter(
   const coverage = { ...EMPTY_COVERAGE };
   let insertedEvents = 0;
   let advancedSources = 0;
+  let processedSources = 0;
   let status: IngestionSummary['status'] = 'completed';
+  const reportProgress = (phase: IngestionProgress['phase']) => {
+    try {
+      options.onProgress?.({
+        runId,
+        phase,
+        discoveredSources: coverage.discovered,
+        processedSources,
+      });
+    } catch {
+      // Progress reporting is observational and must never change import results.
+    }
+  };
   const recordImportOverhead = () => {
     try {
       const cpu = process.cpuUsage(overheadStartedCpu);
@@ -499,12 +524,14 @@ export async function ingestSourceAdapter(
       parsed_count, skipped_count, failed_count, unknown_count
     ) VALUES (?, ?, ?, 'running', 0, 0, 0, 0, 0)
   `).run(runId, adapter.name, startedAt);
+  reportProgress('discovering');
 
   try {
     const artifacts = await adapter.discover();
     coverage.discovered = artifacts.length;
     db.prepare('UPDATE ingestion_runs SET discovered_count = ? WHERE id = ?')
       .run(artifacts.length, runId);
+    reportProgress('processing');
     for (const artifact of artifacts) {
       let batch: CanonicalBatch;
       const storedSource = db.prepare(`
@@ -570,6 +597,10 @@ export async function ingestSourceAdapter(
         ))) {
           throw error;
         }
+        processedSources += 1;
+        db.prepare('UPDATE ingestion_runs SET processed_source_count = ? WHERE id = ?')
+          .run(processedSources, runId);
+        reportProgress('processing');
         continue;
       }
 
@@ -788,8 +819,13 @@ export async function ingestSourceAdapter(
       coverage.skipped += batch.coverage.skipped;
       coverage.failed += batch.coverage.failed;
       coverage.unknown += batch.coverage.unknown;
+      processedSources += 1;
+      db.prepare('UPDATE ingestion_runs SET processed_source_count = ? WHERE id = ?')
+        .run(processedSources, runId);
+      reportProgress('processing');
     }
 
+    reportProgress('projecting');
     const projectionState = db.prepare('SELECT dirty FROM canonical_projection_state WHERE id = 1')
       .get() as { dirty: number };
     if (projectionState.dirty === 1) {
@@ -818,6 +854,7 @@ export async function ingestSourceAdapter(
       coverage.unknown,
       runId,
     );
+    reportProgress('completed');
   } catch (error) {
     db.prepare(`
       UPDATE ingestion_runs SET completed_at = ?, status = 'failed', failed_count = failed_count + 1
@@ -831,6 +868,7 @@ export async function ingestSourceAdapter(
       VALUES (?, 'error', ?, 1, ?)
     `).run(runId, failureCode, null);
     recordImportOverhead();
+    reportProgress('failed');
     throw error;
   }
 
@@ -844,18 +882,35 @@ export interface IngestionHealth {
   coverage: CoverageCounts;
   eventCount: number;
   sourceCount: number;
+  processedSources: number;
+  startedAt: string | null;
+  completedAt: string | null;
   eras: Array<{ id: string; mode: EraMode; parserVersion: string }>;
 }
 
 export function readIngestionHealth(db: Database.Database): IngestionHealth {
   const latestRun = db.prepare(`
-    SELECT id, status, discovered_count AS discovered, parsed_count AS parsed,
-           skipped_count AS skipped, failed_count AS failed, unknown_count AS unknown
+    SELECT id, status, started_at AS startedAt, completed_at AS completedAt,
+           discovered_count AS discovered, processed_source_count AS processedSources,
+           parsed_count AS parsed, skipped_count AS skipped,
+           failed_count AS failed, unknown_count AS unknown
     FROM ingestion_runs
     ORDER BY started_at DESC, rowid DESC
     LIMIT 1
-  `).get() as (CoverageCounts & { id: string; status: IngestionHealth['status'] }) | undefined;
-  const eventCount = db.prepare('SELECT COUNT(*) AS count FROM canonical_events').get() as { count: number };
+  `).get() as (CoverageCounts & {
+    id: string;
+    status: IngestionHealth['status'];
+    processedSources: number;
+    startedAt: string;
+    completedAt: string | null;
+  }) | undefined;
+  // Force the narrow source/sequence covering index. SQLite otherwise chooses
+  // the multi-gigabyte table b-tree for COUNT(*), which can block the
+  // single-threaded WebUI server for tens of seconds.
+  const eventCount = db.prepare(
+    `SELECT COUNT(source_artifact_id) AS count
+     FROM canonical_events INDEXED BY idx_canonical_events_source_sequence`,
+  ).get() as { count: number };
   const sourceCount = db.prepare('SELECT COUNT(*) AS count FROM source_artifacts').get() as { count: number };
   const eras = db.prepare(`
     SELECT id, mode, parser_version AS parserVersion
@@ -884,6 +939,9 @@ export function readIngestionHealth(db: Database.Database): IngestionHealth {
       : { ...EMPTY_COVERAGE },
     eventCount: eventCount.count,
     sourceCount: sourceCount.count,
+    processedSources: latestRun?.processedSources ?? 0,
+    startedAt: latestRun?.startedAt ?? null,
+    completedAt: latestRun?.completedAt ?? null,
     eras,
   };
 }

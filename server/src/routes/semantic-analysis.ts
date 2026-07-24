@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { CodexRolloutAdapter } from '@agent-analytics/cli/canonical/codex-rollout';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { CodexRolloutAdapter } from 'agent-usage-analyze/canonical/codex-rollout';
 import {
   listSemanticClaims,
   previewSemanticAnalysis,
@@ -9,9 +9,9 @@ import {
   type SemanticAnalysisConfig,
   type SemanticPayloadResolver,
   type SemanticProvider,
-} from '@agent-analytics/cli/canonical/semantic-analysis';
-import { loadConfig } from '@agent-analytics/cli/utils/config';
-import type { ClaudeInsightConfig, LLMProviderConfig } from '@agent-analytics/cli/types';
+} from 'agent-usage-analyze/canonical/semantic-analysis';
+import { loadConfig } from 'agent-usage-analyze/utils/config';
+import type { ClaudeInsightConfig, LLMProviderConfig } from 'agent-usage-analyze/types';
 import { createClientFromConfig } from '../llm/client.js';
 import { calculateAnalysisCostIfKnown } from '../llm/analysis-pricing.js';
 

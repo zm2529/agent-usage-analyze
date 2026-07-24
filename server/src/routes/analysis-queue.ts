@@ -6,7 +6,7 @@
  */
 
 import { Hono } from 'hono';
-import { getQueueStatus } from '@agent-analytics/cli/db/queue';
+import { getQueueStatus } from 'agent-usage-analyze/db/queue';
 
 const app = new Hono();
 

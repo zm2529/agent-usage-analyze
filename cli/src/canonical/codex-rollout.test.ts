@@ -62,7 +62,17 @@ function childRollout(): string[] {
       cwd: '/repo/root', git: { branch: 'main' }, agent_role: 'code-reviewer',
       source: { subagent: { thread_spawn: { parent_thread_id: 'thread-root', depth: 1 } } },
     }, '2026-07-21T08:01:00.000Z'),
+    line('event_msg', {
+      type: 'token_count', info: { total_token_usage: {
+        input_tokens: 999, cached_input_tokens: 900, output_tokens: 99,
+      } },
+    }, '2026-07-21T08:01:00.200Z'),
     line('event_msg', { type: 'task_started', turn_id: 'turn-child' }, '2026-07-21T08:01:01.000Z'),
+    line('event_msg', {
+      type: 'token_count', info: { total_token_usage: {
+        input_tokens: 1009, cached_input_tokens: 905, output_tokens: 101,
+      } },
+    }, '2026-07-21T08:01:01.500Z'),
     line('event_msg', { type: 'task_complete', turn_id: 'turn-child' }, '2026-07-21T08:01:02.000Z'),
   ];
 }
@@ -156,11 +166,12 @@ describe('CodexRolloutAdapter', () => {
       'task-started', 'task-completed',
     ]));
     expect(task?.tokenDeltas).toEqual(expect.arrayContaining([
-      expect.objectContaining({ status: 'unknown-baseline', inputTokens: null }),
+      expect.objectContaining({ taskId: 'thread-root', status: 'known', inputTokens: 100 }),
       expect.objectContaining({
         status: 'known', inputTokens: 50, cachedInputTokens: 10, cacheCreationTokens: 2,
         outputTokens: 15, reasoningTokens: 4, compactionTokens: 1,
       }),
+      expect.objectContaining({ taskId: 'thread-child', status: 'known', inputTokens: 10 }),
     ]));
     expect(JSON.stringify(task)).not.toContain('PRIVATE_SENTINEL');
     expect(task?.events.find((event) => event.kind === 'user-message')?.payloadRef).toMatch(/^source:/);
@@ -223,7 +234,7 @@ describe('CodexRolloutAdapter', () => {
     await ingestSourceAdapter(new CodexRolloutAdapter(home), db);
 
     expect(readWorkTaskDetail(db, 'thread-root')?.tokenDeltas.map((delta) => delta.status)).toEqual([
-      'unknown-baseline', 'unknown-out-of-order', 'unknown-reset', 'unknown-missing',
+      'known', 'unknown-out-of-order', 'unknown-reset', 'unknown-missing',
     ]);
     db.close();
   });
@@ -241,7 +252,7 @@ describe('CodexRolloutAdapter', () => {
     runMigrations(db);
     await ingestSourceAdapter(new CodexRolloutAdapter(home), db);
     expect(readWorkTaskDetail(db, 'thread-root')?.tokenDeltas.map((delta) => delta.status)).toEqual([
-      'unknown-missing', 'unknown-missing',
+      'known', 'known',
     ]);
     db.close();
   });

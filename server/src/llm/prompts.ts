@@ -1,4 +1,4 @@
-// Re-exports from @agent-analytics/cli/analysis/prompts.
+// Re-exports from agent-usage-analyze/analysis/prompts.
 // Moved to CLI package so the CLI can use prompt builders for native analysis (--native mode).
 export {
   SHARED_ANALYST_SYSTEM_PROMPT,
@@ -6,4 +6,4 @@ export {
   buildSessionAnalysisInstructions,
   buildPromptQualityInstructions,
   buildFacetOnlyInstructions,
-} from '@agent-analytics/cli/analysis/prompts';
+} from 'agent-usage-analyze/analysis/prompts';

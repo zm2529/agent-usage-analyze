@@ -205,6 +205,101 @@ function detectTaskPatterns(events: EventRow[]): Record<PatternKey, string[]> {
   return combined;
 }
 
+/** Read deterministic, evidence-linked patterns for one imported task. */
+export function observeTaskPatterns(
+  db: Database.Database,
+  taskId: string,
+): Array<{ pattern: PatternKey; evidenceRefs: string[] }> {
+  const task = db.prepare('SELECT root_task_id AS rootTaskId FROM work_tasks WHERE id = ?')
+    .get(taskId) as { rootTaskId: string } | undefined;
+  if (!task) return [];
+  const events = db.prepare(`
+    SELECT event.id, event.kind, event.occurred_at AS occurredAt,
+           event.payload_json AS payloadJson, event.parent_event_id AS parentEventId,
+           event.repo_root AS repoRoot, event.worktree_path AS worktreePath,
+           event.source_artifact_id AS sourceArtifactId, event.turn_id AS turnId,
+           event.generation, event.attempt, event.thread_id AS threadId, event.task_id AS taskId
+    FROM canonical_events event
+    WHERE event.task_id IN (SELECT id FROM work_tasks WHERE root_task_id = ?)
+    ORDER BY event.occurred_at, event.source_artifact_id, event.sequence
+  `).all(task.rootTaskId) as EventRow[];
+  const evidence = detectTaskPatterns(events);
+  return (Object.keys(evidence) as PatternKey[])
+    .filter((pattern) => evidence[pattern].length > 0)
+    .map((pattern) => ({ pattern, evidenceRefs: evidence[pattern] }));
+}
+
+export interface PatternOverviewItem {
+  pattern: PatternKey;
+  label: string;
+  observableFact: string;
+  taskCount: number;
+  evidenceCount: number;
+  sampleTaskRefs: string[];
+  evidenceRefs: string[];
+}
+
+export interface PatternOverview {
+  analyzedTaskCount: number;
+  patterns: PatternOverviewItem[];
+}
+
+/** Summarize directly observable patterns across imported task history. */
+export function summarizeTaskPatterns(
+  db: Database.Database,
+  limitTasks = 20,
+): PatternOverview {
+  const boundedLimit = Math.max(1, Math.min(1_000, limitTasks));
+  const roots = db.prepare(`SELECT id FROM work_tasks WHERE id = root_task_id
+    ORDER BY started_at DESC, id DESC LIMIT ?`).all(boundedLimit) as Array<{ id: string }>;
+  if (roots.length === 0) return { analyzedTaskCount: 0, patterns: [] };
+  const placeholders = roots.map(() => '?').join(',');
+  const nodes = db.prepare(`SELECT id, root_task_id AS rootTaskId FROM work_tasks
+    WHERE root_task_id IN (${placeholders})`).all(...roots.map((root) => root.id)) as Array<{
+      id: string; rootTaskId: string;
+    }>;
+  const rootsByNode = new Map(nodes.map((node) => [node.id, node.rootTaskId]));
+  const events = db.prepare(`SELECT event.id, event.kind,
+           event.occurred_at AS occurredAt, event.payload_json AS payloadJson,
+           event.parent_event_id AS parentEventId, event.repo_root AS repoRoot,
+           event.worktree_path AS worktreePath, event.source_artifact_id AS sourceArtifactId,
+           event.turn_id AS turnId, event.generation, event.attempt,
+           event.thread_id AS threadId, event.task_id AS taskId
+    FROM canonical_events event
+    WHERE event.task_id IN (SELECT id FROM work_tasks WHERE root_task_id IN (${placeholders}))
+    ORDER BY event.task_id, event.occurred_at, event.source_artifact_id, event.sequence
+  `).all(...roots.map((root) => root.id)) as EventRow[];
+  const eventsByRoot = new Map<string, EventRow[]>();
+  for (const event of events) {
+    if (!event.taskId) continue;
+    const rootTaskId = rootsByNode.get(event.taskId);
+    if (!rootTaskId) continue;
+    const current = eventsByRoot.get(rootTaskId) ?? [];
+    current.push(event);
+    eventsByRoot.set(rootTaskId, current);
+  }
+  const grouped = new Map<PatternKey, { tasks: string[]; evidence: string[] }>();
+  for (const root of roots) {
+    const observed = detectTaskPatterns(eventsByRoot.get(root.id) ?? []);
+    for (const pattern of Object.keys(observed) as PatternKey[]) {
+      if (observed[pattern].length === 0) continue;
+      const current = grouped.get(pattern) ?? { tasks: [], evidence: [] };
+      current.tasks.push(root.id);
+      current.evidence.push(...observed[pattern]);
+      grouped.set(pattern, current);
+    }
+  }
+  const patterns = [...grouped.entries()].map(([pattern, value]) => ({
+    pattern,
+    ...PATTERNS[pattern],
+    taskCount: new Set(value.tasks).size,
+    evidenceCount: new Set(value.evidence).size,
+    sampleTaskRefs: [...new Set(value.tasks)].slice(0, 5),
+    evidenceRefs: [...new Set(value.evidence)].slice(0, 20),
+  })).sort((left, right) => right.taskCount - left.taskCount || left.pattern.localeCompare(right.pattern));
+  return { analyzedTaskCount: roots.length, patterns };
+}
+
 function eraReports(db: Database.Database, eraIds: string[], sourceIds: string[]): ObservationEraReport[] {
   if (eraIds.length === 0) return [];
   const placeholders = eraIds.map(() => '?').join(',');

@@ -1,20 +1,22 @@
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
-import { homedir, hostname, platform, userInfo } from 'os';
+import { hostname, platform, userInfo } from 'os';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { getConfigDir } from './config.js';
 
-const CONFIG_DIR = join(homedir(), '.agent-analytics');
-const DEVICE_ID_FILE = join(CONFIG_DIR, 'device-id');
+const deviceIdFile = () => join(getConfigDir(), 'device-id');
 
 /**
  * Get or create a persistent device ID.
- * Stored in ~/.agent-analytics/device-id
+ * Stored in the product's private config directory.
  */
 export function getDeviceId(): string {
   // Check if device ID already exists
-  if (existsSync(DEVICE_ID_FILE)) {
-    const existingId = readFileSync(DEVICE_ID_FILE, 'utf-8').trim();
+  const configDir = getConfigDir();
+  const file = deviceIdFile();
+  if (existsSync(file)) {
+    const existingId = readFileSync(file, 'utf-8').trim();
     if (existingId) {
       return existingId;
     }
@@ -34,10 +36,10 @@ export function getDeviceId(): string {
     .slice(0, 12);
 
   // Persist the device ID
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true });
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
   }
-  writeFileSync(DEVICE_ID_FILE, deviceId, 'utf-8');
+  writeFileSync(file, deviceId, 'utf-8');
 
   return deviceId;
 }

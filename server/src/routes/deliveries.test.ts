@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeDb, getDb } from '@agent-analytics/cli/db/client';
+import { closeDb, getDb } from 'agent-usage-analyze/db/client';
 import { createApp } from '../index.js';
 
 let dataDir: string;
@@ -24,7 +24,7 @@ beforeEach(() => {
       '2026-07-21T08:10:00.000Z', '{}')`).run();
   db.prepare(`INSERT INTO task_delivery_candidates
     (id, task_id, delivery_id, algorithm_version, coverage, confidence, machine_status)
-    VALUES ('candidate', 'task', 'delivery', 'task-delivery-v1', 1, 0.4, 'abstained')`).run();
+    VALUES ('candidate', 'task', 'delivery', 'task-delivery-v1', 1, 0.4, 'candidate')`).run();
   db.prepare(`INSERT INTO evidence_records
     (id, evidence_type, subject_ref, position, source_category, algorithm_version,
      coverage, confidence, era_compatibility, era_ids_json, human_status, fact_refs_json)
@@ -48,12 +48,22 @@ describe('deliveries API', () => {
 
     expect(await list.json()).toMatchObject({ deliveries: [{ id: 'delivery', resultIdentity: 'abc123' }] });
     expect(await detail.json()).toMatchObject({ delivery: {
-      id: 'delivery', candidates: [{ id: 'candidate', taskId: 'task', status: 'abstained',
+      id: 'delivery', candidates: [{ id: 'candidate', taskId: 'task', status: 'candidate',
         evidence: [{ id: 'machine', position: 'supports' }] }],
     } });
     expect(await task.json()).toMatchObject({ task: {
       id: 'task', deliveries: [{ id: 'candidate', delivery: { id: 'delivery' } }],
     } });
+  });
+
+  it('hides results that have no usable task association', async () => {
+    getDb().prepare(`INSERT INTO deliveries
+      (id, kind, repository_identity, result_identity, occurred_at, metadata_json)
+      VALUES ('unlinked', 'git-commit', 'repository:sha256:test', 'deadbeef',
+        '2026-07-21T09:00:00.000Z', '{}')`).run();
+    const list = await createApp().request('/api/deliveries');
+    expect(await list.json()).toEqual({ deliveries: [expect.objectContaining({ id: 'delivery' })] });
+    expect((await createApp().request('/api/deliveries/unlinked')).status).toBe(404);
   });
 
   it('appends a validated correction and preserves machine evidence', async () => {

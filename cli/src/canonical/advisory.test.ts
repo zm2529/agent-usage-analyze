@@ -97,6 +97,35 @@ describe('queryAdvisories', () => {
     }]);
   });
 
+  it('derives deterministic advice directly from imported task evidence without a prior analysis run', () => {
+    db.exec(`
+      DELETE FROM analysis_claims;
+      DELETE FROM evidence_records;
+      INSERT INTO canonical_events
+        (id, source_artifact_id, era_id, native_event_id, sequence, occurred_at, kind,
+         actor, sensitivity, payload_json, task_id, thread_id, parser_version)
+      VALUES
+        ('event:file-change', 'source:one', 'era:one', 'event-file', 0,
+         '2026-07-21T00:02:00.000Z', 'file-change', 'tool', 'metadata',
+         '{"changeType":"modified","pathHash":"sha256:redacted"}',
+         'task:one', 'thread:one', 'fixture-v1');
+      INSERT INTO source_ingestion_stats
+        (source_artifact_id, discovered_count, parsed_count, skipped_count, failed_count, unknown_count)
+      VALUES ('source:one', 2, 2, 0, 0, 0);
+    `);
+
+    const result = queryAdvisories(db, {
+      taskId: 'task:one', now: '2026-07-21T00:05:00.000Z', limit: 3,
+    });
+
+    expect(result.suggestions).toMatchObject([{
+      issueKey: 'pattern:validation-missing',
+      sourceCategory: 'deterministic',
+      coverage: 1,
+      evidenceRefs: ['event:file-change', 'event:missing-validation'],
+    }]);
+  });
+
   it('suppresses a repeated issue during its per-task cooldown and returns it afterwards', () => {
     recordAdvisoryEvent(db, {
       issueKey: 'pattern:validation-missing', taskId: 'task:one', action: 'shown',

@@ -20,7 +20,9 @@ vi.mock('../../utils/config.js', () => ({
   loadSyncState: () => ({ lastSync: '', files: {} }),
   saveSyncState: vi.fn(),
   getConfigDir: () => '/tmp',
-  loadConfig: vi.fn(() => null),
+  loadConfig: vi.fn(() => ({
+    dashboard: { llm: { provider: 'anthropic', model: 'test-model' } },
+  })),
 }));
 
 const mockInsertSession = vi.fn(() => true);
@@ -74,6 +76,12 @@ function seedSession(db: Database.Database, id = 'sess1', messageCount = 10): vo
       (id, project_id, project_name, project_path, started_at, ended_at, message_count)
       VALUES ('${id}', 'p1', 'test-project', '/test', datetime('now'), datetime('now'), ${messageCount});
   `);
+  const insert = db.prepare(`INSERT OR IGNORE INTO messages
+    (id, session_id, type, content, thinking, tool_calls, tool_results, usage, timestamp, parent_id)
+    VALUES (?, ?, ?, ?, NULL, '[]', '[]', NULL, ?, NULL)`);
+  insert.run(`${id}-user-1`, id, 'user', 'Implement the requested change.', '2026-07-22T00:00:00Z');
+  insert.run(`${id}-assistant-1`, id, 'assistant', 'I implemented and verified it.', '2026-07-22T00:00:01Z');
+  insert.run(`${id}-user-2`, id, 'user', 'Review the final diff.', '2026-07-22T00:00:02Z');
 }
 
 function makeAnalysisResponse(): string {
@@ -145,7 +153,7 @@ describe('V8 migration — session_message_count column', () => {
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;
 
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
     db.close();
   });
 
@@ -271,6 +279,23 @@ describe('runInsightsCommand — provider mode (no --native)', () => {
     await expect(
       runInsightsCommand({ sessionId: 'nonexistent', native: false, quiet: true })
     ).rejects.toThrow(/not found/i);
+  });
+
+  it('does not construct or call a runner when no human conversation was imported', async () => {
+    seedSession(mockDb, 'tool-only');
+    mockDb.prepare(`DELETE FROM messages WHERE session_id = 'tool-only'`).run();
+    mockDb.prepare(`INSERT INTO messages
+      (id, session_id, type, content, tool_calls, tool_results, timestamp)
+      VALUES ('tool-row', 'tool-only', 'assistant', '', '[{"name":"exec_command"}]', '[]', datetime('now'))`).run();
+
+    const { runInsightsCommand } = await import('../insights.js');
+    await expect(runInsightsCommand({ sessionId: 'tool-only', native: false, quiet: true }))
+      .rejects.toThrow(/no genuine user messages/i);
+
+    expect(mockFromConfig).not.toHaveBeenCalled();
+    expect(mockProviderRunAnalysis).not.toHaveBeenCalled();
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM insights WHERE session_id = 'tool-only'`).get())
+      .toEqual({ count: 0 });
   });
 });
 
@@ -899,6 +924,12 @@ describe('insightsCheckCommand — auto-analyze (1-2 sessions)', () => {
   function seedOne(db: Database.Database, id: string): void {
     db.exec(`INSERT OR IGNORE INTO projects (id, name, path, last_activity) VALUES ('pa1', 'proj', '/p', datetime('now'));`);
     db.exec(`INSERT OR IGNORE INTO sessions (id, project_id, project_name, project_path, started_at, ended_at, message_count) VALUES ('${id}', 'pa1', 'proj', '/p', datetime('now'), datetime('now'), 10);`);
+    const insert = db.prepare(`INSERT INTO messages
+      (id, session_id, type, content, thinking, tool_calls, tool_results, timestamp)
+      VALUES (?, ?, ?, ?, NULL, '[]', '[]', ?)`);
+    insert.run(`${id}-u1`, id, 'user', 'Implement the change.', '2026-07-22T00:00:00Z');
+    insert.run(`${id}-a1`, id, 'assistant', 'Implemented.', '2026-07-22T00:00:01Z');
+    insert.run(`${id}-u2`, id, 'user', 'Verify the result.', '2026-07-22T00:00:02Z');
   }
 
   it('auto-analyzes 1 unanalyzed session using configured provider', async () => {
@@ -956,6 +987,12 @@ describe('insightsCheckCommand — --analyze flag', () => {
     db.exec(`INSERT OR IGNORE INTO projects (id, name, path, last_activity) VALUES ('pb1', 'proj', '/p', datetime('now'));`);
     for (let i = 0; i < count; i++) {
       db.exec(`INSERT OR IGNORE INTO sessions (id, project_id, project_name, project_path, started_at, ended_at, message_count) VALUES ('an-sess-${i}', 'pb1', 'proj', '/p', datetime('now', '-${i} minutes'), datetime('now', '-${i} minutes'), 10);`);
+      const insert = db.prepare(`INSERT INTO messages
+        (id, session_id, type, content, thinking, tool_calls, tool_results, timestamp)
+        VALUES (?, ?, ?, ?, NULL, '[]', '[]', ?)`);
+      insert.run(`an-sess-${i}-u1`, `an-sess-${i}`, 'user', 'Implement the change.', '2026-07-22T00:00:00Z');
+      insert.run(`an-sess-${i}-a1`, `an-sess-${i}`, 'assistant', 'Implemented.', '2026-07-22T00:00:01Z');
+      insert.run(`an-sess-${i}-u2`, `an-sess-${i}`, 'user', 'Verify the result.', '2026-07-22T00:00:02Z');
     }
   }
 

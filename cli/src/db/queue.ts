@@ -164,10 +164,11 @@ export function resetStale(db: Database.Database = getDb()): number {
   const result = db.prepare(
     `UPDATE analysis_queue
      SET status = CASE WHEN runner_type = 'auto' THEN 'settling' ELSE 'pending' END,
-         not_before = CASE WHEN runner_type = 'auto' THEN datetime('now') ELSE not_before END,
+         not_before = CASE WHEN runner_type = 'auto'
+           THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE not_before END,
          started_at = NULL
      WHERE status = 'processing'
-       AND started_at < datetime('now', '-10 minutes')`
+       AND datetime(started_at) < datetime('now', '-10 minutes')`
   ).run();
   return result.changes;
 }

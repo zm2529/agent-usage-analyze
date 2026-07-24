@@ -6,6 +6,7 @@ import {
   loadClaudeSettings,
   getHookCommand,
   hookAlreadyInstalled,
+  isAgentUsageAnalyzerHookCommand,
 } from '../../../utils/hooks-utils.js';
 import type { Check, CheckResult } from '../types.js';
 import {
@@ -13,6 +14,7 @@ import {
   codexHooksFeatureEnabled,
   inspectCodexHook,
 } from '../../../utils/codex-hooks.js';
+import { getConfigDir } from '../../../utils/config.js';
 
 /** Extract the binary path from a hook command string like "node /path/to/index.js session-end ..." */
 function extractBinaryPath(command: string): string | null {
@@ -29,16 +31,16 @@ export function hooksChecks(): Check[] {
         const state = inspectCodexHook();
         if (state.parseError) return {
           id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'fail',
-          detail: state.parseError, hint: `Repair ${state.file} before installing; Agent Analytics will not overwrite malformed JSON.`,
+          detail: state.parseError, hint: `Repair ${state.file} before installing; Agent Usage Analyzer will not overwrite malformed JSON.`,
         };
         if (state.stale) return {
           id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'warn',
-          detail: 'Managed hook points to a different Agent Analytics entry',
-          hint: 'Run: agent-analytics install-hook --source codex',
+          detail: 'Managed hook points to a different Agent Usage Analyzer entry',
+          hint: 'Run: agent-usage-analyze install-hook --source codex',
         };
         if (!state.installed) return {
           id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'warn',
-          detail: 'Not installed', hint: 'Run: agent-analytics install-hook --source codex',
+          detail: 'Not installed', hint: 'Run: agent-usage-analyze install-hook --source codex',
         };
         return {
           id: 'hooks.codex_stop_installed', label: 'Codex Stop hook', status: 'pass',
@@ -60,6 +62,36 @@ export function hooksChecks(): Check[] {
           id: 'hooks.codex_feature_enabled', label: 'Codex hooks feature', status: 'pass',
           detail: 'Enabled by default or explicitly enabled',
         };
+      },
+    },
+    {
+      id: 'hooks.codex_last_event',
+      label: 'Last Codex Hook event',
+      run: async (): Promise<CheckResult> => {
+        const statusFile = path.join(getConfigDir(), 'codex-hook-status.json');
+        if (!fs.existsSync(statusFile)) return {
+          id: 'hooks.codex_last_event', label: 'Last Codex Hook event', status: 'skip',
+          detail: 'No Hook event has been observed by this version yet',
+        };
+        try {
+          const status = JSON.parse(fs.readFileSync(statusFile, 'utf8')) as {
+            status?: string; reason?: string; observedAt?: string;
+          };
+          if (status.status === 'recorded') return {
+            id: 'hooks.codex_last_event', label: 'Last Codex Hook event', status: 'pass',
+            detail: `${status.observedAt ?? 'unknown time'} · frontier recorded`,
+          };
+          return {
+            id: 'hooks.codex_last_event', label: 'Last Codex Hook event',
+            status: status.status === 'failed' ? 'warn' : 'skip',
+            detail: `${status.observedAt ?? 'unknown time'} · ${status.reason ?? status.status ?? 'unknown'}`,
+          };
+        } catch {
+          return {
+            id: 'hooks.codex_last_event', label: 'Last Codex Hook event', status: 'warn',
+            detail: `Could not parse ${statusFile}`,
+          };
+        }
       },
     },
     {
@@ -89,7 +121,7 @@ export function hooksChecks(): Check[] {
             label: 'SessionEnd hook',
             status: 'warn',
             detail: 'Not installed',
-            hint: 'Run: agent-analytics install-hook',
+            hint: 'Run: agent-usage-analyze install-hook',
           };
         }
         if (hookAlreadyInstalled(settings.hooks.SessionEnd)) {
@@ -99,8 +131,8 @@ export function hooksChecks(): Check[] {
           id: 'hooks.session_end_installed',
           label: 'SessionEnd hook',
           status: 'warn',
-          detail: 'SessionEnd hooks exist but none reference agent-analytics',
-          hint: 'Run: agent-analytics install-hook',
+          detail: 'SessionEnd hooks exist but none reference Agent Usage Analyzer',
+          hint: 'Run: agent-usage-analyze install-hook',
         };
       },
     },
@@ -116,7 +148,7 @@ export function hooksChecks(): Check[] {
         for (const hookConfig of settings.hooks.SessionEnd) {
           for (const hook of hookConfig.hooks) {
             const cmd = getHookCommand(hook);
-            if (!cmd.includes('agent-analytics')) continue;
+            if (!isAgentUsageAnalyzerHookCommand(cmd)) continue;
             const binPath = extractBinaryPath(cmd);
             if (!binPath) continue;
             if (fs.existsSync(binPath)) {
@@ -127,7 +159,7 @@ export function hooksChecks(): Check[] {
               label: 'Hook binary path',
               status: 'fail',
               detail: `Hook points to a path that no longer exists: ${binPath}`,
-              hint: 'Run: agent-analytics install-hook\n           (rewrites hook to use current binary path)',
+              hint: 'Run: agent-usage-analyze install-hook\n           (rewrites hook to use current binary path)',
               fix: async () => {
                 const { installHookCommand } = await import('../../install-hook.js');
                 await installHookCommand();
@@ -137,7 +169,7 @@ export function hooksChecks(): Check[] {
           }
         }
 
-        return { id: 'hooks.binary_exists', label: 'Hook binary path', status: 'skip', detail: 'No agent-analytics hook found' };
+        return { id: 'hooks.binary_exists', label: 'Hook binary path', status: 'skip', detail: 'No agent-usage-analyze hook found' };
       },
     },
     {
@@ -152,7 +184,7 @@ export function hooksChecks(): Check[] {
         for (const hookConfig of settings.hooks.SessionEnd) {
           for (const hook of hookConfig.hooks) {
             const cmd = getHookCommand(hook);
-            if (!cmd.includes('agent-analytics')) continue;
+            if (!isAgentUsageAnalyzerHookCommand(cmd)) continue;
             const binPath = extractBinaryPath(cmd);
             if (!binPath) continue;
             const resolvedHook = path.resolve(binPath);
@@ -165,7 +197,7 @@ export function hooksChecks(): Check[] {
               label: 'Hook binary current',
               status: 'fail',
               detail: `Hook: ${resolvedHook}\n                     Current: ${resolvedCurrent}`,
-              hint: 'Run: agent-analytics install-hook\n           (rewrites hook to use current binary path)',
+              hint: 'Run: agent-usage-analyze install-hook\n           (rewrites hook to use current binary path)',
               fix: async () => {
                 const { installHookCommand } = await import('../../install-hook.js');
                 await installHookCommand();
@@ -187,7 +219,7 @@ export function hooksChecks(): Check[] {
           return { id: 'hooks.no_legacy_stop', label: 'No legacy Stop hook', status: 'pass' };
         }
         const hasLegacy = settings.hooks.Stop.some(
-          (h) => h.hooks.some((hook) => getHookCommand(hook).includes('agent-analytics'))
+          (h) => h.hooks.some((hook) => isAgentUsageAnalyzerHookCommand(getHookCommand(hook)))
         );
         if (!hasLegacy) {
           return { id: 'hooks.no_legacy_stop', label: 'No legacy Stop hook', status: 'pass' };
@@ -197,7 +229,7 @@ export function hooksChecks(): Check[] {
           label: 'No legacy Stop hook',
           status: 'warn',
           detail: 'Legacy v4.8.x Stop hook found — it will be removed on next install-hook',
-          hint: 'Run: agent-analytics install-hook (cleans up legacy hooks)',
+          hint: 'Run: agent-usage-analyze install-hook (cleans up legacy hooks)',
         };
       },
     },

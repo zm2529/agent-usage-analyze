@@ -2,6 +2,7 @@
 // Extracted from prompts.ts — used by prompt generator functions in prompts.ts.
 
 import type { SQLiteMessageRow, SessionMetadata } from './prompt-types.js';
+import { extractExplicitUserRequest } from '../parser/titles.js';
 
 // Safely parse a JSON-encoded string field from SQLite.
 // Returns defaultValue if the field is null, empty, or invalid JSON.
@@ -44,6 +45,26 @@ export function classifyStoredUserMessage(content: string): 'human' | 'tool-resu
   // context compaction summaries. Both must be checked.
   if (content.startsWith('Here is a summary of our conversation')) return 'system-artifact';
   if (content.startsWith('This session is being continued')) return 'system-artifact';
+
+  // Codex Desktop may persist product-provided plugin recommendations and the
+  // accompanying AGENTS/environment packet as a role=user message before the
+  // genuine prompt. It is execution context, not user-authored behavior.
+  const trimmedStart = content.trimStart();
+  const extractedRequest = extractExplicitUserRequest(content);
+  const containsUserPayload = extractedRequest !== content.trim();
+  if (!containsUserPayload && (trimmedStart.startsWith('<recommended_plugins')
+    || trimmedStart.startsWith('<recommendedplugins')
+    || trimmedStart.startsWith('<permissions')
+    || trimmedStart.startsWith('<environment_context')
+    || trimmedStart.startsWith('<in-app-browser-context')
+    || trimmedStart.startsWith('<collaboration_mode')
+    || trimmedStart.startsWith('<codex_internal_context')
+    || trimmedStart.startsWith('<codexinternalcontext')
+    || trimmedStart.startsWith('<codex_delegation')
+    || trimmedStart.startsWith('<codexdelegation')
+    || trimmedStart.startsWith('<observed_from_primary_session>')
+    || trimmedStart.startsWith('<skill')
+    || trimmedStart.startsWith('# AGENTS.md'))) return 'system-artifact';
 
   // Slash command or skill load: single-line starting with / followed by a lowercase letter.
   // Requires content.trim() to be short (≤2 lines) to avoid false-positives on messages
@@ -109,7 +130,10 @@ export function formatMessagesForAnalysis(messages: SQLiteMessageRow[]): string 
         ? `\n[Tool results: ${toolResults.map(r => (r.output || '').slice(0, 500)).join(' | ')}]`
         : '';
 
-      return `### ${roleLabel}:\n${m.content}${thinkingInfo}${toolInfo}${resultInfo}`;
+      const messageContent = m.type === 'user' && classifyStoredUserMessage(m.content) === 'human'
+        ? extractExplicitUserRequest(m.content)
+        : m.content;
+      return `### ${roleLabel}:\n${messageContent}${thinkingInfo}${toolInfo}${resultInfo}`;
     })
     .join('\n\n');
 }

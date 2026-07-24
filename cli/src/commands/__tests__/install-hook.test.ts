@@ -115,7 +115,7 @@ describe('installHookCommand', () => {
       expect(settings.someOtherKey).toBe(42);
     });
 
-    it('preserves existing non-agent-analytics SessionEnd hooks', async () => {
+    it('preserves existing non-agent-usage-analyze SessionEnd hooks', async () => {
       writeSettings({
         hooks: {
           SessionEnd: [{ hooks: [{ type: 'command', command: 'other-tool end-session' }] }],
@@ -140,7 +140,7 @@ describe('installHookCommand', () => {
 
       const settings = readSettings();
       const hooks = settings.hooks as Record<string, unknown[]>;
-      // Second install must be idempotent — still exactly one agent-analytics hook
+      // Second install must be idempotent — still exactly one agent-usage-analyze hook
       expect(hooks.SessionEnd).toHaveLength(1);
     });
   });
@@ -149,7 +149,7 @@ describe('installHookCommand', () => {
     it('removes legacy Stop hook on install', async () => {
       writeSettings({
         hooks: {
-          Stop: [{ hooks: [{ type: 'command', command: 'node /path/agent-analytics sync -q' }] }],
+          Stop: [{ hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze sync -q' }] }],
         },
       });
 
@@ -163,12 +163,12 @@ describe('installHookCommand', () => {
       expect(hooks.SessionEnd).toHaveLength(1);
     });
 
-    it('preserves non-agent-analytics Stop hooks during migration', async () => {
+    it('preserves non-agent-usage-analyze Stop hooks during migration', async () => {
       writeSettings({
         hooks: {
           Stop: [
             { hooks: [{ type: 'command', command: 'other-tool cleanup' }] },
-            { hooks: [{ type: 'command', command: 'node /path/agent-analytics sync -q' }] },
+            { hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze sync -q' }] },
           ],
         },
       });
@@ -178,7 +178,7 @@ describe('installHookCommand', () => {
 
       const settings = readSettings();
       const hooks = settings.hooks as Record<string, unknown[]>;
-      // Our agent-analytics Stop hook removed; non-agent-analytics one preserved
+      // Our agent-usage-analyze Stop hook removed; non-agent-usage-analyze one preserved
       expect(hooks.Stop).toHaveLength(1);
       const remaining = hooks.Stop[0] as { hooks: Array<{ command: string }> };
       expect(remaining.hooks[0].command).toBe('other-tool cleanup');
@@ -292,7 +292,7 @@ describe('uninstallHookCommand', () => {
   it('removes v4.9+ SessionEnd session-end hook', async () => {
     writeSettings({
       hooks: {
-        SessionEnd: [{ hooks: [{ type: 'command', command: 'node /path/agent-analytics session-end --native -q', timeout: 10000 }] }],
+        SessionEnd: [{ hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze session-end --native -q', timeout: 10000 }] }],
       },
     });
 
@@ -306,8 +306,8 @@ describe('uninstallHookCommand', () => {
   it('removes v4.8.x Stop and SessionEnd hooks (upgrade path)', async () => {
     writeSettings({
       hooks: {
-        Stop: [{ hooks: [{ type: 'command', command: 'node /path/agent-analytics sync -q' }] }],
-        SessionEnd: [{ hooks: [{ type: 'command', command: 'node /path/agent-analytics insights --hook --native -q', timeout: 300000 }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze sync -q' }] }],
+        SessionEnd: [{ hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze insights --hook --native -q', timeout: 300000 }] }],
       },
     });
 
@@ -319,12 +319,12 @@ describe('uninstallHookCommand', () => {
     expect((settings.hooks as Record<string, unknown> | undefined)?.SessionEnd).toBeUndefined();
   });
 
-  it('preserves non-agent-analytics Stop hooks', async () => {
+  it('preserves non-agent-usage-analyze Stop hooks', async () => {
     writeSettings({
       hooks: {
         Stop: [
           { hooks: [{ type: 'command', command: 'other-tool cleanup' }] },
-          { hooks: [{ type: 'command', command: 'node /path/agent-analytics sync -q' }] },
+          { hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze sync -q' }] },
         ],
       },
     });
@@ -339,12 +339,12 @@ describe('uninstallHookCommand', () => {
     expect(remaining.hooks[0].command).toBe('other-tool cleanup');
   });
 
-  it('preserves non-agent-analytics SessionEnd hooks', async () => {
+  it('preserves non-agent-usage-analyze SessionEnd hooks', async () => {
     writeSettings({
       hooks: {
         SessionEnd: [
           { hooks: [{ type: 'command', command: 'other-tool end-session' }] },
-          { hooks: [{ type: 'command', command: 'node /path/agent-analytics session-end --native -q', timeout: 10000 }] },
+          { hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze session-end --native -q', timeout: 10000 }] },
         ],
       },
     });
@@ -367,8 +367,8 @@ describe('uninstallHookCommand', () => {
   it('cleans up empty hooks object after removal', async () => {
     writeSettings({
       hooks: {
-        Stop: [{ hooks: [{ type: 'command', command: 'node /path/agent-analytics sync -q' }] }],
-        SessionEnd: [{ hooks: [{ type: 'command', command: 'node /path/agent-analytics session-end --native -q', timeout: 10000 }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze sync -q' }] }],
+        SessionEnd: [{ hooks: [{ type: 'command', command: 'node /path/agent-usage-analyze session-end --native -q', timeout: 10000 }] }],
       },
     });
 

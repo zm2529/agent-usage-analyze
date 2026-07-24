@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
+import { getDb } from 'agent-usage-analyze/db/client';
 import { randomUUID } from 'crypto';
 import { parseIntParam } from '../utils.js';
 
@@ -16,7 +16,13 @@ app.get('/', (c) => {
   const db = getDb();
   const { projectId, sessionId, type, limit, offset, q } = c.req.query();
 
-  const conditions: string[] = ['s.deleted_at IS NULL'];
+  const conditions: string[] = [
+    "s.deleted_at IS NULL",
+    "i.source <> 'invalidated'",
+    "lower(trim(i.title)) NOT IN ('no coding activity captured', 'no coding session activity was captured')",
+    "EXISTS (SELECT 1 FROM messages user_message WHERE user_message.session_id = s.id AND user_message.type = 'user')",
+    "EXISTS (SELECT 1 FROM messages assistant_message WHERE assistant_message.session_id = s.id AND assistant_message.type = 'assistant')",
+  ];
   const params: (string | number)[] = [];
 
   if (projectId) {

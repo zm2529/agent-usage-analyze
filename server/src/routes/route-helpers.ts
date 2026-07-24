@@ -5,8 +5,8 @@
 
 import type { Context, MiddlewareHandler } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { trackEvent, captureError } from '@agent-analytics/cli/utils/telemetry';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { trackEvent, captureError } from 'agent-usage-analyze/utils/telemetry';
 import { isLLMConfigured, loadLLMConfig } from '../llm/client.js';
 import { calculateAnalysisCost } from '../llm/analysis-pricing.js';
 import type { AnalysisResult, AnalysisOptions } from '../llm/analysis.js';
@@ -46,7 +46,7 @@ export function requireLLM(): MiddlewareHandler {
   return async (c, next) => {
     if (!isLLMConfigured()) {
       return c.json({
-        error: 'LLM not configured. Run `agent-analytics config llm` to configure a provider.',
+        error: 'LLM not configured. Run `agent-usage-analyze config llm` to configure a provider.',
       }, 400);
     }
     await next();

@@ -1,7 +1,7 @@
 {
-  "name": "@agent-analytics/server",
+  "name": "@agent-usage-analyze/server",
   "version": "0.1.0",
-  "description": "Hono API server for Agent Analytics local dashboard",
+  "description": "Hono API server for Agent Usage Analyzer local dashboard",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -20,7 +20,7 @@
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "@agent-analytics/cli": "workspace:*",
+    "agent-usage-analyze": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.4",
     "jsonrepair": "^3.13.2"

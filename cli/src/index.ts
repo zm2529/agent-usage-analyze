@@ -31,27 +31,45 @@ import {
 } from './commands/git-ai-sidecar.js';
 import { advisoryCommand } from './commands/advisory.js';
 import { codexStopCommand } from './commands/codex-stop.js';
+import { startCommand } from './commands/start.js';
+import { runAutomaticBehaviorReport } from './analysis/behavior-report-scheduler.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
 const program = new Command();
 
 program
-  .name('agent-analytics')
-  .description('AI coding session analytics — sync, stats, and insights')
+  .name('agent-usage-analyze')
+  .description('Local usage, behavior, and improvement analytics for coding agents')
   .version(pkg.version);
 
 program
-  .command('init')
-  .description('Set up Agent Analytics (initializes local database)')
+  .command('start')
+  .description('Sync supported agents, optimize Codex capture, and open the dashboard')
+  .option('-p, --port <number>', 'Dashboard port', String(7890))
+  .option('--no-open', 'Do not open the browser automatically')
+  .option('--no-hook', 'Do not install or refresh the Codex capture hook')
+  .option('--no-import', 'Do not import existing Codex history')
+  .option('--wait-for-import', 'Wait for the Codex backfill and show progress in this terminal')
+  .action((options: { port: string; open: boolean; hook: boolean; import: boolean; waitForImport?: boolean }) => startCommand({
+    port: options.port,
+    open: options.open,
+    hook: options.hook,
+    importHistory: options.import,
+    waitForImport: options.waitForImport ?? false,
+  }));
+
+program
+  .command('init', { hidden: true })
+  .description('Initialize the local database')
   .action(initCommand);
 
 const syncCmd = program
-  .command('sync')
-  .description('Sync AI coding sessions to local SQLite database')
+  .command('sync', { hidden: true })
+  .description('Refresh the legacy local session projection')
   .option('-f, --force', 'Force re-sync all sessions (also restores hidden sessions)')
   .option('-p, --project <name>', 'Only sync sessions from a specific project')
-  .option('-s, --source <name>', 'Only sync sessions from a specific tool (e.g., claude-code, cursor)')
+  .option('-s, --source <name>', 'Only sync one stored source identifier')
   .option('--dry-run', 'Show what would be synced without making changes')
   .option('-q, --quiet', 'Suppress output (useful for hooks)')
   .option('-v, --verbose', 'Show diagnostic warnings from providers')
@@ -64,7 +82,7 @@ syncCmd
   .action(async () => {
     const chalk = (await import('chalk')).default;
     const { default: inquirer } = await import('inquirer');
-    console.log(chalk.cyan('\n  Agent Analytics — Prune\n'));
+    console.log(chalk.cyan('\n  Agent Usage Analyzer — Prune\n'));
 
     const sessions = getTrivialSessions();
     if (sessions.length === 0) {
@@ -95,32 +113,32 @@ syncCmd
 
     const { deleted } = pruneTrivialSessions(sessions.map((s) => s.id));
     console.log(chalk.green(`\n  Hidden ${deleted} session${deleted !== 1 ? 's' : ''}.`));
-    console.log(chalk.dim('  Use agent-analytics sync --force to restore hidden sessions.'));
+    console.log(chalk.dim('  Use agent-usage-analyze sync --force to restore hidden sessions.'));
   });
 
 program
   .command('status')
-  .description('Show Agent Analytics status and statistics')
+  .description('Show Agent Usage Analyzer status')
   .action(statusCommand);
 
 program
-  .command('ingest-fixture <path>')
+  .command('ingest-fixture <path>', { hidden: true })
   .description('Import a synthetic canonical batch for local validation')
   .action(ingestFixtureCommand);
 
 program
-  .command('import-codex')
+  .command('import-codex', { hidden: true })
   .description('Explicitly import active and archived Codex rollouts into the canonical store')
   .option('--home <path>', 'Use an isolated Codex home instead of the configured default')
   .action(importCodexCommand);
 
 program
-  .command('migrate-product')
+  .command('migrate-product', { hidden: true })
   .description('Backup and migrate a frozen legacy database into the canonical product schema')
   .action(migrateProductCommand);
 
 program
-  .command('advisory [task_id]')
+  .command('advisory [task_id]', { hidden: true })
   .description('Read at most one non-blocking local suggestion for a Codex task')
   .option('--hook', 'Read task or session context from stdin without echoing the prompt')
   .option('--timeout-ms <number>', 'Fail-open query budget in milliseconds', '75')
@@ -128,7 +146,7 @@ program
     advisoryCommand(taskId, options));
 
 program
-  .command('buildermark-gate <evidence>')
+  .command('buildermark-gate <evidence>', { hidden: true })
   .description('Run the isolated Buildermark historical-helper gate from sanitized local evidence JSON')
   .requiredOption('--repository <path>', 'Repository whose immutable commits the evidence references')
   .action((evidence: string, options: { repository: string }) => {
@@ -137,7 +155,7 @@ program
   });
 
 const gitAiSidecar = program
-  .command('git-ai-sidecar')
+  .command('git-ai-sidecar', { hidden: true })
   .description('Build, configure, and inspect the pinned local Git AI sidecar');
 
 gitAiSidecar.command('verify')
@@ -163,7 +181,7 @@ gitAiSidecar.command('inspect')
   .option('--repository <path>', 'Disposable or explicitly selected repository for status inspection')
   .action((options: { repository?: string }) => { gitAiSidecarInspectCommand(options); });
 
-program.command('git-ai-gate <evidence>')
+program.command('git-ai-gate <evidence>', { hidden: true })
   .description('Run the disposable prospective Git AI safety matrix from sanitized local evidence JSON')
   .requiredOption('--repository <path>', 'Disposable repository containing the referenced commits and local Notes')
   .action((evidence: string, options: { repository: string }) => {
@@ -172,26 +190,28 @@ program.command('git-ai-gate <evidence>')
   });
 
 program
-  .command('install-hook')
-  .description('Install automatic analysis hooks for detected Agent CLIs')
-  .option('--source <source>', 'auto, codex, claude, or all', 'auto')
-  .action((options: { source: 'auto' | 'codex' | 'claude' | 'all' }) => installHookCommand(options));
+  .command('install-hook', { hidden: true })
+  .description('Install automatic Codex capture')
+  .action(() => installHookCommand({ source: 'codex' }));
 
 program
-  .command('uninstall-hook')
-  .description('Remove Agent Analytics hooks')
-  .option('--source <source>', 'codex, claude, or all', 'all')
-  .action((options: { source: 'codex' | 'claude' | 'all' }) => uninstallHookCommand(options));
+  .command('uninstall-hook', { hidden: true })
+  .description('Remove automatic Codex capture')
+  .action(() => uninstallHookCommand({ source: 'codex' }));
 
-program.command('codex-stop')
+program.command('codex-stop', { hidden: true })
   .description('Internal fail-open Codex Stop hook entry point')
   .option('-q, --quiet')
   .option('--managed-hook <marker>')
   .action((options: { quiet?: boolean; managedHook?: string }) => codexStopCommand(options));
 
+program.command('behavior-report-auto', { hidden: true })
+  .description('Internal Hook-triggered cross-session report scheduler')
+  .action(async () => { await runAutomaticBehaviorReport(); });
+
 program
   .command('doctor')
-  .description('Check your Agent Analytics installation')
+  .description('Check the local Agent Usage Analyzer installation')
   .option('--fix', 'Apply safe idempotent fixes automatically')
   .option('--verbose', 'Show probed paths for skipped items')
   .option('--json', 'Machine-readable JSON output')
@@ -200,14 +220,14 @@ program
   });
 
 program
-  .command('open')
+  .command('open', { hidden: true })
   .description('Open the local dashboard in your browser')
   .option('--project', 'Open filtered to the current project')
   .action(openCommand);
 
 program
-  .command('dashboard')
-  .description('Start the Agent Analytics dashboard server and open in browser')
+  .command('dashboard', { hidden: true })
+  .description('Open the already-configured local dashboard')
   .option('-p, --port <number>', 'Port number', String(7890))
   .option('--no-open', 'Do not open browser automatically')
   .option('--sync', 'Explicitly sync the legacy Codex session projection before starting')
@@ -217,34 +237,34 @@ program.addCommand(resetCommand);
 program.addCommand(statsCommand);
 program.addCommand(configCommand);
 program.addCommand(telemetryCommand);
-program.addCommand(reflectCommand);
+program.addCommand(reflectCommand, { hidden: true });
 
 
 // session-end command — single SessionEnd hook entry point (sync + enqueue + spawn worker)
 program
-  .command('session-end')
+  .command('session-end', { hidden: true })
   .description('SessionEnd hook: sync session, enqueue for analysis, spawn background worker')
-  .option('--native', 'Use claude -p for analysis worker (default: true)')
-  .option('-s, --source <tool>', 'Source tool identifier (default: claude-code)')
+  .option('--native', 'Use the configured native analysis runner')
+  .option('-s, --source <tool>', 'Stored source identifier')
   .option('-q, --quiet', 'Suppress output')
-  .option('--model <model>', 'Model for native analysis (default: sonnet)')
+  .option('--model <model>', 'Model override for native analysis')
   .action(async (opts) => {
     await sessionEndCommand({ native: opts.native ?? true, quiet: opts.quiet, source: opts.source, model: opts.model });
   });
 
 // queue command suite — manage the analysis_queue
-program.addCommand(buildQueueCommand());
+program.addCommand(buildQueueCommand(), { hidden: true });
 
-// insights command — analyze a session using native claude -p or configured LLM
+// insights command — analyze a session using the configured execution policy
 const insightsCmd = program
-  .command('insights [session_id]')
+  .command('insights [session_id]', { hidden: true })
   .description('Analyze a session with AI — extracts insights and prompt quality score')
-  .option('--native', 'Use claude -p (your Claude subscription, no API key required)')
-  .option('--hook', 'Read session context from stdin (for Claude Code SessionEnd hook)')
-  .option('-s, --source <tool>', 'Source tool identifier (default: claude-code)')
+  .option('--native', 'Use the configured native analysis runner')
+  .option('--hook', 'Read session context from stdin for a legacy hook')
+  .option('-s, --source <tool>', 'Stored source identifier')
   .option('--force', 'Re-analyze even if already analyzed at this session length')
   .option('-q, --quiet', 'Suppress output')
-  .option('--model <model>', 'Model for native analysis (default: sonnet)')
+  .option('--model <model>', 'Model override for native analysis')
   .action(async (sessionId: string | undefined, opts) => {
     await insightsCommand(sessionId, opts);
   });
@@ -263,10 +283,11 @@ insightsCmd
     });
   });
 
-// Default action opens the dashboard without scanning real history.
-// Import remains an explicit action so startup is private and predictable.
+// The default path is the same idempotent one-command startup as `start`.
 program.action(async () => {
-  await dashboardCommand({ port: '7890', open: true, sync: false });
+  await startCommand({
+    port: '7890', open: true, hook: true, importHistory: true, waitForImport: false,
+  });
 });
 
 // Show one-time telemetry disclosure before any command runs

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference for mocking.
@@ -8,12 +8,12 @@ import { runMigrations } from '@agent-analytics/cli/db/schema';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
 
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   trackEvent: vi.fn(),
 }));
 
@@ -58,6 +58,11 @@ function seedSession(
     id, projectId, row.project_name, row.project_path,
     row.started_at, row.ended_at, row.message_count, row.source_tool,
   );
+  const message = testDb.prepare(`INSERT INTO messages
+    (id, session_id, type, content, tool_calls, tool_results, timestamp)
+    VALUES (?, ?, ?, ?, '[]', '[]', ?)`);
+  message.run(`${id}:user`, id, 'user', 'Do the task', row.started_at);
+  message.run(`${id}:assistant`, id, 'assistant', 'Done', row.ended_at);
 }
 
 // ──────────────────────────────────────────────────────
@@ -92,6 +97,30 @@ describe('Sessions routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.sessions).toHaveLength(2);
+    });
+
+    it('orders continued sessions by their latest activity instead of original start time', async () => {
+      seedProject('proj-1', 'alpha');
+      seedSession('started-later', 'proj-1', {
+        started_at: '2026-07-22T10:00:00Z', ended_at: '2026-07-22T11:00:00Z',
+      });
+      seedSession('continued-latest', 'proj-1', {
+        started_at: '2026-07-20T10:00:00Z', ended_at: '2026-07-23T10:00:00Z',
+      });
+
+      const body = await (await createApp().request('/api/sessions')).json();
+      expect(body.sessions.map((session: { id: string }) => session.id))
+        .toEqual(['continued-latest', 'started-later']);
+    });
+
+    it('hides a stale session that has counters but no genuine conversation rows', async () => {
+      seedProject('proj-1', 'alpha');
+      seedSession('sess-empty', 'proj-1');
+      testDb.prepare(`DELETE FROM messages WHERE session_id = 'sess-empty'`).run();
+
+      const res = await createApp().request('/api/sessions');
+      expect(await res.json()).toEqual({ sessions: [] });
+      expect((await createApp().request('/api/sessions/sess-empty')).status).toBe(404);
     });
 
     it('filters by projectId', async () => {

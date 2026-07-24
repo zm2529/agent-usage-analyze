@@ -7,10 +7,10 @@ import chalk from 'chalk';
 import { PostHog } from 'posthog-node';
 import { loadConfig, getConfigDir } from './config.js';
 
-// PostHog write-only API key (public — this is the standard PostHog pattern;
-// write-only keys can only ingest events, not read data).
-const POSTHOG_API_KEY = 'phc_552ZSApq5xuagswylfdw2vx8nckm31jn6LCpTVyVn8j';
-const POSTHOG_HOST = 'https://us.i.posthog.com';
+// No upstream project's telemetry credentials are bundled. A self-managed
+// release may opt in by providing both values explicitly at runtime.
+const POSTHOG_API_KEY = process.env.AGENT_USAGE_ANALYZE_POSTHOG_KEY ?? '';
+const POSTHOG_HOST = process.env.AGENT_USAGE_ANALYZE_POSTHOG_HOST ?? '';
 
 // Touch file path that tracks whether the disclosure has been shown.
 // Content is the CLI version — if version doesn't match current, notice is re-shown.
@@ -49,6 +49,7 @@ let client: PostHog | null = null;
  * 4. Default: false (local-first opt-in model)
  */
 export function isTelemetryEnabled(): boolean {
+  if (!POSTHOG_API_KEY || !POSTHOG_HOST) return false;
   if (process.env.AGENT_ANALYTICS_TELEMETRY_DISABLED === '1') return false;
   if (process.env.DO_NOT_TRACK === '1') return false;
 
@@ -94,7 +95,7 @@ export async function shutdownTelemetry(): Promise<void> {
 /**
  * Show the telemetry disclosure notice if it hasn't been shown for this CLI version.
  *
- * Uses a version-stamped touch file at ~/.agent-analytics/.telemetry-notice-shown.
+ * Uses a version-stamped touch file at ~/.agent-usage-analyze/.telemetry-notice-shown.
  * Re-shown when the CLI version changes (catches existing users on upgrades).
  * Only displays if telemetry is enabled.
  *
@@ -117,7 +118,7 @@ export function showTelemetryNoticeIfNeeded(): boolean {
   if (shownVersion === currentVersion) return false;
 
   // Show a condensed single-line disclosure
-  console.log(chalk.dim('  Telemetry enabled · Disable: agent-analytics telemetry disable'));
+  console.log(chalk.dim('  Telemetry enabled · Disable: agent-usage-analyze telemetry disable'));
 
   // Write the current version as content — best-effort, non-fatal
   try {
@@ -282,7 +283,7 @@ export async function identifyUser(): Promise<void> {
 
 /**
  * Build a preview of what would be collected and sent.
- * Used by `agent-analytics telemetry status` to show users what is collected.
+ * Used by `agent-usage-analyze telemetry status` to show users what is collected.
  */
 export function buildEventPreview(): Record<string, unknown> {
   return {
@@ -379,7 +380,7 @@ function detectProviders(): string[] {
 }
 
 /**
- * Check if agent-analytics is registered as a Claude Code hook.
+ * Check if agent-usage-analyze is registered as a Claude Code hook.
  */
 function detectHook(): boolean {
   try {

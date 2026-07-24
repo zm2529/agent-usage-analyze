@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeDb } from '@agent-analytics/cli/db/client';
+import { closeDb } from 'agent-usage-analyze/db/client';
 import { createApp } from '../index.js';
 
 let dataDir: string;

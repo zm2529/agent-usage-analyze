@@ -67,6 +67,14 @@ export interface AnalysisResponse {
     content: string;
     outcome?: 'success' | 'partial' | 'abandoned' | 'blocked';
     bullets: string[];
+    skill_usage?: Array<{
+      name: string;
+      fit: 'appropriate' | 'mixed' | 'uncertain';
+      observation: string;
+      issue: string | null;
+      recommendation: string;
+      evidence: string[];
+    }>;
   };
   decisions: Array<{
     title: string;
@@ -130,7 +138,7 @@ export interface PromptQualityDimensionScores {
   request_specificity: number;
   scope_management: number;
   information_timing: number;
-  correction_quality: number;
+  correction_quality: number | null;
 }
 
 export interface PromptQualityResponse {

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference for mocking.
@@ -8,7 +8,7 @@ import { runMigrations } from '@agent-analytics/cli/db/schema';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
@@ -88,6 +88,13 @@ function makeMessage(overrides: MessageOverrides = {}) {
     parent_id: null,
     ...overrides,
   };
+}
+
+function completeTurnMessages() {
+  return [
+    makeMessage({ id: 'msg-user', type: 'user' }),
+    makeMessage({ id: 'msg-assistant', type: 'assistant', content: 'I completed the requested work.' }),
+  ];
 }
 
 function seedTestSession(db: Database.Database) {
@@ -178,12 +185,13 @@ describe('analyzeSession', () => {
   it('guard: empty messages', async () => {
     const result = await analyzeSession(makeSession(), []);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('No messages');
+    expect(result.error).toContain('no genuine user messages');
+    expect(result.error_type).toBe('insufficient_evidence');
   });
 
   it('parse failure — non-JSON response', async () => {
     mockChat.mockResolvedValue({ content: 'not JSON at all', usage: null });
-    const result = await analyzeSession(makeSession(), [makeMessage()]);
+    const result = await analyzeSession(makeSession(), completeTurnMessages());
     expect(result.success).toBe(false);
     expect(result.error_type).toBe('no_json_found');
   });
@@ -192,14 +200,14 @@ describe('analyzeSession', () => {
     const abortErr = new Error('Aborted');
     abortErr.name = 'AbortError';
     mockChat.mockRejectedValue(abortErr);
-    const result = await analyzeSession(makeSession(), [makeMessage()]);
+    const result = await analyzeSession(makeSession(), completeTurnMessages());
     expect(result.success).toBe(false);
     expect(result.error_type).toBe('abort');
   });
 
   it('API error propagation', async () => {
     mockChat.mockRejectedValue(new Error('Rate limit'));
-    const result = await analyzeSession(makeSession(), [makeMessage()]);
+    const result = await analyzeSession(makeSession(), completeTurnMessages());
     expect(result.success).toBe(false);
     expect(result.error_type).toBe('api_error');
     expect(result.error).toBe('Rate limit');
@@ -211,7 +219,7 @@ describe('analyzeSession', () => {
       usage: { inputTokens: 100, outputTokens: 50 },
     });
 
-    const result = await analyzeSession(makeSession(), [makeMessage()]);
+    const result = await analyzeSession(makeSession(), completeTurnMessages());
     expect(result.success).toBe(true);
     // summary + 1 decision (85 >= 70) + 1 learning (80 >= 70) = 3
     expect(result.insights.length).toBe(3);
@@ -244,7 +252,7 @@ describe('analyzeSession', () => {
     };
 
     mockChat.mockResolvedValue({ content: JSON.stringify(response), usage: null });
-    const result = await analyzeSession(makeSession(), [makeMessage()]);
+    const result = await analyzeSession(makeSession(), completeTurnMessages());
     expect(result.success).toBe(true);
 
     const types = result.insights.map(i => i.type);
@@ -265,7 +273,7 @@ describe('analyzeSession', () => {
     };
 
     mockChat.mockResolvedValue({ content: JSON.stringify(response), usage: null });
-    await analyzeSession(makeSession(), [makeMessage()]);
+    await analyzeSession(makeSession(), completeTurnMessages());
 
     const facetRow = testDb.prepare('SELECT effective_patterns FROM session_facets WHERE session_id = ?').get('sess-test') as { effective_patterns: string } | undefined;
     expect(facetRow).toBeTruthy();
@@ -295,7 +303,8 @@ describe('analyzePromptQuality', () => {
   it('guard: empty messages', async () => {
     const result = await analyzePromptQuality(makeSession(), []);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('No messages');
+    expect(result.error).toContain('no genuine user messages');
+    expect(result.error_type).toBe('insufficient_evidence');
   });
 
   it('guard: fewer than 2 user messages', async () => {

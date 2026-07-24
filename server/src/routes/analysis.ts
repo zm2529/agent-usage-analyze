@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { trackEvent } from '@agent-analytics/cli/utils/telemetry';
-import { applyGeneratedTitle } from '@agent-analytics/cli/analysis/analysis-db';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { trackEvent } from 'agent-usage-analyze/utils/telemetry';
+import { applyGeneratedTitle } from 'agent-usage-analyze/analysis/analysis-db';
 import { parseIntParam } from '../utils.js';
 import { loadLLMConfig } from '../llm/client.js';
 import { analyzeSession, analyzePromptQuality, findRecurringInsights } from '../llm/analysis.js';
@@ -14,8 +14,35 @@ import {
   trackAnalysisResult,
   streamSessionAnalysis,
 } from './route-helpers.js';
+import { runInsightsCommand } from 'agent-usage-analyze/commands/insights';
 
 const app = new Hono();
+
+// POST /api/analysis/automatic-session
+// Uses the same default-on execution policy shown in Settings (Codex subscription first).
+app.post('/automatic-session', async (c) => {
+  const body = await c.req.json<{ sessionId?: string; force?: boolean }>();
+  if (!body.sessionId || typeof body.sessionId !== 'string') {
+    return c.json({ error: 'Missing required field: sessionId' }, 400);
+  }
+  const session = loadSessionForAnalysis(getDb(), body.sessionId);
+  if (!session) return c.json({ error: 'Session not found' }, 404);
+  try {
+    await runInsightsCommand({
+      sessionId: body.sessionId,
+      native: false,
+      force: body.force === true,
+      quiet: true,
+      _automaticPrivacy: true,
+    });
+    return c.json({ success: true as const });
+  } catch (error) {
+    return c.json({
+      success: false as const,
+      error: error instanceof Error ? error.message : 'Automatic analysis failed',
+    }, 422);
+  }
+});
 
 // GET /api/analysis/usage?sessionId=X
 // Returns recorded analysis token usage and cost for a session.

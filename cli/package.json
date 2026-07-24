@@ -1,7 +1,7 @@
 {
-  "name": "@agent-analytics/cli",
+  "name": "agent-usage-analyze",
   "version": "0.1.0",
-  "description": "Local-first Codex work and delivery evidence analytics",
+  "description": "Local-first usage, behavior, and improvement analytics for coding agents",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -23,6 +23,7 @@
     "./canonical/observer-overhead": "./dist/canonical/observer-overhead.js",
     "./canonical/advisory": "./dist/canonical/advisory.js",
     "./canonical/sanitized-export": "./dist/canonical/sanitized-export.js",
+    "./canonical/session-titles": "./dist/canonical/session-titles.js",
     "./db/product-migration": "./dist/db/product-migration.js",
     "./db/local-data-lifecycle": "./dist/db/local-data-lifecycle.js",
     "./sidecars/git-ai-manager": "./dist/sidecars/git-ai-manager.js",
@@ -36,6 +37,7 @@
     "./analysis/prompt-types": "./dist/analysis/prompt-types.js",
     "./analysis/prompt-constants": "./dist/analysis/prompt-constants.js",
     "./analysis/message-format": "./dist/analysis/message-format.js",
+    "./analysis/analysis-eligibility": "./dist/analysis/analysis-eligibility.js",
     "./analysis/response-parsers": "./dist/analysis/response-parsers.js",
     "./analysis/normalize-utils": "./dist/analysis/normalize-utils.js",
     "./analysis/friction-normalize": "./dist/analysis/friction-normalize.js",
@@ -46,14 +48,27 @@
     "./analysis/codex-native-runner": "./dist/analysis/codex-native-runner.js",
     "./analysis/analysis-db": "./dist/analysis/analysis-db.js",
     "./analysis/analysis-usage-db": "./dist/analysis/analysis-usage-db.js",
+    "./analysis/analysis-run-db": "./dist/analysis/analysis-run-db.js",
+    "./analysis/behavior-report": "./dist/analysis/behavior-report.js",
+    "./analysis/behavior-report-scheduler": "./dist/analysis/behavior-report-scheduler.js",
     "./analysis/provider-runner": "./dist/analysis/provider-runner.js",
     "./analysis/execution-policy": "./dist/analysis/execution-policy.js",
     "./analysis/automatic-status": "./dist/analysis/automatic-status.js",
+    "./analysis/codex-account-usage": "./dist/analysis/codex-account-usage.js",
+    "./analysis/runner-factory": "./dist/analysis/runner-factory.js",
+    "./analysis/history-backfill": "./dist/analysis/history-backfill.js",
+    "./analysis/settled-frontier": "./dist/analysis/settled-frontier.js",
+    "./analysis/settled-scheduler": "./dist/analysis/settled-scheduler.js",
+    "./analysis/codex-source-locator": "./dist/analysis/codex-source-locator.js",
+    "./analysis/ingestion-log": "./dist/analysis/ingestion-log.js",
+    "./commands/insights": "./dist/commands/insights.js",
+    "./commands/sync": "./dist/commands/sync.js",
+    "./commands/import-codex": "./dist/commands/import-codex.js",
     "./analysis/schemas/session-analysis.json": "./dist/analysis/schemas/session-analysis.json",
     "./analysis/schemas/prompt-quality.json": "./dist/analysis/schemas/prompt-quality.json"
   },
   "bin": {
-    "agent-analytics": "./dist/index.js"
+    "agent-usage-analyze": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc && node -e \"const{cpSync,mkdirSync}=require('fs');mkdirSync('dist/analysis/schemas',{recursive:true});cpSync('src/analysis/schemas/session-analysis.json','dist/analysis/schemas/session-analysis.json');cpSync('src/analysis/schemas/prompt-quality.json','dist/analysis/schemas/prompt-quality.json');\"",
@@ -62,8 +77,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "prepublishOnly": "cd .. && pnpm -r build && cp -r dashboard/dist cli/dashboard-dist && cp -r server/dist cli/server-dist",
-    "postpublish": "rm -rf dashboard-dist server-dist"
+    "prepack": "pnpm --dir .. build && pnpm --dir .. package:prepare",
+    "postpack": "pnpm --dir .. package:clean"
   },
   "files": [
     "dist",
@@ -78,20 +93,30 @@
     "node": ">=18.0.0"
   },
   "keywords": [
-    "claude",
+    "coding-agent",
+    "codex",
     "claude-code",
     "cursor",
-    "codex",
-    "copilot",
-    "ai-coding",
+    "github-copilot",
+    "developer-productivity",
     "insights",
     "analytics",
     "sqlite",
     "local-first"
   ],
-  "author": "Agent Analytics contributors; derived from Code Insights by Srikanth Rao M",
+  "author": "Agent Usage Analyzer contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zm2529/agent-usage-analyze.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/zm2529/agent-usage-analyze#readme",
+  "bugs": {
+    "url": "https://github.com/zm2529/agent-usage-analyze/issues"
+  },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "license": "MIT",
   "dependencies": {

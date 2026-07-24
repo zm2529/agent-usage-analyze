@@ -52,7 +52,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
     ? () => noopSpinner
     : ora;
 
-  log(chalk.cyan('\n  Agent Analytics Sync\n'));
+  log(chalk.cyan('\n  Agent Usage Analyzer Sync\n'));
 
   // Initialize database (runs migrations if needed)
   const spinner = createSpinner('Initializing database...').start();
@@ -75,7 +75,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
 
   if (v6JustApplied && options.quiet) {
     // Hook-triggered sync: defer re-parse to avoid adding 30-60s to a sub-second operation
-    process.stderr.write("Message counts updated in v6. Run 'agent-analytics sync --force' to recalculate.\n");
+    process.stderr.write("Message counts updated in v6. Run 'agent-usage-analyze sync --force' to recalculate.\n");
   }
 
   // Auto force-sync on V6 migration (interactive only, not quiet/hook mode)
@@ -139,6 +139,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
   const sessionsByProvider: Record<string, number> = {};
   for (const provider of providers) {
     const providerName = provider.getProviderName();
+    const parserVersion = provider.getParserVersion?.();
     try {
       if (providers.length > 1) {
         log(chalk.cyan(`\n  Syncing ${providerName}...`));
@@ -152,7 +153,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
       if (sessionFiles.length === 0) continue;
 
       // Filter to only new/modified files
-      const filesToSync = filterFilesToSync(sessionFiles, syncState, options.force);
+      const filesToSync = filterFilesToSync(sessionFiles, syncState, options.force, parserVersion);
 
       if (filesToSync.length === 0) {
         log(chalk.gray(`  ✔ Up to date (${sessionFiles.length} sessions)`));
@@ -180,14 +181,14 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
           const session = await provider.parse(filePath);
           if (!session) {
             // Track null-parse files so they aren't re-discovered on every sync run
-            updateSyncState(syncState, filePath, '__empty__');
+            updateSyncState(syncState, filePath, '__empty__', parserVersion);
             saveSyncState(syncState);
             continue;
           }
 
           // Skip trivial sessions (≤2 messages) — likely abandoned prompts with no content
           if (session.messageCount <= 2) {
-            updateSyncState(syncState, filePath, session.id);
+            updateSyncState(syncState, filePath, session.id, parserVersion);
             saveSyncState(syncState);
             continue;
           }
@@ -198,7 +199,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
 
           // Update and persist sync state after each file
           // so progress survives crashes
-          updateSyncState(syncState, filePath, session.id);
+          updateSyncState(syncState, filePath, session.id, parserVersion);
           saveSyncState(syncState);
 
           if (!isNew && !options.force) {
@@ -269,7 +270,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
   // Any existing insights were generated from the old (inflated) counts — show advisory.
   if (v6JustApplied && !options.quiet && totalSyncedCount > 0) {
     log(chalk.dim(`\n  i ${totalSyncedCount} sessions have updated message counts. Existing insights may reflect old data.`));
-    log(chalk.dim(`    Run 'agent-analytics reflect backfill' to regenerate (uses LLM API credits).`));
+    log(chalk.dim(`    Run 'agent-usage-analyze reflect backfill' to regenerate (uses LLM API credits).`));
 
     trackEvent('migration_v6_resync', {
       sessions_recalculated: totalSyncedCount,
@@ -453,7 +454,12 @@ export async function syncSingleFile(options: SingleFileProjectionOptions): Prom
 /**
  * Filter files to only those that need syncing
  */
-function filterFilesToSync(files: string[], syncState: SyncState, force?: boolean): string[] {
+function filterFilesToSync(
+  files: string[],
+  syncState: SyncState,
+  force?: boolean,
+  parserVersion?: string,
+): string[] {
   if (force) return files;
 
   return files.filter((filePath) => {
@@ -473,6 +479,9 @@ function filterFilesToSync(files: string[], syncState: SyncState, force?: boolea
 
     // If file was never synced, sync it
     if (!fileState) return true;
+
+    // Parser fixes must refresh persisted session totals even when the rollout is unchanged.
+    if (parserVersion && fileState.parserVersion !== parserVersion) return true;
 
     if (sessionFragment) {
       // Virtual path (multi-session DB).
@@ -496,7 +505,12 @@ function filterFilesToSync(files: string[], syncState: SyncState, force?: boolea
 /**
  * Update sync state for a file
  */
-function updateSyncState(state: SyncState, filePath: string, sessionId: string): void {
+function updateSyncState(
+  state: SyncState,
+  filePath: string,
+  sessionId: string,
+  parserVersion?: string,
+): void {
   const { realPath, sessionFragment } = splitVirtualPath(filePath);
   const stat = fs.statSync(realPath);
 
@@ -512,6 +526,7 @@ function updateSyncState(state: SyncState, filePath: string, sessionId: string):
       lastSyncedLine: 0,
       sessionId,
       syncedSessionIds: syncedIds,
+      ...(parserVersion ? { parserVersion } : {}),
     };
   } else {
     // Regular file path
@@ -519,6 +534,7 @@ function updateSyncState(state: SyncState, filePath: string, sessionId: string):
       lastModified: stat.mtime.toISOString(),
       lastSyncedLine: 0,
       sessionId,
+      ...(parserVersion ? { parserVersion } : {}),
     };
   }
 }

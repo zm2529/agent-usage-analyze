@@ -7,11 +7,11 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 const mockEnabled = vi.fn(() => true);
 const mockGetId = vi.fn(() => 'test-device-id-hash');
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => ({}),
   closeDb: () => {},
 }));
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   isTelemetryEnabled: (...args: unknown[]) => mockEnabled(...args),
   getStableMachineId: (...args: unknown[]) => mockGetId(...args),
   trackEvent: vi.fn(),

@@ -133,14 +133,19 @@ function extractFromUserMessage(messages: ParsedMessage[]): TitleCandidate | nul
   const userMessages = messages.filter(m => m.type === 'user');
 
   for (const msg of userMessages.slice(0, 3)) {
-    const content = msg.content.trim();
+    const content = extractExplicitUserRequest(msg.content);
+
+    if (!content) {
+      continue;
+    }
 
     if (SKIP_PATTERNS.some(p => p.test(content))) {
       continue;
     }
 
     const wordCount = content.split(/\s+/).length;
-    if (wordCount < 3) {
+    const cjkCharacterCount = (content.match(/[\u3400-\u9fff]/g) ?? []).length;
+    if (wordCount < 3 && cjkCharacterCount < 4) {
       continue;
     }
 
@@ -160,13 +165,40 @@ function extractFromUserMessage(messages: ParsedMessage[]): TitleCandidate | nul
 }
 
 /**
+ * Desktop prompts may wrap attachments and browser evidence around the actual
+ * request. Prefer the explicit request section so generated titles describe
+ * the user's goal instead of an attachment UUID or product-provided context.
+ */
+export function extractExplicitUserRequest(content: string): string {
+  const marker = '## My request for Codex:';
+  const markerIndex = content.lastIndexOf(marker);
+  if (markerIndex >= 0) {
+    return content.slice(markerIndex + marker.length).trim();
+  }
+
+  const trimmed = content.trim();
+  const wrappedPayload = trimmed.match(/<(?:objective|input)>\s*([\s\S]*?)\s*<\/(?:objective|input)>/i)?.[1];
+  if (wrappedPayload) return wrappedPayload.trim();
+
+  const skillInvocation = trimmed.match(/^\[\$([^\]]+)]\([^\n)]+\)\s*$/);
+  if (skillInvocation) return `Use skill ${skillInvocation[1]}`;
+
+  return trimmed;
+}
+
+/**
  * Score a user message for title quality
  */
 function scoreUserMessage(text: string): number {
   const wordCount = text.split(/\s+/).length;
+  const cjkCharacterCount = (text.match(/[\u3400-\u9fff]/g) ?? []).length;
 
-  if (wordCount < 3) return 0;
+  if (wordCount < 3 && cjkCharacterCount < 4) return 0;
   if (wordCount > 100) return 0;
+
+  if (cjkCharacterCount >= 4 && wordCount < 3) {
+    return text.includes('?') || text.includes('？') ? 70 : 60;
+  }
 
   if (ACTION_VERBS.test(text)) {
     if (wordCount >= 5 && wordCount <= 15) return 80;

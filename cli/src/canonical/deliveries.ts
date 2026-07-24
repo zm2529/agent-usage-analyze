@@ -377,15 +377,32 @@ export function appendCandidateCorrection(
 
 export function listDeliveries(
   db: Database.Database,
-  filter: { repositoryIdentity?: string } = {},
+  filter: { repositoryIdentity?: string; linkedOnly?: boolean } = {},
 ): Delivery[] {
-  const rows = filter.repositoryIdentity
-    ? db.prepare(`SELECT id, kind, repository_identity AS repositoryIdentity,
-        result_identity AS resultIdentity, occurred_at AS occurredAt, metadata_json AS metadataJson
-        FROM deliveries WHERE repository_identity = ? ORDER BY occurred_at DESC, id`).all(filter.repositoryIdentity)
-    : db.prepare(`SELECT id, kind, repository_identity AS repositoryIdentity,
-        result_identity AS resultIdentity, occurred_at AS occurredAt, metadata_json AS metadataJson
-        FROM deliveries ORDER BY occurred_at DESC, id`).all();
+  const predicates: string[] = [];
+  const params: string[] = [];
+  if (filter.repositoryIdentity) {
+    predicates.push('delivery.repository_identity = ?');
+    params.push(filter.repositoryIdentity);
+  }
+  if (filter.linkedOnly) {
+    predicates.push(`EXISTS (
+      SELECT 1 FROM task_delivery_candidates candidate
+      WHERE candidate.delivery_id = delivery.id AND (
+        candidate.machine_status = 'candidate'
+        OR COALESCE((SELECT correction.decision FROM task_delivery_corrections correction
+          WHERE correction.candidate_id = candidate.id
+          ORDER BY correction.sequence DESC LIMIT 1), '') IN ('confirmed', 'pending')
+      )
+    )`);
+  }
+  const where = predicates.length > 0 ? `WHERE ${predicates.join(' AND ')}` : '';
+  const rows = db.prepare(`SELECT delivery.id, delivery.kind,
+    delivery.repository_identity AS repositoryIdentity,
+    delivery.result_identity AS resultIdentity, delivery.occurred_at AS occurredAt,
+    delivery.metadata_json AS metadataJson
+    FROM deliveries delivery ${where}
+    ORDER BY delivery.occurred_at DESC, delivery.id`).all(...params);
   return (rows as Record<string, unknown>[]).map(mapDelivery);
 }
 

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { isTelemetryEnabled, getStableMachineId } from '@agent-analytics/cli/utils/telemetry';
+import { isTelemetryEnabled, getStableMachineId } from 'agent-usage-analyze/utils/telemetry';
 
 const app = new Hono();
 

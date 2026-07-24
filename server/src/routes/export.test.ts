@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference for mocking.
@@ -9,14 +9,14 @@ import { runMigrations } from '@agent-analytics/cli/db/schema';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
 
 const mockCaptureError = vi.fn();
 
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   trackEvent: vi.fn(),
   captureError: mockCaptureError,
 }));
@@ -150,7 +150,7 @@ describe('Export routes', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('Content-Type')).toContain('text/markdown');
       const text = await res.text();
-      expect(text).toContain('# Agent Analytics Export');
+      expect(text).toContain('# Agent Usage Analyzer Export');
       expect(text).toContain('Test Session');
     });
 
@@ -165,7 +165,7 @@ describe('Export routes', () => {
       });
       expect(res.status).toBe(200);
       const text = await res.text();
-      expect(text).toContain('# Agent Analytics Export');
+      expect(text).toContain('# Agent Usage Analyzer Export');
       expect(text).toContain('Test Session');
     });
 
@@ -192,7 +192,7 @@ describe('Export routes', () => {
       });
       expect(res.status).toBe(200);
       const text = await res.text();
-      expect(text).toContain('# Agent Analytics Export');
+      expect(text).toContain('# Agent Usage Analyzer Export');
       expect(text).toContain('Test Session');
     });
 
@@ -205,7 +205,7 @@ describe('Export routes', () => {
       });
       expect(res.status).toBe(200);
       const text = await res.text();
-      expect(text).toContain('# Agent Analytics Export');
+      expect(text).toContain('# Agent Usage Analyzer Export');
       // No session sections — just the header
       expect(text).not.toContain('## ');
     });

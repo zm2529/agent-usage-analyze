@@ -3,8 +3,8 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { existsSync, readFileSync } from 'fs';
 import { relative, join } from 'path';
-import { openUrl } from '@agent-analytics/cli/utils/browser';
-import { shutdownTelemetry } from '@agent-analytics/cli/utils/telemetry';
+import { openUrl } from 'agent-usage-analyze/utils/browser';
+import { shutdownTelemetry } from 'agent-usage-analyze/utils/telemetry';
 import projectsRouter from './routes/projects.js';
 import searchRouter from './routes/search.js';
 import sessionsRouter from './routes/sessions.js';
@@ -12,6 +12,8 @@ import messagesRouter from './routes/messages.js';
 import insightsRouter from './routes/insights.js';
 import analysisRouter from './routes/analysis.js';
 import analysisQueueRouter from './routes/analysis-queue.js';
+import analysisRunsRouter from './routes/analysis-runs.js';
+import behaviorReportRouter from './routes/behavior-report.js';
 import analyticsRouter from './routes/analytics.js';
 import configRouter from './routes/config.js';
 import exportRouter from './routes/export.js';
@@ -29,6 +31,8 @@ import semanticAnalysisRouter from './routes/semantic-analysis.js';
 import scorecardsRouter from './routes/scorecards.js';
 import observerOverheadRouter from './routes/observer-overhead.js';
 import adviceRouter from './routes/advice.js';
+import codexUsageRouter from './routes/codex-usage.js';
+import { startCodexSessionWatcher } from './codex-session-watcher.js';
 
 export interface ServerOptions {
   port: number;
@@ -71,6 +75,8 @@ export function createApp(): Hono {
   app.route('/api/insights', insightsRouter);
   app.route('/api/analysis', analysisRouter);
   app.route('/api/analysis/queue', analysisQueueRouter);
+  app.route('/api/analysis/runs', analysisRunsRouter);
+  app.route('/api/behavior-report', behaviorReportRouter);
   app.route('/api/analytics', analyticsRouter);
   app.route('/api/config', configRouter);
   app.route('/api/export', exportRouter);
@@ -88,6 +94,7 @@ export function createApp(): Hono {
   app.route('/api/scorecards', scorecardsRouter);
   app.route('/api/observer-overhead', observerOverheadRouter);
   app.route('/api/advice', adviceRouter);
+  app.route('/api/codex/usage', codexUsageRouter);
 
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true, version: '0.1.0' }));
@@ -101,7 +108,7 @@ export function createApp(): Hono {
 }
 
 /**
- * Start the Agent Analytics local dashboard server.
+ * Start the Agent Usage Analyzer local dashboard server.
  * Calls createApp(), adds static file serving + SPA fallback if staticDir exists,
  * then calls serve().
  * Called by the CLI `dashboard` command.
@@ -113,6 +120,7 @@ export async function startServer(
   const { port, staticDir, openBrowser } = options;
 
   const app = createApp();
+  const codexSessionWatcher = startCodexSessionWatcher();
 
   // Static file serving — only if the dashboard has been built.
   // serveStatic requires a path relative to process.cwd(), not an absolute path.
@@ -137,7 +145,7 @@ export async function startServer(
     app.get('*', (c) =>
       c.html(`
         <html><body style="font-family:monospace;padding:2rem">
-          <h2>Agent Analytics Dashboard</h2>
+          <h2>Agent Usage Analyzer</h2>
           <p>The dashboard has not been built yet.</p>
           <pre>pnpm install &amp;&amp; pnpm build</pre>
           <p>Then restart the server.</p>
@@ -150,6 +158,7 @@ export async function startServer(
   // 'exit' handler in cli/src/db/client.ts run WAL checkpoint via closeDb().
   // 3s timeout guards against PostHog SDK stalling on network issues.
   const shutdown = async () => {
+    codexSessionWatcher?.close();
     await Promise.race([
       shutdownTelemetry(),
       new Promise<void>((resolve) => setTimeout(resolve, 3000)),
@@ -164,7 +173,7 @@ export async function startServer(
   return serveRuntime({ fetch: app.fetch, port, hostname: LOOPBACK_HOST }, (info) => {
     dependencies.onListen?.(info);
     const url = `http://localhost:${info.port}`;
-    console.log(`  Agent Analytics dashboard running at ${url}`);
+    console.log(`  Agent Usage Analyzer dashboard running at ${url}`);
     if (openBrowser) {
       openRuntimeUrl(url);
     }

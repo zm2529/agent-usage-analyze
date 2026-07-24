@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference for mocking.
@@ -8,18 +8,23 @@ import { runMigrations } from '@agent-analytics/cli/db/schema';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
 
 const mockCaptureError = vi.fn();
+const mockRunInsightsCommand = vi.fn();
 
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   trackEvent: vi.fn(),
   captureError: mockCaptureError,
   isTelemetryEnabled: () => false,
   getStableMachineId: () => 'test-id',
+}));
+
+vi.mock('agent-usage-analyze/commands/insights', () => ({
+  runInsightsCommand: (...args: unknown[]) => mockRunInsightsCommand(...args),
 }));
 
 const mockIsLLMConfigured = vi.fn(() => false);
@@ -79,6 +84,26 @@ describe('Analysis routes', () => {
     mockLoadLLMConfig.mockReset();
     mockLoadLLMConfig.mockReturnValue({ provider: 'openai', model: 'gpt-4o' });
     mockCaptureError.mockReset();
+    mockRunInsightsCommand.mockReset();
+  });
+
+  describe('POST /api/analysis/automatic-session', () => {
+    it('uses the automatic runner and forwards an explicit force request', async () => {
+      seedProject('p-auto', 'auto');
+      seedSession('s-auto', 'p-auto');
+      mockRunInsightsCommand.mockResolvedValue(undefined);
+
+      const res = await createApp().request('/api/analysis/automatic-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: 's-auto', force: true }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockRunInsightsCommand).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: 's-auto', native: false, force: true, quiet: true, _automaticPrivacy: true,
+      }));
+    });
   });
 
   afterEach(() => {

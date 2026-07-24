@@ -19,6 +19,7 @@ export const codexConfigPath = (): string => path.join(codexConfigRoot(), 'confi
 export const codexHookCommand = (): string => `node ${JSON.stringify(CLI_ENTRY)} codex-stop -q --managed-hook ${CODEX_HOOK_MARKER}`;
 const managed = (command: string): boolean => command.includes(`codex-stop -q --managed-hook ${CODEX_HOOK_MARKER}`);
 const current = (command: string): boolean => managed(command) && command === codexHookCommand();
+const MANAGED_CODEX_EVENTS = ['UserPromptSubmit', 'Stop'] as const;
 
 function withoutManagedHandlers(groups: HookConfig[]): HookConfig[] {
   return groups
@@ -74,17 +75,23 @@ function backup(file: string): string | null {
 export function installCodexHook(): { changed: boolean; file: string; backup: string | null } {
   const file = codexHooksPath();
   const config = readExisting(file);
-  const stop = config.hooks?.Stop ?? [];
-  const managedCommands = stop.flatMap((group) => group.hooks.map(getHookCommand)).filter(managed);
-  if (managedCommands.length === 1 && current(managedCommands[0])) {
+  const alreadyCurrent = MANAGED_CODEX_EVENTS.every((event) => {
+    const commands = (config.hooks?.[event] ?? [])
+      .flatMap((group) => group.hooks.map(getHookCommand)).filter(managed);
+    return commands.length === 1 && current(commands[0]);
+  });
+  if (alreadyCurrent) {
     return { changed: false, file, backup: null };
   }
   const backupFile = backup(file);
-  const withoutStaleManaged = withoutManagedHandlers(stop);
-  config.hooks = { ...config.hooks, Stop: [
-    ...withoutStaleManaged,
-    { hooks: [{ type: 'command', command: codexHookCommand(), timeout: 8 }] },
-  ] };
+  const hooks = { ...config.hooks };
+  for (const event of MANAGED_CODEX_EVENTS) {
+    hooks[event] = [
+      ...withoutManagedHandlers(hooks[event] ?? []),
+      { hooks: [{ type: 'command', command: codexHookCommand(), timeout: 8 }] },
+    ];
+  }
+  config.hooks = hooks;
   writePrivate(file, config);
   return { changed: true, file, backup: backupFile };
 }
@@ -93,16 +100,16 @@ export function uninstallCodexHook(): { changed: boolean; file: string } {
   const file = codexHooksPath();
   if (!fs.existsSync(file)) return { changed: false, file };
   const config = readExisting(file);
-  const stop = config.hooks?.Stop;
-  if (!stop) return { changed: false, file };
-  const managedCount = stop.reduce(
-    (count, group) => count + group.hooks.filter((hook) => managed(getHookCommand(hook))).length,
-    0,
-  );
+  const managedCount = MANAGED_CODEX_EVENTS.reduce((total, event) => total
+    + (config.hooks?.[event] ?? []).reduce(
+      (count, group) => count + group.hooks.filter((hook) => managed(getHookCommand(hook))).length, 0,
+    ), 0);
   if (managedCount === 0) return { changed: false, file };
-  const filtered = withoutManagedHandlers(stop);
   const hooks = { ...config.hooks };
-  if (filtered.length) hooks.Stop = filtered; else delete hooks.Stop;
+  for (const event of MANAGED_CODEX_EVENTS) {
+    const filtered = withoutManagedHandlers(hooks[event] ?? []);
+    if (filtered.length) hooks[event] = filtered; else delete hooks[event];
+  }
   config.hooks = hooks;
   if (Object.keys(hooks).length === 0) delete config.hooks;
   backup(file);
@@ -115,9 +122,11 @@ export function inspectCodexHook(): { installed: boolean; stale: boolean; file: 
   if (!fs.existsSync(file)) return { installed: false, stale: false, file };
   try {
     const config = readExisting(file);
+    const eventCommands = MANAGED_CODEX_EVENTS.map((event) => (config.hooks?.[event] ?? [])
+      .flatMap((group) => group.hooks.map((hook) => getHookCommand(hook))));
     return {
-      installed: Boolean(config.hooks?.Stop?.some((group) => group.hooks.some((hook) => current(getHookCommand(hook))))),
-      stale: Boolean(config.hooks?.Stop?.some((group) => group.hooks.some((hook) => managed(getHookCommand(hook)) && !current(getHookCommand(hook))))),
+      installed: eventCommands.every((commands) => commands.some(current)),
+      stale: eventCommands.some((commands) => commands.some((command) => managed(command) && !current(command))),
       file,
     };
   } catch (error) {

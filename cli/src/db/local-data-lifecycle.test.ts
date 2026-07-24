@@ -42,7 +42,7 @@ describe('archiveLocalAnalysisData', () => {
     });
 
     expect(result).toMatchObject({
-      status: 'archived', rebuildCommand: 'agent-analytics import-codex',
+      status: 'archived', rebuildCommand: 'agent-usage-analyze import-codex',
     });
     expect(result.databaseBackupPath).toMatch(/\.backup$/);
     expect(result.syncStateBackupPath).toMatch(/\.json$/);

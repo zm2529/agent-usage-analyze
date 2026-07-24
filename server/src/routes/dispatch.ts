@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
+import { getDb } from 'agent-usage-analyze/db/client';
 import { createLLMClient } from '../llm/client.js';
 import { requireLLM } from './route-helpers.js';
 import {
@@ -11,7 +11,7 @@ import {
   buildImagePromptContext,
   parseImagePromptOutput,
 } from '../llm/dispatch-prompts.js';
-import type { DispatchTone, DispatchInsight, DispatchFormat, SessionBackground } from '@agent-analytics/cli/types';
+import type { DispatchTone, DispatchInsight, DispatchFormat, SessionBackground } from 'agent-usage-analyze/types';
 
 const app = new Hono();
 

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { listScorecardResults, listScorecardVersions } from '@agent-analytics/cli/canonical/scorecards';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { listScorecardResults, listScorecardVersions } from 'agent-usage-analyze/canonical/scorecards';
 import type Database from 'better-sqlite3';
 
 function resolveEvidenceLinks(

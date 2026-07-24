@@ -84,6 +84,25 @@ describe('Database read/write operations', () => {
       expect(sessions).toHaveLength(1);
     });
 
+    it('repairs a previously imported Codex context title without replacing valid or custom titles', () => {
+      const poisoned = makeParsedSession({
+        id: 'session-title-repair',
+        generatedTitle: '<recommendedplugins> Here is a list of plugins that are a...',
+        titleSource: 'user_message',
+      });
+      insertSessionWithProject(poisoned);
+      testDb.prepare(`UPDATE sessions SET custom_title = '我的标题' WHERE id = ?`).run(poisoned.id);
+
+      insertSessionWithProject(makeParsedSession({
+        id: poisoned.id,
+        generatedTitle: '检查 AudioKit 接口和使用情况',
+        titleSource: 'user_message',
+      }), true);
+
+      expect(testDb.prepare(`SELECT generated_title, custom_title FROM sessions WHERE id = ?`).get(poisoned.id))
+        .toEqual({ generated_title: '检查 AudioKit 接口和使用情况', custom_title: '我的标题' });
+    });
+
     it('inserts the project record alongside the session', () => {
       const session = makeParsedSession({ projectName: 'alpha-project' });
       insertSessionWithProject(session);
@@ -385,6 +404,31 @@ describe('Database read/write operations', () => {
       expect(rows.cnt).toBe(1);
     });
 
+    it('atomically replaces the complete session message projection on force sync', () => {
+      const original = makeParsedSession({
+        id: 'sess-replace',
+        messages: [
+          makeParsedMessage({ id: 'old-user', sessionId: 'sess-replace', content: 'Old prompt' }),
+          makeParsedMessage({ id: 'old-assistant', sessionId: 'sess-replace', type: 'assistant', content: 'Old answer' }),
+        ],
+      });
+      insertSessionWithProject(original);
+      insertMessages(original);
+
+      const replacement = makeParsedSession({
+        id: 'sess-replace',
+        messages: [
+          makeParsedMessage({ id: 'new-user', sessionId: 'sess-replace', content: 'New prompt' }),
+          makeParsedMessage({ id: 'new-assistant', sessionId: 'sess-replace', type: 'assistant', content: 'New answer' }),
+        ],
+      });
+      insertMessages(replacement, true);
+
+      const rows = testDb.prepare('SELECT id FROM messages WHERE session_id = ? ORDER BY id')
+        .all('sess-replace') as Array<{ id: string }>;
+      expect(rows.map((row) => row.id)).toEqual(['new-assistant', 'new-user']);
+    });
+
     it('stores tool_calls as JSON when present', () => {
       const msg = makeParsedMessage({
         id: 'msg-tools',
@@ -405,6 +449,51 @@ describe('Database read/write operations', () => {
       const parsed = JSON.parse(row.tool_calls!);
       expect(parsed).toHaveLength(1);
       expect(parsed[0].name).toBe('Read');
+    });
+
+    it('bounds structured Codex tool results before persisting them', () => {
+      const structuredOutput = [{ type: 'input_text', text: 'x'.repeat(50_000) }];
+      const msg = makeParsedMessage({
+        id: 'msg-structured-result',
+        sessionId: 'sess-structured-result',
+        type: 'assistant',
+        toolResults: [{ toolUseId: 'tc-1', output: structuredOutput as unknown as string }],
+      });
+      const session = makeParsedSession({ id: 'sess-structured-result', messages: [msg] });
+
+      insertSessionWithProject(session);
+      insertMessages(session);
+
+      const row = testDb.prepare('SELECT tool_results FROM messages WHERE id = ?')
+        .get('msg-structured-result') as { tool_results: string };
+      const parsed = JSON.parse(row.tool_results) as Array<{ output: string }>;
+      expect(parsed[0].output.length).toBeLessThanOrEqual(2_000);
+      expect(row.tool_results.length).toBeLessThan(2_200);
+    });
+
+    it('bounds the number of projected tool results while preserving an omission marker', () => {
+      const msg = makeParsedMessage({
+        id: 'msg-many-results',
+        sessionId: 'sess-many-results',
+        type: 'assistant',
+        toolResults: Array.from({ length: 75 }, (_, index) => ({
+          toolUseId: `tc-${index}`,
+          output: `result-${index}`,
+        })),
+      });
+      const session = makeParsedSession({ id: 'sess-many-results', messages: [msg] });
+
+      insertSessionWithProject(session);
+      insertMessages(session);
+
+      const row = testDb.prepare('SELECT tool_results FROM messages WHERE id = ?')
+        .get('msg-many-results') as { tool_results: string };
+      const parsed = JSON.parse(row.tool_results) as Array<{ toolUseId: string; output: string }>;
+      expect(parsed).toHaveLength(51);
+      expect(parsed.at(-1)).toEqual(expect.objectContaining({
+        toolUseId: '__projection_truncated__',
+        output: expect.stringContaining('25 additional tool results'),
+      }));
     });
 
     it('stores thinking content when present', () => {

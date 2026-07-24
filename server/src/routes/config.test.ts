@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
-import { loadConfig, saveConfig } from '@agent-analytics/cli/utils/config';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
+import { loadConfig, saveConfig } from 'agent-usage-analyze/utils/config';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference for mocking.
@@ -9,16 +9,16 @@ import { loadConfig, saveConfig } from '@agent-analytics/cli/utils/config';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
 
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   trackEvent: vi.fn(),
 }));
 
-vi.mock('@agent-analytics/cli/utils/config', () => ({
+vi.mock('agent-usage-analyze/utils/config', () => ({
   loadConfig: vi.fn(() => null),
   saveConfig: vi.fn(),
   getConfigDir: () => '/tmp/agent-analytics-test',
@@ -34,7 +34,7 @@ vi.mock('../llm/providers/ollama.js', () => ({
   discoverOllamaModels: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('@agent-analytics/cli/analysis/execution-policy', () => ({
+vi.mock('agent-usage-analyze/analysis/execution-policy', () => ({
   isAnalysisExecutionMode: (value: unknown) => [
     'auto', 'codex-native', 'claude-native', 'provider', 'local-only', 'off',
   ].includes(String(value)),
@@ -112,11 +112,11 @@ describe('Config routes', () => {
         sources: [{ kind: 'synthetic-codex', count: 1 }],
         eras: [{ mode: 'continuous-observation', parserVersion: 'fixture-v1' }],
         llm: { configured: false, enabled: false },
-        migration: { databaseSchema: 24 },
+        migration: { databaseSchema: 28 },
         dataActions: {
           exportPath: '/api/export/sanitized',
-          archiveCommand: 'agent-analytics reset',
-          rebuildCommand: 'agent-analytics import-codex',
+          archiveCommand: 'agent-usage-analyze reset',
+          rebuildCommand: 'agent-usage-analyze import-codex',
         },
       });
     });

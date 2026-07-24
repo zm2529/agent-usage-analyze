@@ -8,7 +8,7 @@ import type { AnalysisResponse, PromptQualityResponse } from './prompt-types.js'
 import { normalizePatternCategory } from './pattern-normalize.js';
 import { normalizePromptQualityCategory } from './prompt-quality-normalize.js';
 
-export const ANALYSIS_VERSION = '3.0.0';
+export const ANALYSIS_VERSION = '3.1.0';
 
 // Shape of a saved insight row (matches the SQLite schema)
 export interface InsightRow {
@@ -65,8 +65,11 @@ export function convertToInsightRows(response: AnalysisResponse, session: Sessio
     bullets: JSON.stringify(response.summary.bullets),
     confidence: 0.9,
     source: 'llm',
-    metadata: response.summary.outcome
-      ? JSON.stringify({ outcome: response.summary.outcome })
+    metadata: response.summary.outcome || response.summary.skill_usage?.length
+      ? JSON.stringify({
+          ...(response.summary.outcome ? { outcome: response.summary.outcome } : {}),
+          ...(response.summary.skill_usage?.length ? { skill_usage: response.summary.skill_usage } : {}),
+        })
       : null,
     timestamp: session.ended_at,
     created_at: now,

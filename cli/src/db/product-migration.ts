@@ -76,7 +76,7 @@ export function assertCanonicalAutoMigrationAllowed(db: Database.Database): void
   const version = currentVersion(db);
   if (version > 0 && version < 10) {
     throw new Error(
-      `Legacy schema V${version} requires backup-first migration; run agent-analytics migrate-product`,
+      `Legacy schema V${version} requires backup-first migration; run agent-usage-analyze migrate-product`,
     );
   }
 }

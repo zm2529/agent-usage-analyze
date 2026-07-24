@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { tryRecordObserverOverhead } from './observer-overhead.js';
 import { listSemanticClaims } from './semantic-analysis.js';
+import { observeTaskPatterns } from './patterns.js';
 
 export interface AdvisorySuggestion {
   issueKey: string;
@@ -165,7 +166,7 @@ export function recordAdvisoryEvent(db: Database.Database, input: {
   return { eventId: id, interventionId };
 }
 
-export function readAdvisoryHistory(db: Database.Database, taskId?: string): AdvisoryHistory {
+export function readAdvisoryHistory(db: Database.Database, taskId?: string, limit = 200): AdvisoryHistory {
   let rootTaskId: string | undefined;
   if (taskId !== undefined) {
     const task = db.prepare('SELECT root_task_id AS rootTaskId FROM work_tasks WHERE id = ?')
@@ -185,7 +186,7 @@ export function readAdvisoryHistory(db: Database.Database, taskId?: string): Adv
         task_id AS taskId, action, outcome,
         observation_era_id AS observationEraId, coverage,
         evidence_refs_json AS evidenceRefsJson, occurred_at AS occurredAt
-      FROM advisory_events ORDER BY occurred_at DESC, id DESC LIMIT 200`).all()) as Array<{
+      FROM advisory_events ORDER BY occurred_at DESC, id DESC LIMIT ?`).all(Math.max(1, Math.min(limit, 200)))) as Array<{
         id: string; interventionId: string; issueKey: string; taskId: string; action: AdvisoryAction;
         outcome: AdvisoryEvent['outcome']; observationEraId: string; coverage: number;
         evidenceRefsJson: string; occurredAt: string;
@@ -398,6 +399,44 @@ export function queryAdvisories(
       evidenceRefs,
       muted,
     });
+  }
+  if (suggestions.length < limit) {
+    const coverageRow = db.prepare(`SELECT
+        COALESCE(SUM(parsed_count - unknown_count), 0) AS known,
+        COALESCE(SUM(parsed_count + skipped_count + failed_count), 0) AS total
+      FROM source_ingestion_stats WHERE source_artifact_id IN (
+        SELECT DISTINCT event.source_artifact_id
+        FROM canonical_events event JOIN work_tasks node ON node.id = event.task_id
+        WHERE node.root_task_id = ?
+      )`).get(task.rootTaskId) as { known: number; total: number };
+    const taskCoverage = coverageRow.total > 0
+      ? Math.max(0, Math.min(1, coverageRow.known / coverageRow.total))
+      : 1;
+    for (const observation of observeTaskPatterns(db, task.rootTaskId)) {
+      if (suggestions.length >= limit) break;
+      const definition = DETERMINISTIC_ADVICE[observation.pattern];
+      const issueKey = `pattern:${observation.pattern}`;
+      if (seen.has(issueKey)) continue;
+      const muted = Boolean(db.prepare(`SELECT 1 FROM advisory_mutes
+        WHERE ((scope_kind = 'issue' AND scope_key = ?)
+          OR (scope_kind = 'category' AND scope_key = 'deterministic'))
+          AND (muted_until IS NULL OR muted_until > ?) LIMIT 1`).get(issueKey, normalizedNow));
+      if (muted && !input.includeMuted) continue;
+      const recentlyShown = db.prepare(`SELECT 1 FROM advisory_events
+        WHERE task_id = ? AND issue_key = ? AND action = 'shown' AND occurred_at > ? LIMIT 1`)
+        .get(task.rootTaskId, issueKey, cooldownBoundary);
+      if (recentlyShown) continue;
+      seen.add(issueKey);
+      suggestions.push({
+        issueKey,
+        sourceCategory: 'deterministic',
+        ...definition,
+        confidence: Math.min(0.9, taskCoverage * (0.6 + Math.min(0.3, observation.evidenceRefs.length * 0.05))),
+        coverage: taskCoverage,
+        evidenceRefs: observation.evidenceRefs.slice(0, 10),
+        muted,
+      });
+    }
   }
   return { status: 'ok', taskId: input.taskId, suggestions, diagnostics: [] };
 }

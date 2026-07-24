@@ -225,7 +225,7 @@ function renderPromptQuality(insight: InsightRow, lines: string[]) {
 export function formatKnowledgeBase(sessions: SessionRow[], insights: InsightRow[]): string {
   const now = new Date().toISOString().split('T')[0];
   const lines: string[] = [
-    `# Agent Analytics Export`,
+    `# Agent Usage Analyzer Export`,
     `> Exported on ${now} — ${sessions.length} session${sessions.length !== 1 ? 's' : ''}, ${insights.length} insight${insights.length !== 1 ? 's' : ''}`,
     '',
   ];

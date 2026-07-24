@@ -152,6 +152,41 @@ describe('settled analysis scheduler', () => {
     db.close();
   });
 
+  it('imports every due session before starting slow semantic analysis', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const insert = db.prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, generation, not_before)
+      VALUES ('codex-cli', ?, 'settling', 'auto', 1, '2026-07-22T03:00:00.000Z')`);
+    insert.run('first');
+    insert.run('second');
+    const order: string[] = [];
+    const importFactory = (_db: Database.Database, frontier: { sessionId: string }): SettledImportDependencies => ({
+      now: () => new Date('2026-07-22T03:01:00Z'), idleSeconds: 90,
+      locate: () => ({ path: `/safe/${frontier.sessionId}.jsonl`, locatorAccepted: false, diagnostic: null }),
+      contentBasis: () => 'rollout-sha256:stable',
+      ingest: async () => { order.push(`import:${frontier.sessionId}`); return { complete: true, diagnostic: null }; },
+      prepareProjection: async () => ({ complete: true, diagnostic: null, commit: vi.fn() }),
+      invalidateProjection: vi.fn(),
+      execution: { effectiveRunner: 'codex-native', reason: 'codex-chatgpt-auth' },
+    });
+    const analysisFactory = (_db: Database.Database, frontier: { sessionId: string }): SettledAnalysisDependencies => ({
+      now: () => new Date('2026-07-22T03:01:05Z'),
+      buildRunner: () => ({ name: 'codex-native', runAnalysis: vi.fn() }),
+      analyze: async (_sessionId, _runner, _guard, finalize) => {
+        order.push(`analyze:${frontier.sessionId}`);
+        expect(finalize()).toBe(true);
+      },
+    });
+
+    await processDueFrontiers(
+      db, new Date('2026-07-22T03:01:00Z'), importFactory, analysisFactory,
+    );
+
+    expect(order).toEqual(['import:first', 'import:second', 'analyze:first', 'analyze:second']);
+    db.close();
+  });
+
   it('does not analyze an unavailable source after import retries are exhausted', async () => {
     const db = new Database(':memory:');
     runMigrations(db);
@@ -190,7 +225,7 @@ describe('settled analysis scheduler', () => {
     await expect(processDueFrontiers(db, new Date('2026-07-22T03:01:00Z'), failingFactory))
       .resolves.toBe(1);
     expect(db.prepare(`SELECT status, attempt_count, not_before FROM analysis_queue`).get())
-      .toEqual({ status: 'settling', attempt_count: 1, not_before: '2026-07-22T03:02:30.000Z' });
+      .toEqual({ status: 'settling', attempt_count: 1, not_before: '2026-07-22T03:01:10.000Z' });
 
     db.prepare(`UPDATE analysis_queue SET not_before = '2026-07-22T03:02:00.000Z'`).run();
     await expect(processDueFrontiers(db, new Date('2026-07-22T03:03:00Z'), failingFactory))

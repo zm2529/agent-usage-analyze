@@ -30,7 +30,7 @@ async function checkServer(baseUrl: string): Promise<void> {
     await fetch(`${baseUrl}/api/health`);
   } catch {
     console.log(chalk.yellow('  Dashboard server is not running.'));
-    console.log(chalk.dim('  Start it with: agent-analytics dashboard'));
+    console.log(chalk.dim('  Start it with: agent-usage-analyze dashboard'));
     console.log();
     process.exit(1);
   }
@@ -43,7 +43,7 @@ async function checkLlmConfigured(baseUrl: string): Promise<void> {
       const data = await res.json() as { provider?: string; model?: string };
       if (!data.provider || !data.model) {
         console.log(chalk.yellow('  LLM provider is not configured.'));
-        console.log(chalk.dim('  Configure it with: agent-analytics config llm'));
+        console.log(chalk.dim('  Configure it with: agent-usage-analyze config llm'));
         console.log();
         process.exit(1);
       }
@@ -301,7 +301,7 @@ async function reflectAction(options: {
     console.log(chalk.bold('  Rules & Hooks'));
     const rules = rulesSkills.claudeMdRules as Array<{ rule: string }> | undefined;
     if (rules && rules.length > 0) {
-      console.log(chalk.dim('  CLAUDE.md rules:'));
+      console.log(chalk.dim('  Codex working rules:'));
       for (const r of rules) {
         console.log(`    ${chalk.cyan('→')} ${r.rule}`);
       }
@@ -329,7 +329,7 @@ async function reflectAction(options: {
     console.log();
   }
 
-  console.log(chalk.dim('  View full results: agent-analytics dashboard → Patterns'));
+  console.log(chalk.dim('  View full results: agent-usage-analyze dashboard → Patterns'));
   console.log();
 }
 

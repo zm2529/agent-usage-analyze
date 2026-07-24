@@ -1,8 +1,8 @@
 import Database from 'better-sqlite3';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
-import type { SemanticProvider } from '@agent-analytics/cli/canonical/semantic-analysis';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
+import type { SemanticProvider } from 'agent-usage-analyze/canonical/semantic-analysis';
 import { createSemanticAnalysisRouter } from './semantic-analysis.js';
 
 function setup(): Database.Database {

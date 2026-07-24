@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { SessionProvider } from './types.js';
 import type { ParsedSession, ParsedMessage, ToolCall, ToolResult, SessionUsage, MessageUsage } from '../types.js';
-import { generateTitle, detectSessionCharacter } from '../parser/titles.js';
+import { generateTitle, detectSessionCharacter, extractExplicitUserRequest } from '../parser/titles.js';
 
 /**
  * OpenAI Codex CLI session provider.
@@ -16,6 +16,10 @@ import { generateTitle, detectSessionCharacter } from '../parser/titles.js';
 export class CodexProvider implements SessionProvider {
   getProviderName(): string {
     return 'codex-cli';
+  }
+
+  getParserVersion(): string {
+    return 'codex-session-v7-compaction-events';
   }
 
   async discover(options?: { projectFilter?: string }): Promise<string[]> {
@@ -138,8 +142,10 @@ interface CodexRolloutLine {
 interface CodexUsage {
   input_tokens?: number;
   cached_input_tokens?: number;
+  cache_write_input_tokens?: number;
   output_tokens?: number;
-  reasoning?: number;
+  reasoning_output_tokens?: number;
+  total_tokens?: number;
 }
 
 // Format B: top-level JSON structure
@@ -218,22 +224,25 @@ function parseFormatA(content: string): ParsedSession | null {
   let currentThinking: string | null = null;
   let turnUsage: CodexUsage | null = null;
   let toolCounter = 0;
+  let compactCount = 0;
+  let autoCompactCount = 0;
 
   function flushAssistantTurn(): void {
     const text = currentAssistantText.trim();
     if (!text && currentToolCalls.length === 0) return;
 
     const msgUsage: MessageUsage | null = turnUsage ? {
-      inputTokens: turnUsage.input_tokens || 0,
+      inputTokens: Math.max(0, (turnUsage.input_tokens || 0) - (turnUsage.cached_input_tokens || 0)),
       outputTokens: turnUsage.output_tokens || 0,
       cacheCreationTokens: 0,
       cacheReadTokens: turnUsage.cached_input_tokens || 0,
       model: model || 'unknown',
       estimatedCostUsd: 0,
     } : null;
+    if (turnUsage) usageEntries.push(turnUsage);
 
     messages.push({
-      id: `codex-assistant-${messages.length}`,
+      id: `${sessionId}:assistant:${messages.length}`,
       sessionId: sessionId,
       type: 'assistant',
       content: text.slice(0, 10000),
@@ -286,10 +295,29 @@ function parseFormatA(content: string): ParsedSession | null {
             currentAssistantText += assistantContent + '\n';
           }
           lastTimestamp = parseEnvelopeTimestamp(event) || lastTimestamp;
+        } else if (role === 'user') {
+          // Some Codex/Desktop rollouts only persist the response_item copy of a
+          // user turn and omit event_msg/user_message. Keep that copy, then let
+          // the event_msg branch below suppress the adjacent duplicate when both
+          // envelopes are present.
+          const userContent = normalizeUserContent(extractContent(payload));
+          if (userContent) {
+            flushAssistantTurn();
+            messages.push({
+              id: (payload.id as string) || `${sessionId}:user:${messages.length}`,
+              sessionId,
+              type: 'user',
+              content: userContent.slice(0, 10000),
+              thinking: null,
+              toolCalls: [],
+              toolResults: [],
+              usage: null,
+              timestamp: parseEnvelopeTimestamp(event) || lastTimestamp,
+              parentId: null,
+            });
+            lastTimestamp = messages[messages.length - 1].timestamp;
+          }
         }
-        // Skip role === 'user' — handled by event_msg/user_message case.
-        // Both response_item/message(role=user) and event_msg/user_message fire for
-        // every user prompt, so only capturing from one source avoids doubling the count.
         break;
       }
 
@@ -298,29 +326,37 @@ function parseFormatA(content: string): ParsedSession | null {
         // event_msg/user_message: the real user prompt (payload.message = text string)
         flushAssistantTurn();
         // event_msg user_message stores the text directly in payload.message
-        const msgText = (payload.message as string) || '';
-        if (msgText && !isSystemContextMessage(msgText)) {
-          messages.push({
-            id: (payload.id as string) || `codex-user-${messages.length}`,
-            sessionId: sessionId,
-            type: 'user',
-            content: msgText.slice(0, 10000),
-            thinking: null,
-            toolCalls: [],
-            toolResults: [],
-            usage: null,
-            timestamp: parseEnvelopeTimestamp(event) || lastTimestamp,
-            parentId: null,
-          });
-          lastTimestamp = messages[messages.length - 1].timestamp;
+        const msgText = normalizeUserContent((payload.message as string) || '');
+        if (msgText) {
+          const previous = messages[messages.length - 1];
+          const duplicateResponseItem = previous?.type === 'user' && previous.content === msgText.slice(0, 10000);
+          if (!duplicateResponseItem) {
+            messages.push({
+              id: (payload.id as string) || `${sessionId}:user:${messages.length}`,
+              sessionId: sessionId,
+              type: 'user',
+              content: msgText.slice(0, 10000),
+              thinking: null,
+              toolCalls: [],
+              toolResults: [],
+              usage: null,
+              timestamp: parseEnvelopeTimestamp(event) || lastTimestamp,
+              parentId: null,
+            });
+            lastTimestamp = messages[messages.length - 1].timestamp;
+          }
         }
         break;
       }
 
       case 'agent_message': {
-        // event_msg/agent_message fires alongside response_item/message(role=assistant).
-        // Text is already captured via that handler — only update timestamp here to
-        // avoid duplicating assistant content.
+        // event_msg/agent_message normally mirrors response_item/message, but
+        // Desktop-originated rollouts may contain only this envelope. Use it as
+        // a fallback without duplicating the normal response_item path.
+        const assistantContent = (payload.message as string) || (payload.text as string) || '';
+        if (assistantContent && currentAssistantText.trim().length === 0) {
+          currentAssistantText = `${assistantContent}\n`;
+        }
         lastTimestamp = parseEnvelopeTimestamp(event) || lastTimestamp;
         break;
       }
@@ -418,7 +454,6 @@ function parseFormatA(content: string): ParsedSession | null {
         const usageRaw = payload.usage as CodexUsage | undefined;
         if (usageRaw?.input_tokens) {
           turnUsage = usageRaw;
-          usageEntries.push(usageRaw);
         }
         if (payload.model) {
           model = payload.model as string;
@@ -427,12 +462,20 @@ function parseFormatA(content: string): ParsedSession | null {
         break;
       }
 
+      case 'token_count': {
+        const info = payload.info as Record<string, unknown> | undefined;
+        const last = info?.last_token_usage as CodexUsage | undefined;
+        if (last && typeof last.input_tokens === 'number' && typeof last.output_tokens === 'number') {
+          turnUsage = last;
+        }
+        break;
+      }
+
       case 'turn.completed': {
         // Legacy event name — handle in case some versions use it
         const usage = (payload.usage || payload) as CodexUsage;
         if (usage.input_tokens) {
           turnUsage = usage;
-          usageEntries.push(usage);
         }
         if ((payload as Record<string, unknown>).model) {
           model = (payload as Record<string, unknown>).model as string;
@@ -441,12 +484,19 @@ function parseFormatA(content: string): ParsedSession | null {
         break;
       }
 
+      case 'compacted':
+      case 'context_compacted': {
+        autoCompactCount++;
+        break;
+      }
+
       case 'turn.started':
       case 'thread.started':
       case 'session_meta':
       case 'task_started':
-      case 'token_count':
+        break;
       case 'turn_context':
+        if (typeof payload.model === 'string' && payload.model) model = payload.model;
         // Lifecycle/telemetry events — skip
         break;
 
@@ -458,7 +508,10 @@ function parseFormatA(content: string): ParsedSession | null {
   // Flush any remaining assistant content after all lines processed
   flushAssistantTurn();
 
-  return buildSession(sessionId, meta.cwd || 'codex://unknown', meta.cli_version || null, meta.timestamp, messages, usageEntries, model);
+  return buildSession(
+    sessionId, meta.cwd || 'codex://unknown', meta.cli_version || null, meta.timestamp,
+    messages, usageEntries, model, null, compactCount, autoCompactCount,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +549,7 @@ function parseFormatB(content: string): ParsedSession | null {
     if (currentToolCalls.length === 0 && !currentThinking) return;
 
     messages.push({
-      id: `codex-assistant-${messages.length}`,
+      id: `${sessionId}:assistant:${messages.length}`,
       sessionId: sessionId,
       type: 'assistant',
       content: '',
@@ -519,10 +572,10 @@ function parseFormatB(content: string): ParsedSession | null {
     if (item.role === 'user' && item.type === 'message') {
       // Flush pending assistant turn before new user message
       flushAssistantTurn();
-      const userContent = extractFormatBContent(item.content);
-      if (userContent && !isSystemContextMessage(userContent)) {
+      const userContent = normalizeUserContent(extractFormatBContent(item.content));
+      if (userContent) {
         messages.push({
-          id: `codex-user-${messages.length}`,
+          id: `${sessionId}:user:${messages.length}`,
           sessionId: sessionId,
           type: 'user',
           content: userContent.slice(0, 10000),
@@ -611,6 +664,9 @@ function buildSession(
   messages: ParsedMessage[],
   usageEntries: CodexUsage[],
   model: string,
+  cumulativeUsage: CodexUsage | null = null,
+  compactCount = 0,
+  autoCompactCount = 0,
 ): ParsedSession | null {
   if (messages.length === 0) return null;
 
@@ -622,14 +678,21 @@ function buildSession(
   const startedAt = timestamps.length > 0 ? new Date(Math.min(...timestamps)) : new Date(metaTimestamp);
   const endedAt = timestamps.length > 0 ? new Date(Math.max(...timestamps)) : new Date(metaTimestamp);
 
-  const totalInput = usageEntries.reduce((s, u) => s + (u.input_tokens || 0), 0);
-  const totalOutput = usageEntries.reduce((s, u) => s + (u.output_tokens || 0), 0);
-  const totalCached = usageEntries.reduce((s, u) => s + (u.cached_input_tokens || 0), 0);
+  const rawInput = cumulativeUsage?.input_tokens
+    ?? usageEntries.reduce((s, u) => s + (u.input_tokens || 0), 0);
+  const totalOutput = cumulativeUsage?.output_tokens
+    ?? usageEntries.reduce((s, u) => s + (u.output_tokens || 0), 0);
+  const totalCached = cumulativeUsage?.cached_input_tokens
+    ?? usageEntries.reduce((s, u) => s + (u.cached_input_tokens || 0), 0);
+  const totalCacheWrite = cumulativeUsage?.cache_write_input_tokens ?? 0;
+  // Codex reports cached input as a subset of input_tokens. Normalize it to the
+  // same mutually-exclusive columns used by the other provider adapters.
+  const totalInput = Math.max(0, rawInput - totalCached);
 
   const usage: SessionUsage | undefined = totalInput > 0 ? {
     totalInputTokens: totalInput,
     totalOutputTokens: totalOutput,
-    cacheCreationTokens: 0,
+    cacheCreationTokens: totalCacheWrite,
     cacheReadTokens: totalCached,
     estimatedCostUsd: 0, // Codex pricing not public
     modelsUsed: model ? [model] : [],
@@ -653,8 +716,8 @@ function buildSession(
     userMessageCount: userMessages.length,
     assistantMessageCount: assistantMessages.length,
     toolCallCount,
-    compactCount: 0,
-    autoCompactCount: 0,
+    compactCount,
+    autoCompactCount,
     slashCommands: [],
     gitBranch: null,
     claudeVersion: cliVersion,
@@ -746,7 +809,15 @@ function isSystemContextMessage(content: string): boolean {
   return (
     trimmed.startsWith('<permissions') ||
     trimmed.startsWith('<environment_context') ||
+    trimmed.startsWith('<in-app-browser-context') ||
     trimmed.startsWith('<collaboration_mode') ||
+    trimmed.startsWith('<recommended_plugins') ||
+    trimmed.startsWith('<recommendedplugins') ||
+    trimmed.startsWith('<codex_internal_context') ||
+    trimmed.startsWith('<codexinternalcontext') ||
+    trimmed.startsWith('<codex_delegation') ||
+    trimmed.startsWith('<codexdelegation') ||
+    trimmed.startsWith('<skill') ||
     trimmed.startsWith('# AGENTS.md') ||
     trimmed.startsWith('## Apps') ||
     trimmed.startsWith('## Tools') ||
@@ -754,4 +825,11 @@ function isSystemContextMessage(content: string): boolean {
     trimmed.startsWith('## Shell') ||
     trimmed.startsWith('## Current working directory')
   );
+}
+
+function normalizeUserContent(content: string | null): string | null {
+  if (!content) return null;
+  const request = extractExplicitUserRequest(content);
+  if (request !== content.trim()) return request || null;
+  return isSystemContextMessage(content) ? null : content;
 }

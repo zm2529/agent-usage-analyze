@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { getDb } from '@agent-analytics/cli/db/client';
-import { trackEvent } from '@agent-analytics/cli/utils/telemetry';
-import type { ExportTemplate } from '@agent-analytics/cli/types';
+import { getDb } from 'agent-usage-analyze/db/client';
+import { trackEvent } from 'agent-usage-analyze/utils/telemetry';
+import type { ExportTemplate } from 'agent-usage-analyze/types';
 import { formatKnowledgeBase } from '../export/knowledge-base.js';
 import { formatAgentRules } from '../export/agent-rules.js';
 import type { SessionRow, InsightRow } from '../export/knowledge-base.js';
 import { createLLMClient, loadLLMConfig } from '../llm/client.js';
 import { requireLLM } from './route-helpers.js';
-import { buildSanitizedExport } from '@agent-analytics/cli/canonical/sanitized-export';
+import { buildSanitizedExport } from 'agent-usage-analyze/canonical/sanitized-export';
 import {
   applyDepthCap,
   buildInsightContext,

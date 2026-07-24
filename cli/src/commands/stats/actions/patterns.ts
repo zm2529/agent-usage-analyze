@@ -55,7 +55,7 @@ export async function patternsAction(flags: StatsFlags): Promise<void> {
     } catch {
       console.log();
       console.log(chalk.yellow('  Dashboard server is not running.'));
-      console.log(chalk.dim('  Start it with: agent-analytics dashboard'));
+      console.log(chalk.dim('  Start it with: agent-usage-analyze dashboard'));
       console.log();
       return;
     }
@@ -129,8 +129,8 @@ export async function patternsAction(flags: StatsFlags): Promise<void> {
       console.log();
     }
 
-    console.log(chalk.dim('  Generate full analysis: agent-analytics reflect'));
-    console.log(chalk.dim('  View in dashboard: agent-analytics dashboard → Patterns'));
+    console.log(chalk.dim('  Generate full analysis: agent-usage-analyze reflect'));
+    console.log(chalk.dim('  View in dashboard: agent-usage-analyze dashboard → Patterns'));
     console.log();
 
     // Check for cached reflect snapshot
@@ -172,7 +172,7 @@ export async function patternsAction(flags: StatsFlags): Promise<void> {
         const stale = data.totalSessions > snap.sessionCount;
         if (stale) {
           console.log(chalk.yellow(`  ${data.totalSessions - snap.sessionCount} new sessions since last reflection.`));
-          console.log(chalk.dim('  Run: agent-analytics reflect'));
+          console.log(chalk.dim('  Run: agent-usage-analyze reflect'));
           console.log();
         }
       }

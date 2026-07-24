@@ -1,7 +1,7 @@
 // Shared aggregation logic for facets and reflect routes.
 // Extracted to avoid ~150 lines of duplication between the two routes.
 
-import { getDb } from '@agent-analytics/cli/db/client';
+import { getDb } from 'agent-usage-analyze/db/client';
 import { normalizeFrictionCategory } from '../llm/friction-normalize.js';
 import { normalizePatternCategory, getPatternCategoryLabel } from '../llm/pattern-normalize.js';
 import { normalizePromptQualityCategory, PQ_CATEGORY_LABELS } from '../llm/prompt-quality-normalize.js';

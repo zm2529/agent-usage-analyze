@@ -2,7 +2,7 @@
 // and writes bidirectional links to SQLite.
 // Extracted from analysis.ts to keep each analysis responsibility in its own module.
 
-import { getDb } from '@agent-analytics/cli/db/client';
+import { getDb } from 'agent-usage-analyze/db/client';
 import { createLLMClient, isLLMConfigured } from './client.js';
 
 export interface RecurringInsightGroup {

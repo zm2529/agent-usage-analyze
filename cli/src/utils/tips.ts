@@ -16,28 +16,28 @@ const TIPS_STATE_FILE = '.tips-state.json';
  */
 const TIPS: Record<string, string[]> = {
   stats: [
-    'Try `agent-analytics stats cost` for a cost and token breakdown by session',
-    'Try `agent-analytics stats today` to see only today\'s activity',
-    'Try `agent-analytics stats models` to compare usage across AI models',
-    'Try `agent-analytics stats projects` to see which projects you\'ve worked on most',
-    'Run `agent-analytics dashboard` to explore your sessions in the built-in dashboard',
+    'Try `agent-usage-analyze stats cost` for a cost and token breakdown by session',
+    'Try `agent-usage-analyze stats today` to see only today\'s activity',
+    'Try `agent-usage-analyze stats models` to compare usage across AI models',
+    'Try `agent-usage-analyze stats projects` to see which projects you\'ve worked on most',
+    'Run `agent-usage-analyze dashboard` to explore your sessions in the built-in dashboard',
   ],
   'stats cost': [
     'Use `--period 30d` to see cost over the last 30 days (default is 7d)',
-    'Try `agent-analytics stats models` to break down cost by model',
-    'Try `agent-analytics stats` for a full activity overview',
+    'Try `agent-usage-analyze stats models` to break down cost by model',
+    'Try `agent-usage-analyze stats` for a full activity overview',
   ],
   'stats today': [
-    'Try `agent-analytics stats` for a full activity overview across all time',
-    'Try `agent-analytics stats cost` to see what today\'s sessions cost',
+    'Try `agent-usage-analyze stats` for a full activity overview across all time',
+    'Try `agent-usage-analyze stats cost` to see what today\'s sessions cost',
   ],
   'stats projects': [
     'Use `--project <name>` to filter sessions to a specific project',
-    'Try `agent-analytics stats cost` to see how spend is distributed across projects',
+    'Try `agent-usage-analyze stats cost` to see how spend is distributed across projects',
   ],
   'stats models': [
-    'Try `agent-analytics stats cost` to see per-session cost alongside model usage',
-    'Try `agent-analytics stats` for the full overview including all activity',
+    'Try `agent-usage-analyze stats cost` to see per-session cost alongside model usage',
+    'Try `agent-usage-analyze stats` for the full overview including all activity',
   ],
 };
 
@@ -46,7 +46,7 @@ interface TipsState {
 }
 
 /**
- * Load tips state from ~/.agent-analytics/.tips-state.json.
+ * Load tips state from ~/.agent-usage-analyze/.tips-state.json.
  * Returns an empty state on any I/O or parse error — tips are non-critical.
  */
 function loadTipsState(): TipsState {
@@ -81,7 +81,7 @@ function saveTipsState(state: TipsState): void {
  *
  * Tips are suppressed once a command has accumulated MAX_TIPS_PER_COMMAND
  * displays, so they phase out naturally after the user's first few runs.
- * All state is stored in ~/.agent-analytics/.tips-state.json.
+ * All state is stored in ~/.agent-usage-analyze/.tips-state.json.
  *
  * Returns the tip string if one was printed, or null if suppressed.
  */

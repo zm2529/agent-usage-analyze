@@ -14,7 +14,11 @@ import chalk from 'chalk';
 import { Command } from 'commander';
 import { getQueueStatus, resetFailed, pruneCompleted } from '../db/queue.js';
 import { processQueue } from '../analysis/queue-worker.js';
-import { runSettledScheduler, spawnSettledScheduler } from '../analysis/settled-scheduler.js';
+import {
+  runSettledAnalysisWorker,
+  runSettledScheduler,
+  spawnSettledScheduler,
+} from '../analysis/settled-scheduler.js';
 import { buildAutomaticAnalysisStatus } from '../analysis/automatic-status.js';
 import { resolveAnalysisExecutionPolicy } from '../analysis/execution-policy.js';
 import { loadConfig } from '../utils/config.js';
@@ -84,13 +88,13 @@ export async function queueProcessCommand(opts: { quiet?: boolean; model?: strin
   try {
     const count = await processQueue({ quiet, model: opts.model });
     if (count === 0) {
-      log(chalk.dim('[Agent Analytics] No pending items in queue'));
+      log(chalk.dim('[Agent Usage Analyzer] No pending items in queue'));
     } else {
-      log(chalk.green(`[Agent Analytics] Processed ${count} item(s)`));
+      log(chalk.green(`[Agent Usage Analyzer] Processed ${count} item(s)`));
     }
   } catch (error) {
     if (!quiet) {
-      console.error(chalk.red(`[Agent Analytics] Queue processing failed: ${error instanceof Error ? error.message : String(error)}`));
+      console.error(chalk.red(`[Agent Usage Analyzer] Queue processing failed: ${error instanceof Error ? error.message : String(error)}`));
     }
     process.exit(1);
   }
@@ -113,9 +117,9 @@ export async function queueRetryCommand(
   if (count > 0) spawnSettledScheduler();
   if (!quiet) {
     if (count === 0) {
-      console.log(chalk.yellow('[Agent Analytics] No failed or awaiting items found to retry'));
+      console.log(chalk.yellow('[Agent Usage Analyzer] No failed or awaiting items found to retry'));
     } else {
-      console.log(chalk.green(`[Agent Analytics] Reset ${count} blocked item(s) for retry`));
+      console.log(chalk.green(`[Agent Usage Analyzer] Reset ${count} blocked item(s) for retry`));
     }
   }
 }
@@ -127,9 +131,9 @@ export async function queuePruneCommand(opts: { days?: number; quiet?: boolean }
   const count = pruneCompleted(days);
   if (!quiet) {
     if (count === 0) {
-      console.log(chalk.dim(`[Agent Analytics] No items older than ${days} days to remove`));
+      console.log(chalk.dim(`[Agent Usage Analyzer] No items older than ${days} days to remove`));
     } else {
-      console.log(chalk.green(`[Agent Analytics] Removed ${count} item(s) older than ${days} days`));
+      console.log(chalk.green(`[Agent Usage Analyzer] Removed ${count} item(s) older than ${days} days`));
     }
   }
 }
@@ -152,7 +156,16 @@ export function buildQueueCommand(): Command {
     .option('-q, --quiet', 'Suppress output')
     .action(async (opts) => {
       const count = await runSettledScheduler();
-      if (!opts.quiet) console.log(chalk.dim(`[Agent Analytics] Settled ${count} frontier(s)`));
+      if (!opts.quiet) console.log(chalk.dim(`[Agent Usage Analyzer] Settled ${count} frontier(s)`));
+    });
+
+  queueCmd
+    .command('analyze-settled')
+    .description('Internal settled-session analysis worker')
+    .option('-q, --quiet', 'Suppress output')
+    .action(async (opts) => {
+      const count = await runSettledAnalysisWorker();
+      if (!opts.quiet) console.log(chalk.dim(`[Agent Usage Analyzer] Analyzed ${count} settled session(s)`));
     });
 
   queueCmd

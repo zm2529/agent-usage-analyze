@@ -1,7 +1,7 @@
 {
-  "name": "@agent-analytics/dashboard",
+  "name": "@agent-usage-analyze/dashboard",
   "version": "0.1.0",
-  "description": "Agent Analytics local dashboard — Vite + React 19 SPA",
+  "description": "Agent Usage Analyzer local dashboard — Vite + React 19 SPA",
   "type": "module",
   "private": true,
   "scripts": {

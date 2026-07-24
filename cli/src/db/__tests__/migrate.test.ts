@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
     db.close();
   });
 });
@@ -208,7 +208,29 @@ describe('runMigrations — V24 native analysis accounting', () => {
     expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
       'cached_input_tokens', 'reasoning_tokens', 'llm_provider', 'llm_model',
     ]));
-    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 24 });
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = 24').get()).toEqual({ version: 24 });
+    db.close();
+  });
+});
+
+describe('runMigrations — V25 ingestion progress', () => {
+  it('adds a durable processed-source counter to ingestion runs', () => {
+    const db = freshDb();
+    runMigrations(db);
+    const columns = db.prepare('PRAGMA table_info(ingestion_runs)').all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain('processed_source_count');
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 28 });
+    db.close();
+  });
+});
+
+describe('runMigrations — V26 transparent analysis runs', () => {
+  it('adds the immutable run ledger and invalidates unsupported legacy prompt scores', () => {
+    const db = freshDb();
+    runMigrations(db);
+    expect(db.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name = 'analysis_runs'`).get()).toEqual({ name: 'analysis_runs' });
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 28 });
     db.close();
   });
 });
@@ -340,6 +362,24 @@ describe('runMigrations — V23 settled analysis frontier', () => {
         { source_tool: 'claude-code', status: 'completed' },
         { source_tool: 'codex-cli', status: 'settling' },
       ]);
+    db.close();
+  });
+});
+
+describe('runMigrations — V27 settled frontier repair', () => {
+  it('recreates frontier support for a database already marked past v23', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.exec(`DROP TABLE analysis_frontier_events;
+      DELETE FROM schema_version WHERE version IN (27, 28);`);
+
+    runMigrations(db);
+
+    expect(db.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name = 'analysis_frontier_events'`).get())
+      .toEqual({ name: 'analysis_frontier_events' });
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get())
+      .toEqual({ version: 28 });
     db.close();
   });
 });

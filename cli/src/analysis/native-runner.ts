@@ -5,7 +5,7 @@
  * as an array, never interpolated into a shell command string.
  *
  * Token counts are 0 because native-mode tokens are counted as part of the
- * overall Claude Code session — Agent Analytics incurs no separate cost.
+ * overall Claude Code session — Agent Usage Analyzer incurs no separate cost.
  */
 
 import { execFileSync } from 'child_process';

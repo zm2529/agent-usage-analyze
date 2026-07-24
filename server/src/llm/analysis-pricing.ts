@@ -1,4 +1,4 @@
-// Unified cost calculator for LLM analysis calls made by Agent Analytics.
+// Unified cost calculator for LLM analysis calls made by Agent Usage Analyzer.
 // Computes the USD cost of a single analysis call from token usage + provider/model metadata.
 //
 // Pricing sources:
@@ -8,8 +8,8 @@
 //      — used for Anthropic (detailed per-model pricing + cache multipliers)
 //   3. Ollama or unknown provider → $0.00 (local, free)
 
-import { PROVIDERS } from '@agent-analytics/cli/constants/llm-providers';
-import { getKnownModelPricing, getModelPricing } from '@agent-analytics/cli/utils/pricing';
+import { PROVIDERS } from 'agent-usage-analyze/constants/llm-providers';
+import { getKnownModelPricing, getModelPricing } from 'agent-usage-analyze/utils/pricing';
 
 /**
  * Date when pricing data was last verified against provider pricing pages.

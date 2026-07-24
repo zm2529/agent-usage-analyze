@@ -81,7 +81,8 @@ describe('settled analysis queue states', () => {
     runMigrations(db);
     db.prepare(`INSERT INTO analysis_queue
       (source_tool, session_id, status, runner_type, started_at)
-      VALUES ('codex-cli', 'auto', 'processing', 'auto', '2000-01-01T00:00:00.000Z')`).run();
+      VALUES ('codex-cli', 'auto', 'processing', 'auto',
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-11 minutes'))`).run();
 
     expect(resetStale(db)).toBe(1);
     expect(db.prepare(`SELECT status, not_before FROM analysis_queue`).get()).toMatchObject({

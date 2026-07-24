@@ -8,4 +8,7 @@ coverage/
 .env
 .scratch/
 work/
-
+.playwright-cli/
+output/
+cli/dashboard-dist/
+cli/server-dist/

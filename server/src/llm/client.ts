@@ -2,7 +2,7 @@
 // Config is loaded from ~/.agent-analytics/config.json via the CLI config system.
 // No localStorage or browser APIs used here.
 
-import { loadConfig } from '@agent-analytics/cli/utils/config';
+import { loadConfig } from 'agent-usage-analyze/utils/config';
 import type { LLMClient } from './types.js';
 import type { LLMProviderConfig } from './types.js';
 import { createOpenAIClient } from './providers/openai.js';
@@ -37,7 +37,7 @@ export function isLLMConfigured(): boolean {
 export function createLLMClient(): LLMClient {
   const config = loadLLMConfig();
   if (!config) {
-    throw new Error('LLM not configured. Run `agent-analytics config llm` to configure a provider.');
+    throw new Error('LLM not configured. Run `agent-usage-analyze config llm` to configure a provider.');
   }
   return createClientFromConfig(config);
 }

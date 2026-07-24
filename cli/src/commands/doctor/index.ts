@@ -65,7 +65,7 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
   }
 
   if (!opts.json) {
-    console.log(chalk.cyan(`\n  Agent Analytics — Doctor  v${version}`));
+    console.log(chalk.cyan(`\n  Agent Usage Analyzer — Doctor  v${version}`));
     console.log(chalk.dim('  ────────────────────────────────────────────────'));
   }
 

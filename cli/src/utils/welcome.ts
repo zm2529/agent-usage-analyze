@@ -10,7 +10,7 @@ const WELCOME_MARKER = '.welcome-shown';
 /**
  * Show a one-time welcome banner for first-time users.
  *
- * Only fires when no ~/.agent-analytics/.welcome-shown marker exists.
+ * Only fires when no ~/.agent-usage-analyze/.welcome-shown marker exists.
  * Intentionally non-critical — all file I/O is wrapped so errors
  * are swallowed silently rather than interrupting the user's command.
  *

@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
+import { getDb } from 'agent-usage-analyze/db/client';
 import {
   queryAdvisories,
   readAdvisoryHistory,
   recordAdvisoryEvent,
   clearAdvisoryMute,
   setAdvisoryMute,
-} from '@agent-analytics/cli/canonical/advisory';
-import { readObserverOverhead } from '@agent-analytics/cli/canonical/observer-overhead';
+} from 'agent-usage-analyze/canonical/advisory';
+import { readObserverOverhead } from 'agent-usage-analyze/canonical/observer-overhead';
 
 const app = new Hono();
 
@@ -17,8 +17,34 @@ const empty = (diagnostics: string[]) => ({
   muted: [],
   history: { events: [], comparisons: [] },
   attention: { shown: 0, adopted: 0, ignored: 0, dismissed: 0 },
+  strategic: null,
   diagnostics,
 });
+
+function latestStrategicGuidance(db: ReturnType<typeof getDb>) {
+  const row = db.prepare(`SELECT output_json AS outputJson, created_at AS createdAt
+    FROM analysis_runs WHERE analysis_type = 'behavior_report' AND status = 'completed'
+      AND output_json IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1`).get() as {
+        outputJson: string; createdAt: string;
+      } | undefined;
+  if (!row) return null;
+  try {
+    const report = JSON.parse(row.outputJson) as {
+      headline?: unknown;
+      developmentPlan?: { northStar?: unknown; experiments?: Array<{ title?: unknown; hypothesis?: unknown }> };
+    };
+    if (typeof report.headline !== 'string' || typeof report.developmentPlan?.northStar !== 'string') return null;
+    return {
+      generatedAt: row.createdAt,
+      headline: report.headline,
+      northStar: report.developmentPlan.northStar,
+      actions: (report.developmentPlan.experiments ?? []).flatMap((item) =>
+        typeof item.title === 'string' && typeof item.hypothesis === 'string'
+          ? [{ title: item.title, rationale: item.hypothesis }]
+          : []).slice(0, 4),
+    };
+  } catch { return null; }
+}
 
 app.get('/', (c) => {
   const taskId = c.req.query('taskId');
@@ -29,17 +55,20 @@ app.get('/', (c) => {
     const db = getDb();
     const taskIds = taskId !== undefined ? [taskId]
       : (db.prepare(`SELECT id FROM work_tasks WHERE id = root_task_id
-          ORDER BY started_at DESC, id DESC LIMIT 20`).all() as Array<{ id: string }>).map((task) => task.id);
-    const results = taskIds.map((candidateTaskId) => ({
-      taskId: candidateTaskId,
-      visible: queryAdvisories(db, {
-        taskId: candidateTaskId, now: new Date().toISOString(), limit: 3,
-      }),
-      catalog: queryAdvisories(db, {
+          ORDER BY started_at DESC, id DESC LIMIT 4`).all() as Array<{ id: string }>).map((task) => task.id);
+    const now = new Date().toISOString();
+    const results = taskIds.map((candidateTaskId) => {
+      const catalog = queryAdvisories(db, {
         taskId: candidateTaskId, now: new Date().toISOString(), limit: 3,
         cooldownMs: 0, includeMuted: true,
-      }),
-    }));
+      });
+      const visible = taskId === undefined
+        ? { ...catalog, suggestions: catalog.suggestions.filter((suggestion) => !suggestion.muted) }
+        : queryAdvisories(db, {
+            taskId: candidateTaskId, now, limit: 3,
+          });
+      return { taskId: candidateTaskId, visible, catalog };
+    });
     const active = results.flatMap(({ taskId: candidateTaskId, visible }) =>
       visible.suggestions.map((suggestion) => ({ ...suggestion, taskId: candidateTaskId })));
     const muted = results.flatMap(({ taskId: candidateTaskId, catalog }) =>
@@ -50,8 +79,9 @@ app.get('/', (c) => {
       status: 'ok',
       active,
       muted,
-      history: readAdvisoryHistory(db, taskId),
+      history: readAdvisoryHistory(db, taskId, 40),
       attention: overhead.advisory,
+      strategic: latestStrategicGuidance(db),
       diagnostics: [...new Set(results.flatMap(({ visible, catalog }) =>
         [...visible.diagnostics, ...catalog.diagnostics]))],
     });
@@ -114,6 +144,7 @@ app.post('/events', async (c) => {
     if (action === 'shown') {
       const advice = queryAdvisories(db, {
         taskId: task.rootTaskId, now: new Date().toISOString(), limit: 3,
+        cooldownMs: 0,
       }).suggestions.find((suggestion) => suggestion.issueKey === value.issueKey);
       if (!advice) return c.json({ error: 'Advisory issue not found' }, 404);
       coverage = advice.coverage;

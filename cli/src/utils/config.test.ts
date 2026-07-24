@@ -31,9 +31,9 @@ const {
 // Expected paths (derived from the mocked homedir)
 // ──────────────────────────────────────────────────────
 
-const EXPECTED_CONFIG_DIR = '/mock-home/.agent-analytics';
-const EXPECTED_CONFIG_FILE = '/mock-home/.agent-analytics/config.json';
-const EXPECTED_SYNC_STATE_FILE = '/mock-home/.agent-analytics/sync-state.json';
+const EXPECTED_CONFIG_DIR = '/mock-home/.agent-usage-analyze';
+const EXPECTED_CONFIG_FILE = '/mock-home/.agent-usage-analyze/config.json';
+const EXPECTED_SYNC_STATE_FILE = '/mock-home/.agent-usage-analyze/sync-state.json';
 const EXPECTED_CLAUDE_DIR = '/mock-home/.claude/projects';
 
 // ──────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ describe('config utilities', () => {
 
   afterEach(() => {
     delete process.env.AGENT_ANALYTICS_CONFIG_DIR;
+    delete process.env.AGENT_USAGE_ANALYZE_CONFIG_DIR;
   });
 
   // ────────────────────────────────────────────────────
@@ -58,9 +59,14 @@ describe('config utilities', () => {
       expect(getConfigDir()).toBe(EXPECTED_CONFIG_DIR);
     });
 
-    it('prefers AGENT_ANALYTICS_CONFIG_DIR when set', () => {
-      process.env.AGENT_ANALYTICS_CONFIG_DIR = '/task-home/.agent-analytics';
+    it('prefers AGENT_USAGE_ANALYZE_CONFIG_DIR when set', () => {
+      process.env.AGENT_USAGE_ANALYZE_CONFIG_DIR = '/task-home/.agent-usage-analyze';
 
+      expect(getConfigDir()).toBe('/task-home/.agent-usage-analyze');
+    });
+
+    it('continues accepting the legacy config override', () => {
+      process.env.AGENT_ANALYTICS_CONFIG_DIR = '/task-home/.agent-analytics';
       expect(getConfigDir()).toBe('/task-home/.agent-analytics');
     });
   });

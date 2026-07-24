@@ -25,7 +25,7 @@ import { formatSessionMetaLine } from './message-format.js';
  * Shared system prompt for all LLM analysis calls.
  * Paired with buildCacheableConversationBlock() + an analysis-specific instruction block.
  */
-export const SHARED_ANALYST_SYSTEM_PROMPT = `You are a senior staff engineer analyzing an AI coding session. You will receive the conversation transcript followed by specific extraction instructions. Respond with valid JSON only, wrapped in <json>...</json> tags.`;
+export const SHARED_ANALYST_SYSTEM_PROMPT = `You are a senior staff engineer analyzing an AI coding session. You will receive the conversation transcript followed by specific extraction instructions. Write all user-facing narrative fields in the dominant language of the genuine user messages; preserve code, paths, identifiers, and evidence references exactly. Respond with valid JSON only, wrapped in <json>...</json> tags.`;
 
 // =============================================================================
 // CACHEABLE CONVERSATION BLOCK
@@ -121,6 +121,7 @@ You will extract:
 1. **Summary**: A narrative of what was accomplished and the outcome
 2. **Decisions**: Technical choices made — with full situation context, reasoning, rejected alternatives, trade-offs, and conditions for revisiting (max 3)
 3. **Learnings**: Technical discoveries, gotchas, debugging breakthroughs — with the observable symptom, root cause, and a transferable takeaway (max 5)
+4. **Skill usage**: For every explicitly invoked Skill (for example \`$diagnose\` or a referenced SKILL.md), assess whether it fit the task, identify misuse or unnecessary sequencing, and give one bounded recommendation. Use \`uncertain\` when the transcript does not show enough evidence. Do not infer a Skill from ordinary tool calls, and return an empty array when no explicit Skill is visible.
 
 Quality Standards:
 - Only include insights you would write in a team knowledge base for future reference
@@ -197,7 +198,17 @@ Extract insights in this JSON format:
     "title": "Brief title describing main accomplishment (max 80 chars)",
     "content": "2-4 sentence narrative: what was the goal, what was done, what was the outcome. Mention the primary file or component changed.",
     "outcome": "success | partial | abandoned | blocked",
-    "bullets": ["Each bullet names a specific artifact (file, function, endpoint) and what changed"]
+    "bullets": ["Each bullet names a specific artifact (file, function, endpoint) and what changed"],
+    "skill_usage": [
+      {
+        "name": "explicit-skill-name",
+        "fit": "appropriate | mixed | uncertain",
+        "observation": "What the Skill contributed in this session",
+        "issue": "Specific misuse, overuse, underuse, or null",
+        "recommendation": "One bounded suggestion for the next similar task",
+        "evidence": ["User#1: explicit Skill invocation", "Assistant#2: observable use"]
+      }
+    ]
   },
   "decisions": [
     {
@@ -338,7 +349,7 @@ Evaluate the user's prompting quality and respond with this JSON format:
     "request_specificity": 65,
     "scope_management": 80,
     "information_timing": 55,
-    "correction_quality": 75
+    "correction_quality": null
   }
 }
 
@@ -354,7 +365,7 @@ Rules:
 - Findings are the full categorized set for aggregation — max 8
 - If the user prompted well, include strength findings and reinforce takeaways — don't manufacture issues
 - message_overhead is how many fewer messages the session could have taken with better prompts
-- dimension_scores: each 0-100. Score correction_quality as 75 if no corrections were needed.
+- dimension_scores: score applicable dimensions from 0-100. Set correction_quality to null when the user did not need to correct or redirect the assistant; do not award a default score. Base efficiency_score only on applicable evidence.
 
 Respond with valid JSON only, wrapped in <json>...</json> tags. Do not include any other text.`;
 }

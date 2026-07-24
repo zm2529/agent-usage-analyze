@@ -85,6 +85,9 @@ describe('canonical ingestion', () => {
       coverage: { discovered: 1, parsed: 1, skipped: 0, failed: 0, unknown: 0 },
       eventCount: 1,
       sourceCount: 1,
+      processedSources: 1,
+      startedAt: expect.any(String),
+      completedAt: expect.any(String),
       eras: [
         {
           id: 'era:historical-fixture-v1',

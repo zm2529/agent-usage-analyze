@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeDb, getDb } from '@agent-analytics/cli/db/client';
+import { closeDb, getDb } from 'agent-usage-analyze/db/client';
 import { createApp } from '../index.js';
 
 let dataDir: string;
@@ -115,6 +115,7 @@ describe('Advice API', () => {
       status: 'ok', active: [], muted: [],
       history: { events: [], comparisons: [] },
       attention: { shown: 0, adopted: 0, ignored: 0, dismissed: 0 },
+      strategic: null,
       diagnostics: ['unavailable'],
     });
   });
@@ -151,6 +152,29 @@ describe('Advice API', () => {
       { action: 'shown', outcome: null, observationEraId: 'era:advice', coverage: 0.9 },
     ]);
     expect(state.attention.shown).toBe(1);
+  });
+
+  it('records a displayed suggestion even when the same task and issue were shown recently', async () => {
+    const app = createApp();
+    const event = {
+      taskId: 'task:advice', issueKey: 'pattern:validation-missing', action: 'shown',
+    };
+
+    const first = await app.request('/api/advice/events', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+    });
+    const second = await app.request('/api/advice/events', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+    });
+
+    expect(first.status).toBe(202);
+    expect(second.status, await second.clone().text()).toBe(202);
+    const state = await (await app.request('/api/advice?taskId=task%3Aadvice')).json() as {
+      history: { events: Array<{ action: string }> };
+    };
+    expect(state.history.events.filter((item) => item.action === 'shown')).toHaveLength(2);
   });
 
   it('rejects an older task as follow-up evidence for a newer intervention', async () => {

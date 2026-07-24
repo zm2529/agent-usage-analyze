@@ -55,7 +55,7 @@ export function dashboardChecks(): Check[] {
             id: 'dashboard.reachable',
             label: 'Dashboard server',
             status: 'skip',
-            detail: 'Not running (start with: agent-analytics dashboard)',
+            detail: 'Not running (start with: agent-usage-analyze dashboard)',
           };
         }
       },

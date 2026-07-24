@@ -16,12 +16,13 @@ import {
   type HookConfig,
   getHookCommand,
   hookAlreadyInstalled,
+  isAgentUsageAnalyzerHookCommand,
 } from '../utils/hooks-utils.js';
 
 const CLAUDE_SETTINGS_DIR = path.join(os.homedir(), '.claude');
 
 /**
- * Remove any existing Agent Analytics Stop hooks (v4.8.x migration).
+ * Remove any existing Agent Usage Analyzer Stop hooks (v4.8.x migration).
  * v4.8.x installed a Stop hook for sync; v4.9+ uses a single SessionEnd hook.
  * Called on install so re-running install-hook cleans up the old setup.
  */
@@ -29,7 +30,7 @@ function removeStopHooks(settings: ClaudeSettings): boolean {
   if (!settings.hooks?.Stop) return false;
   const before = settings.hooks.Stop.length;
   settings.hooks.Stop = settings.hooks.Stop.filter(
-    (h) => !h.hooks.some((hook) => getHookCommand(hook).includes('agent-analytics'))
+    (h) => !h.hooks.some((hook) => isAgentUsageAnalyzerHookCommand(getHookCommand(hook)))
   );
   if (settings.hooks.Stop.length === 0) {
     delete settings.hooks.Stop;
@@ -40,7 +41,7 @@ function removeStopHooks(settings: ClaudeSettings): boolean {
 }
 
 /**
- * Install the single Agent Analytics SessionEnd hook.
+ * Install the single Agent Usage Analyzer SessionEnd hook.
  *
  * v4.9+ uses one SessionEnd hook that does sync + enqueue + worker spawn.
  * Running install-hook again removes the old Stop hook (v4.8.x hygiene) and
@@ -66,7 +67,7 @@ export async function installHookCommand(options: { source?: HookSource } = {}):
     return;
   }
   if (source !== 'claude') throw new Error(`Unsupported hook source: ${source}`);
-  console.log(chalk.cyan('\nInstall Agent Analytics Hook\n'));
+  console.log(chalk.cyan('\nInstall Agent Usage Analyzer Hook\n'));
 
   const sessionEndCommand = `node ${CLI_ENTRY} session-end --native -q`;
 
@@ -116,9 +117,9 @@ export async function installHookCommand(options: { source?: HookSource } = {}):
     console.log(chalk.green('Hook installed successfully!'));
     console.log(chalk.gray(`\nConfiguration saved to: ${HOOKS_FILE}`));
     console.log(chalk.cyan('\nHow it works:'));
-    console.log(chalk.white('  When a session ends, Agent Analytics syncs it and queues it for analysis.'));
+    console.log(chalk.white('  When a session ends, Agent Usage Analyzer syncs it and queues it for analysis.'));
     console.log(chalk.white('  Analysis runs in the background — no delay when you end a session.'));
-    console.log(chalk.dim('\n  Check queue status: agent-analytics queue status'));
+    console.log(chalk.dim('\n  Check queue status: agent-usage-analyze queue status'));
 
     trackEvent('cli_install_hook', {
       success: true,
@@ -135,7 +136,7 @@ export async function installHookCommand(options: { source?: HookSource } = {}):
 }
 
 /**
- * Uninstall Agent Analytics hooks.
+ * Uninstall Agent Usage Analyzer hooks.
  * Handles both v4.9+ (SessionEnd session-end) and v4.8.x (Stop sync + SessionEnd insights --hook).
  */
 export async function uninstallHookCommand(options: { source?: HookSource } = {}): Promise<void> {
@@ -147,11 +148,11 @@ export async function uninstallHookCommand(options: { source?: HookSource } = {}
   }
   if (source === 'codex') {
     const result = uninstallCodexHook();
-    console.log(result.changed ? chalk.green('\nCodex hook uninstalled successfully!') : chalk.yellow('\nNo Agent Analytics Codex hook found.'));
+    console.log(result.changed ? chalk.green('\nCodex hook uninstalled successfully!') : chalk.yellow('\nNo Agent Usage Analyzer Codex hook found.'));
     return;
   }
   if (source !== 'claude') throw new Error(`Unsupported hook source: ${source}`);
-  console.log(chalk.cyan('\nUninstall Agent Analytics Hooks\n'));
+  console.log(chalk.cyan('\nUninstall Agent Usage Analyzer Hooks\n'));
 
   if (!fs.existsSync(HOOKS_FILE)) {
     console.log(chalk.yellow('No hooks file found. Nothing to uninstall.'));
@@ -163,14 +164,14 @@ export async function uninstallHookCommand(options: { source?: HookSource } = {}
     const settings: ClaudeSettings = JSON.parse(content);
 
     if (!settings.hooks?.Stop && !settings.hooks?.SessionEnd) {
-      console.log(chalk.yellow('No Agent Analytics hooks found. Nothing to uninstall.'));
+      console.log(chalk.yellow('No Agent Usage Analyzer hooks found. Nothing to uninstall.'));
       return;
     }
 
-    // Remove all Agent Analytics hooks (Stop and SessionEnd, any command format)
+    // Remove all Agent Usage Analyzer hooks (Stop and SessionEnd, any command format)
     if (settings.hooks.Stop) {
       settings.hooks.Stop = settings.hooks.Stop.filter(
-        (h) => !h.hooks.some((hook) => getHookCommand(hook).includes('agent-analytics'))
+        (h) => !h.hooks.some((hook) => isAgentUsageAnalyzerHookCommand(getHookCommand(hook)))
       );
       if (settings.hooks.Stop.length === 0) {
         delete settings.hooks.Stop;
@@ -179,7 +180,7 @@ export async function uninstallHookCommand(options: { source?: HookSource } = {}
 
     if (settings.hooks.SessionEnd) {
       settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(
-        (h) => !h.hooks.some((hook) => getHookCommand(hook).includes('agent-analytics'))
+        (h) => !h.hooks.some((hook) => isAgentUsageAnalyzerHookCommand(getHookCommand(hook)))
       );
       if (settings.hooks.SessionEnd.length === 0) {
         delete settings.hooks.SessionEnd;

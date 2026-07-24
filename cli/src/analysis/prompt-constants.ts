@@ -141,7 +141,7 @@ DIMENSION SCORING (0-100):
   90+: Single clear objective, logical progression. 50-69: Some drift but primary goal met. <30: Unfocused, no clear objective.
 - information_timing: Were requirements provided when needed?
   90+: All constraints front-loaded before implementation. 50-69: Some important requirements late. <30: Requirements drip-fed, constant corrections.
-- correction_quality: How well did the user redirect the AI?
+- correction_quality: How well did the user redirect the AI? Use null when no correction or redirection occurred; never assign a neutral default.
   90+: Corrections included what, why, and context. 50-69: Mix of clear and unclear. <30: Corrections gave almost no signal.
   Score 75 if no corrections were needed (absence of corrections in a successful session = good prompting).
 

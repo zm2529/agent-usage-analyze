@@ -7,6 +7,9 @@ export interface SessionProvider {
   /** Unique provider identifier (e.g., 'claude-code', 'cursor') */
   getProviderName(): string;
 
+  /** Changes when persisted projections must be rebuilt even if the source file is unchanged. */
+  getParserVersion?(): string;
+
   /** Discover session files/databases on this machine */
   discover(options?: { projectFilter?: string }): Promise<string[]>;
 

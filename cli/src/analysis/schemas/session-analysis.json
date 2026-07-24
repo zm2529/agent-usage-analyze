@@ -126,6 +126,22 @@
         "bullets": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "skill_usage": {
+          "type": "array",
+          "description": "Assess only explicitly invoked Skills; empty when none are visible.",
+          "items": {
+            "type": "object",
+            "required": ["name", "fit", "observation", "issue", "recommendation", "evidence"],
+            "properties": {
+              "name": { "type": "string" },
+              "fit": { "type": "string", "enum": ["appropriate", "mixed", "uncertain"] },
+              "observation": { "type": "string" },
+              "issue": { "type": ["string", "null"] },
+              "recommendation": { "type": "string" },
+              "evidence": { "type": "array", "items": { "type": "string" } }
+            }
+          }
         }
       }
     },

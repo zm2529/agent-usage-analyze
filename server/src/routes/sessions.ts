@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDb } from '@agent-analytics/cli/db/client';
+import { getDb } from 'agent-usage-analyze/db/client';
 import { parseIntParam } from '../utils.js';
 
 /** Escape SQLite LIKE wildcard characters so user input is treated as literal text. */
@@ -50,6 +50,10 @@ app.get('/', (c) => {
     params.push(to);
   }
   conditions.push('deleted_at IS NULL');
+  conditions.push(`EXISTS (SELECT 1 FROM messages message
+    WHERE message.session_id = sessions.id AND message.type = 'user')`);
+  conditions.push(`EXISTS (SELECT 1 FROM messages message
+    WHERE message.session_id = sessions.id AND message.type = 'assistant')`);
   const where = `WHERE ${conditions.join(' AND ')}`;
   const sessions = db.prepare(`
     SELECT id, project_id, project_name, project_path, git_remote_url,
@@ -63,7 +67,7 @@ app.get('/', (c) => {
            compact_count, auto_compact_count, slash_commands
     FROM sessions
     ${where}
-    ORDER BY started_at DESC
+    ORDER BY ended_at DESC, started_at DESC
     LIMIT ? OFFSET ?
   `).all(...params, parseIntParam(limit, 50), parseIntParam(offset, 0));
 
@@ -101,6 +105,10 @@ app.get('/:id', (c) => {
            models_used, primary_model, usage_source,
            compact_count, auto_compact_count, slash_commands
     FROM sessions WHERE id = ? AND deleted_at IS NULL
+      AND EXISTS (SELECT 1 FROM messages message
+        WHERE message.session_id = sessions.id AND message.type = 'user')
+      AND EXISTS (SELECT 1 FROM messages message
+        WHERE message.session_id = sessions.id AND message.type = 'assistant')
   `).get(c.req.param('id'));
   if (!session) return c.json({ error: 'Not found' }, 404);
   return c.json({ session });

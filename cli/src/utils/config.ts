@@ -3,12 +3,20 @@ import * as path from 'path';
 import * as os from 'os';
 import type { ClaudeInsightConfig, SyncState } from '../types.js';
 
-const CONFIG_DIR_ENV = 'AGENT_ANALYTICS_CONFIG_DIR';
+const CONFIG_DIR_ENV = 'AGENT_USAGE_ANALYZE_CONFIG_DIR';
+const LEGACY_CONFIG_DIR_ENV = 'AGENT_ANALYTICS_CONFIG_DIR';
 
 function resolveConfigDir(): string {
   const envDir = process.env[CONFIG_DIR_ENV];
   if (envDir && envDir.trim()) return envDir;
-  return path.join(os.homedir(), '.agent-analytics');
+  const legacyEnvDir = process.env[LEGACY_CONFIG_DIR_ENV];
+  if (legacyEnvDir && legacyEnvDir.trim()) return legacyEnvDir;
+  const current = path.join(os.homedir(), '.agent-usage-analyze');
+  const legacy = path.join(os.homedir(), '.agent-analytics');
+  // Existing installations keep using their original private directory;
+  // new installations never claim the unrelated package's identity.
+  if (!fs.existsSync(current) && fs.existsSync(legacy)) return legacy;
+  return current;
 }
 
 function getConfigFilePath(): string {
@@ -67,6 +75,8 @@ export function saveConfig(config: ClaudeInsightConfig): void {
         ? { semanticAnalysisEnabled: config.dashboard.semanticAnalysisEnabled } : {}),
       ...(config.dashboard.analysis !== undefined
         ? { analysis: config.dashboard.analysis } : {}),
+      ...(config.dashboard.capabilities !== undefined
+        ? { capabilities: config.dashboard.capabilities } : {}),
     };
   }
   if (config.telemetry !== undefined) {

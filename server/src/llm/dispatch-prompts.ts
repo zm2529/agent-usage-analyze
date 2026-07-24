@@ -1,7 +1,7 @@
 // Prompt construction and output parsing for the Dispatch post generator.
 // Supports two output formats: 'blog' (markdown + YAML frontmatter) and 'linkedin' (plain text + metadata block).
 
-import type { DispatchTone, DispatchInsight, DispatchFormat, SessionBackground } from '@agent-analytics/cli/types';
+import type { DispatchTone, DispatchInsight, DispatchFormat, SessionBackground } from 'agent-usage-analyze/types';
 
 // --- System prompt ---
 
@@ -10,7 +10,7 @@ The engineer has selected specific learnings and provided context about the stor
 
 Do not use the words: "leveraged", "utilized", "seamlessly", "delve".
 Do not invent facts not present in the insights.
-Do not mention AI coding sessions, Agent Analytics, or any tool names.
+Do not mention AI coding sessions, Agent Usage Analyzer, or any tool names.
 Synthesize — do not enumerate insights one by one as a list.
 Output only the requested format — no preamble, no meta-commentary.
 If session background is provided, use it only to inform tone and framing — do not quote or paraphrase session summaries directly in the post.`;

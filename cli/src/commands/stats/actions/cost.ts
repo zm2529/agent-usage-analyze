@@ -65,11 +65,9 @@ export async function costAction(flags: StatsFlags): Promise<void> {
     if (cost.sessionsWithCostCount === 0) {
       console.log(sectionHeader('COST BREAKDOWN', periodLabel));
       console.log(`\n  No cost data available.\n`);
-      console.log(`  Cost tracking is supported by:`);
-      console.log(`    ${colors.success('\u25CF')} Claude Code (automatic)`);
-      console.log(`    ${colors.success('\u25CF')} Cursor (via usage export)`);
+      console.log(`  Cost appears only when the imported Codex record contains explicit usage data.`);
       console.log();
-      console.log(colors.hint('Run agent-analytics sync to refresh data'));
+      console.log(colors.hint('Run agent-usage-analyze import-codex to refresh local history'));
       console.log();
       return;
     }

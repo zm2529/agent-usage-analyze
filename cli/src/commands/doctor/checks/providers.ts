@@ -79,7 +79,7 @@ export function providerChecks(): Check[] {
           label: 'Sync drift',
           status: 'warn',
           detail: `${delta} session(s) on disk not yet synced`,
-          hint: 'Run: agent-analytics sync',
+          hint: 'Run: agent-usage-analyze sync',
           fix: async () => {
             const { syncCommand } = await import('../../sync.js');
             await syncCommand({ quiet: true });

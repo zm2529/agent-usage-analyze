@@ -1,13 +1,19 @@
 {
-  "name": "agent-analytics-workspace",
+  "name": "agent-usage-analyze-workspace",
   "private": true,
+  "packageManager": "pnpm@11.2.2",
   "scripts": {
-    "build": "pnpm --filter @agent-analytics/cli build && pnpm --filter @agent-analytics/server build && pnpm --filter @agent-analytics/dashboard build",
-    "dev": "pnpm --filter @agent-analytics/cli dev",
+    "build": "pnpm --filter ./cli build && pnpm --filter ./server build && pnpm --filter ./dashboard build",
+    "dev": "pnpm --filter ./cli dev",
     "test": "pnpm -r test",
+    "test:release": "pnpm --filter ./cli exec vitest run --maxWorkers=1 && pnpm --filter ./server exec vitest run --maxWorkers=1 && pnpm --filter ./dashboard exec vitest run --maxWorkers=1",
     "test:watch": "vitest",
-    "test:coverage": "pnpm --filter @agent-analytics/cli test:coverage && pnpm --filter @agent-analytics/server test:coverage",
-    "audit:v1": "node scripts/release-audit.mjs"
+    "test:coverage": "pnpm --filter ./cli test:coverage && pnpm --filter ./server test:coverage",
+    "audit:v1": "node scripts/release-audit.mjs",
+    "package:prepare": "node scripts/prepare-cli-package.mjs",
+    "package:clean": "node scripts/clean-cli-package.mjs",
+    "package:smoke": "node scripts/package-install-smoke.mjs",
+    "release:verify-tag": "node scripts/verify-release-tag.mjs"
   },
   "engines": {
     "node": ">=18.0.0",

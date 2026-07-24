@@ -51,7 +51,7 @@ function makeInsight(overrides: Partial<InsightRow> = {}): InsightRow {
 describe('formatKnowledgeBase — header', () => {
   it('returns valid markdown with header for empty sessions and insights', () => {
     const result = formatKnowledgeBase([], []);
-    expect(result).toContain('# Agent Analytics Export');
+    expect(result).toContain('# Agent Usage Analyzer Export');
     expect(result).toContain('0 sessions');
     expect(result).toContain('0 insights');
   });

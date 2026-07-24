@@ -8,7 +8,7 @@ import {
   buildImagePromptContext,
   parseImagePromptOutput,
 } from './dispatch-prompts.js';
-import type { DispatchInsight } from '@agent-analytics/cli/types';
+import type { DispatchInsight } from 'agent-usage-analyze/types';
 
 // --- buildDispatchSystemPrompt ---
 

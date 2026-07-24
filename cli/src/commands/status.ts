@@ -6,10 +6,10 @@ import { getAllProviders } from '../providers/registry.js';
 import { trackEvent, captureError, classifyError } from '../utils/telemetry.js';
 
 /**
- * Show Agent Analytics status
+ * Show Agent Usage Analyzer status
  */
 export async function statusCommand(): Promise<void> {
-  console.log(chalk.cyan('\n  Agent Analytics Status\n'));
+  console.log(chalk.cyan('\n  Agent Usage Analyzer Status\n'));
 
   try {
     // Check database
@@ -24,7 +24,7 @@ export async function statusCommand(): Promise<void> {
         const totalSessions = projects.reduce((sum, p) => sum + p.session_count, 0);
         console.log(chalk.gray(`  ${projects.length} projects, ${totalSessions} sessions synced`));
       } else {
-        console.log(chalk.gray('  No sessions synced yet. Run `agent-analytics sync`'));
+        console.log(chalk.gray('  No sessions imported yet. Run `agent-usage-analyze start`'));
       }
     } catch (error) {
       console.log(chalk.red(`  Database error: ${error instanceof Error ? error.message : 'Unknown'}`));
@@ -42,11 +42,11 @@ export async function statusCommand(): Promise<void> {
           totalLocal += files.length;
         }
       } catch {
-        // Provider not available on this machine (e.g., no Cursor installed)
+        // Codex history is not available on this machine.
       }
     }
     if (totalLocal === 0) {
-      console.log(chalk.yellow('  No sessions found from any tool'));
+      console.log(chalk.yellow('  No Codex sessions found'));
     }
 
     // Check sync state
@@ -58,8 +58,8 @@ export async function statusCommand(): Promise<void> {
       console.log(chalk.green(`  Last sync: ${lastSync.toLocaleString()}`));
       console.log(chalk.gray(`  ${syncedFiles} files tracked`));
     } else {
-      console.log(chalk.yellow('  Never synced'));
-      console.log(chalk.gray('  Run `agent-analytics sync` to sync'));
+      console.log(chalk.yellow('  No legacy sync recorded'));
+      console.log(chalk.gray('  Run `agent-usage-analyze start` to import Codex history'));
     }
 
     // Synced projects list

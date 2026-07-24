@@ -16,7 +16,7 @@ import {
  */
 function showConfigAction(): void {
   if (!isConfigured()) {
-    console.log(chalk.yellow('\nNot configured. Run `agent-analytics init` to set up.\n'));
+    console.log(chalk.yellow('\nNot configured. Run `agent-usage-analyze start` to set up.\n'));
     return;
   }
 
@@ -26,14 +26,7 @@ function showConfigAction(): void {
     return;
   }
 
-  console.log(chalk.cyan('\n  Agent Analytics Configuration\n'));
-
-  // Sync
-  console.log(chalk.white('  Sync:'));
-  console.log(chalk.gray(`    Claude dir: ${config.sync.claudeDir}`));
-  if (config.sync.excludeProjects.length > 0) {
-    console.log(chalk.gray(`    Excluded:   ${config.sync.excludeProjects.join(', ')}`));
-  }
+  console.log(chalk.cyan('\n  Agent Usage Analyzer Configuration\n'));
 
   // Dashboard (Phase 3)
   if (config.dashboard?.port) {
@@ -77,7 +70,7 @@ function showConfigAction(): void {
 }
 
 export const configCommand = new Command('config')
-  .description('Show Agent Analytics configuration')
+  .description('Show Agent Usage Analyzer configuration')
   .action(() => {
     showConfigAction();
   });
@@ -94,7 +87,7 @@ configCommand
       const existing = loadConfig();
       if (!existing) {
         saveConfig({
-          sync: { claudeDir: '~/.claude/projects', excludeProjects: [] },
+          sync: { excludeProjects: [] },
           telemetry: value === 'true',
         });
       } else {
@@ -132,7 +125,7 @@ const llmCommand = configCommand
       const llm = config?.dashboard?.llm;
 
       if (!llm) {
-        console.log(chalk.yellow('\nLLM not configured. Run `agent-analytics config llm` to set up.\n'));
+        console.log(chalk.yellow('\nLLM not configured. Run `agent-usage-analyze config llm` to set up.\n'));
         return;
       }
 
@@ -303,7 +296,7 @@ async function runInteractiveLLMConfig(): Promise<void> {
  */
 function saveLLMConfig(llmConfig: LLMProviderConfig): void {
   const existing: ClaudeInsightConfig = loadConfig() ?? {
-    sync: { claudeDir: '~/.claude/projects', excludeProjects: [] },
+    sync: { excludeProjects: [] },
   };
   existing.dashboard = { ...existing.dashboard, llm: llmConfig };
   saveConfig(existing);
@@ -317,15 +310,15 @@ void llmCommand;
 const analysisCommand = configCommand
   .command('analysis')
   .description('Configure automatic analysis execution')
-  .option('--mode <mode>', 'auto, codex-native, claude-native, provider, local-only, or off')
+  .option('--mode <mode>', 'auto, codex-native, provider, local-only, or off')
   .option('--show', 'Show the saved and effective analysis execution policy')
   .action((options: { mode?: string; show?: boolean }) => {
     const current = loadConfig() ?? {
-      sync: { claudeDir: '~/.claude/projects', excludeProjects: [] },
+      sync: { excludeProjects: [] },
     };
     if (options.mode !== undefined) {
       if (!isAnalysisExecutionMode(options.mode)) {
-        console.error(chalk.red('\nInvalid analysis mode. Use auto, codex-native, claude-native, provider, local-only, or off.\n'));
+        console.error(chalk.red('\nInvalid analysis mode. Use auto, codex-native, provider, local-only, or off.\n'));
         process.exitCode = 1;
         return;
       }

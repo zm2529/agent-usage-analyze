@@ -13,6 +13,7 @@ export interface WorkTaskNode {
   status: string;
   startedAt: string;
   endedAt: string | null;
+  sessionTitle: string | null;
   repository: { root: string | null; worktree: string | null; branch: string | null };
 }
 
@@ -69,6 +70,7 @@ interface EventRow {
   repoRoot: string | null;
   worktreePath: string | null;
   gitBranch: string | null;
+  inheritedToken?: number;
 }
 
 function payload(row: Pick<EventRow, 'payloadJson'>): Record<string, unknown> {
@@ -177,17 +179,38 @@ export function rebuildTaskProjection(db: Database.Database): void {
   }
 
   const tokenRows = db.prepare(`
-    SELECT id, source_artifact_id AS sourceArtifactId,
-           task_id AS taskId, thread_id AS threadId, turn_id AS turnId, era_id AS eraId,
-           occurred_at AS occurredAt, kind, payload_json AS payloadJson,
-           generation, attempt, sequence, repo_root AS repoRoot,
-           worktree_path AS worktreePath, git_branch AS gitBranch,
-           MIN(occurred_at) OVER (
-             PARTITION BY task_id, source_artifact_id
+    SELECT event.id, event.source_artifact_id AS sourceArtifactId,
+           event.task_id AS taskId, event.thread_id AS threadId, event.turn_id AS turnId,
+           event.era_id AS eraId, event.occurred_at AS occurredAt, event.kind,
+           event.payload_json AS payloadJson, event.generation, event.attempt, event.sequence,
+           event.repo_root AS repoRoot, event.worktree_path AS worktreePath,
+           event.git_branch AS gitBranch,
+           CASE WHEN meta.startedAt IS NOT NULL
+             AND EXISTS (
+               SELECT 1 FROM canonical_identity_edges parent
+               WHERE parent.source_artifact_id = event.source_artifact_id
+                 AND parent.kind = 'root-child'
+             )
+             AND julianday(event.occurred_at) <= julianday(meta.startedAt) + (1.0 / 86400.0)
+             THEN 1 ELSE 0 END AS inheritedToken,
+           MIN(event.occurred_at) OVER (
+             PARTITION BY event.task_id, event.source_artifact_id
            ) AS sourceStartedAt
-    FROM canonical_events
-    WHERE kind = 'token-snapshot' AND task_id IS NOT NULL
-    ORDER BY task_id, sourceStartedAt, source_artifact_id, sequence
+    FROM canonical_events event
+    JOIN source_artifacts source ON source.id = event.source_artifact_id
+    LEFT JOIN (
+      SELECT source_artifact_id, MIN(occurred_at) AS startedAt
+      FROM canonical_events WHERE kind = 'session-meta'
+      GROUP BY source_artifact_id
+    ) meta ON meta.source_artifact_id = event.source_artifact_id
+    WHERE event.kind = 'token-snapshot' AND event.task_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM source_artifacts newer
+        WHERE newer.locator_hash = source.locator_hash
+          AND (newer.created_at > source.created_at
+            OR (newer.created_at = source.created_at AND newer.id > source.id))
+      )
+    ORDER BY event.task_id, sourceStartedAt, event.source_artifact_id, event.sequence
   `).all() as EventRow[];
   type Counters = { inputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; outputTokens: number; reasoningTokens: number; compactionTokens: number };
   const previous = new Map<string, { counters: Counters; occurredAt: string; segment: number }>();
@@ -201,12 +224,12 @@ export function rebuildTaskProjection(db: Database.Database): void {
   `);
   for (const row of tokenRows) {
     const raw = payload(row);
-    const required = ['inputTokens', 'cachedInputTokens', 'cacheCreationTokens', 'outputTokens', 'reasoningTokens', 'compactionTokens'] as const;
+    const required = ['inputTokens', 'cachedInputTokens', 'outputTokens'] as const;
     const hasLaneIdentity = row.generation !== null && row.attempt !== null;
     const lane = hasLaneIdentity
       ? `${row.taskId}:${row.generation}:${row.attempt}`
-      : `${row.taskId}:unknown:${row.turnId ?? 'no-turn'}`;
-    if (!hasLaneIdentity || !required.every((key) => typeof raw[key] === 'number')) {
+      : `${row.taskId}:default`;
+    if (!required.every((key) => typeof raw[key] === 'number')) {
       const segment = (laneSegments.get(lane) ?? 0) + 1;
       laneSegments.set(lane, segment);
       previous.delete(lane);
@@ -216,16 +239,26 @@ export function rebuildTaskProjection(db: Database.Database): void {
     const counters: Counters = {
       inputTokens: Number(raw.inputTokens),
       cachedInputTokens: Number(raw.cachedInputTokens),
-      cacheCreationTokens: Number(raw.cacheCreationTokens),
+      cacheCreationTokens: typeof raw.cacheCreationTokens === 'number' ? raw.cacheCreationTokens : 0,
       outputTokens: Number(raw.outputTokens),
-      reasoningTokens: Number(raw.reasoningTokens),
-      compactionTokens: Number(raw.compactionTokens),
+      reasoningTokens: typeof raw.reasoningTokens === 'number' ? raw.reasoningTokens : 0,
+      compactionTokens: typeof raw.compactionTokens === 'number' ? raw.compactionTokens : 0,
     };
     const prior = previous.get(lane);
     let segment = laneSegments.get(lane) ?? 0;
-    let status: TaskTokenDelta['status'] = 'unknown-baseline';
-    let deltas: Array<number | null> = [null, null, null, null, null, null];
-    if (prior && row.occurredAt < prior.occurredAt) {
+    let status: TaskTokenDelta['status'] = 'known';
+    let deltas: Array<number | null> = [
+      counters.inputTokens,
+      counters.cachedInputTokens,
+      counters.cacheCreationTokens,
+      counters.outputTokens,
+      counters.reasoningTokens,
+      counters.compactionTokens,
+    ];
+    if (row.inheritedToken === 1) {
+      status = 'unknown-baseline';
+      deltas = [null, null, null, null, null, null];
+    } else if (prior && row.occurredAt < prior.occurredAt) {
       status = 'unknown-out-of-order';
       segment += 1;
     } else if (prior && Object.keys(counters).some(
@@ -248,6 +281,22 @@ export function rebuildTaskProjection(db: Database.Database): void {
     laneSegments.set(lane, segment);
     previous.set(lane, { counters, occurredAt: row.occurredAt, segment });
   }
+
+  db.prepare('DELETE FROM token_usage_hourly').run();
+  db.prepare(`
+    INSERT INTO token_usage_hourly (
+      hour, input_tokens, output_tokens, cache_creation_tokens,
+      cache_read_tokens, reasoning_tokens, event_count, updated_at
+    )
+    SELECT strftime('%Y-%m-%dT%H:00:00', event.occurred_at, 'localtime'),
+      SUM(delta.input_tokens), SUM(delta.output_tokens),
+      SUM(delta.cache_creation_tokens), SUM(delta.cached_input_tokens),
+      SUM(delta.reasoning_tokens), COUNT(*), datetime('now')
+    FROM task_token_deltas delta
+    JOIN canonical_events event ON event.id = delta.event_id
+    WHERE delta.status = 'known'
+    GROUP BY strftime('%Y-%m-%dT%H:00:00', event.occurred_at, 'localtime')
+  `).run();
 }
 
 function mapNode(row: Record<string, unknown>): WorkTaskNode {
@@ -260,6 +309,7 @@ function mapNode(row: Record<string, unknown>): WorkTaskNode {
     status: String(row.status),
     startedAt: String(row.startedAt),
     endedAt: row.endedAt === null ? null : String(row.endedAt),
+    sessionTitle: row.sessionTitle === null || row.sessionTitle === undefined ? null : String(row.sessionTitle),
     repository: {
       root: row.repoRoot === null ? null : String(row.repoRoot),
       worktree: row.worktreePath === null ? null : String(row.worktreePath),
@@ -268,23 +318,60 @@ function mapNode(row: Record<string, unknown>): WorkTaskNode {
   };
 }
 
-export function listWorkTasks(db: Database.Database): WorkTaskNode[] {
+export function listWorkTasks(
+  db: Database.Database,
+  options: { limit?: number; offset?: number } = {},
+): WorkTaskNode[] {
+  const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+  const offset = Math.max(0, options.offset ?? 0);
   return (db.prepare(`
-    SELECT id, root_task_id AS rootTaskId, parent_task_id AS parentTaskId,
-           thread_id AS threadId, role, status, started_at AS startedAt,
-           ended_at AS endedAt, repo_root AS repoRoot,
-           worktree_path AS worktreePath, git_branch AS gitBranch
-    FROM work_tasks WHERE id = root_task_id ORDER BY started_at DESC
-  `).all() as Record<string, unknown>[]).map(mapNode);
+    SELECT task.id, task.root_task_id AS rootTaskId, task.parent_task_id AS parentTaskId,
+           task.thread_id AS threadId, task.role, task.status, task.started_at AS startedAt,
+           task.ended_at AS endedAt, task.repo_root AS repoRoot,
+           task.worktree_path AS worktreePath, task.git_branch AS gitBranch,
+           COALESCE(NULLIF(session.custom_title, ''), NULLIF(session.generated_title, ''),
+             NULLIF(session.summary, '')) AS sessionTitle
+    FROM work_tasks task
+    LEFT JOIN sessions session ON session.id = 'codex:' || task.thread_id
+    WHERE task.id = task.root_task_id
+      AND (
+        (EXISTS (SELECT 1 FROM messages message
+          WHERE message.session_id = 'codex:' || task.thread_id AND message.type = 'user')
+         AND EXISTS (SELECT 1 FROM messages message
+          WHERE message.session_id = 'codex:' || task.thread_id AND message.type = 'assistant'))
+        OR EXISTS (SELECT 1 FROM task_delivery_candidates candidate
+          WHERE candidate.task_id = task.id AND candidate.machine_status = 'candidate')
+      )
+    ORDER BY task.started_at DESC
+    LIMIT ? OFFSET ?
+  `).all(limit, offset) as Record<string, unknown>[]).map(mapNode);
+}
+
+export function countWorkTasks(db: Database.Database): number {
+  const row = db.prepare(`SELECT COUNT(*) AS count FROM work_tasks task
+    WHERE task.id = task.root_task_id
+      AND (
+        (EXISTS (SELECT 1 FROM messages message
+          WHERE message.session_id = 'codex:' || task.thread_id AND message.type = 'user')
+         AND EXISTS (SELECT 1 FROM messages message
+          WHERE message.session_id = 'codex:' || task.thread_id AND message.type = 'assistant'))
+        OR EXISTS (SELECT 1 FROM task_delivery_candidates candidate
+          WHERE candidate.task_id = task.id AND candidate.machine_status = 'candidate')
+      )`).get() as { count: number };
+  return row.count;
 }
 
 export function readWorkTaskDetail(db: Database.Database, rootTaskId: string): WorkTaskDetail | null {
   const rows = db.prepare(`
-    SELECT id, root_task_id AS rootTaskId, parent_task_id AS parentTaskId,
-           thread_id AS threadId, role, status, started_at AS startedAt,
-           ended_at AS endedAt, repo_root AS repoRoot,
-           worktree_path AS worktreePath, git_branch AS gitBranch
-    FROM work_tasks WHERE root_task_id = ? ORDER BY started_at, id
+    SELECT task.id, task.root_task_id AS rootTaskId, task.parent_task_id AS parentTaskId,
+           task.thread_id AS threadId, task.role, task.status, task.started_at AS startedAt,
+           task.ended_at AS endedAt, task.repo_root AS repoRoot,
+           task.worktree_path AS worktreePath, task.git_branch AS gitBranch,
+           COALESCE(NULLIF(session.custom_title, ''), NULLIF(session.generated_title, ''),
+             NULLIF(session.summary, '')) AS sessionTitle
+    FROM work_tasks task
+    LEFT JOIN sessions session ON session.id = 'codex:' || task.thread_id
+    WHERE task.root_task_id = ? ORDER BY task.started_at, task.id
   `).all(rootTaskId) as Record<string, unknown>[];
   if (rows.length === 0) return null;
   const nodes = rows.map(mapNode);

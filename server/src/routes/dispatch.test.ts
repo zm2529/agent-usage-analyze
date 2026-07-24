@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference
@@ -8,12 +8,12 @@ import { runMigrations } from '@agent-analytics/cli/db/schema';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
 
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   trackEvent: vi.fn(),
   captureError: vi.fn(),
   isTelemetryEnabled: () => false,

@@ -1,15 +1,15 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
 
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({ trackEvent: vi.fn() }));
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({ trackEvent: vi.fn() }));
 
 const { createApp } = await import('../index.js');
 

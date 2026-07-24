@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { runMigrations } from '@agent-analytics/cli/db/schema';
+import { runMigrations } from 'agent-usage-analyze/db/schema';
 
 // ──────────────────────────────────────────────────────
 // Module-scoped mutable DB reference for mocking.
@@ -8,12 +8,12 @@ import { runMigrations } from '@agent-analytics/cli/db/schema';
 
 let testDb: Database.Database;
 
-vi.mock('@agent-analytics/cli/db/client', () => ({
+vi.mock('agent-usage-analyze/db/client', () => ({
   getDb: () => testDb,
   closeDb: () => {},
 }));
 
-vi.mock('@agent-analytics/cli/utils/telemetry', () => ({
+vi.mock('agent-usage-analyze/utils/telemetry', () => ({
   trackEvent: vi.fn(),
 }));
 
@@ -40,6 +40,11 @@ function seedProjectAndSession(projectId: string, sessionId: string) {
       started_at, ended_at, message_count, source_tool)
     VALUES (?, ?, 'test', '/test', '2025-06-15T10:00:00Z', '2025-06-15T11:00:00Z', 5, 'claude-code')
   `).run(sessionId, projectId);
+  const message = testDb.prepare(`INSERT INTO messages
+    (id, session_id, type, content, tool_calls, tool_results, timestamp)
+    VALUES (?, ?, ?, ?, '[]', '[]', ?)`);
+  message.run(`${sessionId}:user`, sessionId, 'user', 'Do the task', '2025-06-15T10:00:01Z');
+  message.run(`${sessionId}:assistant`, sessionId, 'assistant', 'Done', '2025-06-15T10:01:00Z');
 }
 
 function seedInsight(
@@ -90,6 +95,17 @@ describe('Insights routes', () => {
       const body = await res.json();
       expect(body.insights).toHaveLength(1);
       expect(body.insights[0].type).toBe('decision');
+    });
+
+    it('hides placeholder and conversation-less LLM output', async () => {
+      seedProjectAndSession('proj-1', 'sess-1');
+      seedInsight('placeholder', 'sess-1', 'proj-1', 'summary');
+      testDb.prepare(`UPDATE insights SET title = 'No coding activity captured' WHERE id = 'placeholder'`).run();
+      seedInsight('stale', 'sess-1', 'proj-1', 'decision');
+      testDb.prepare(`DELETE FROM messages WHERE session_id = 'sess-1'`).run();
+
+      const res = await createApp().request('/api/insights');
+      expect(await res.json()).toEqual({ insights: [] });
     });
   });
 

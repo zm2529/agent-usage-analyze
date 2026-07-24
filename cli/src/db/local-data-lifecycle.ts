@@ -7,7 +7,7 @@ export interface LocalDataArchiveResult {
   status: 'archived' | 'nothing-to-archive';
   databaseBackupPath: string | null;
   syncStateBackupPath: string | null;
-  rebuildCommand: 'agent-analytics import-codex';
+  rebuildCommand: 'agent-usage-analyze import-codex';
   recovery: string;
 }
 
@@ -36,7 +36,7 @@ export function archiveLocalAnalysisData(options: LocalDataArchiveOptions): Loca
         status: 'nothing-to-archive',
         databaseBackupPath: null,
         syncStateBackupPath: null,
-        rebuildCommand: 'agent-analytics import-codex',
+        rebuildCommand: 'agent-usage-analyze import-codex',
         recovery: 'No local analysis data existed; run the rebuild command to create it.',
       };
     }
@@ -92,7 +92,7 @@ export function archiveLocalAnalysisData(options: LocalDataArchiveOptions): Loca
       status: 'archived',
       databaseBackupPath,
       syncStateBackupPath,
-      rebuildCommand: 'agent-analytics import-codex',
+      rebuildCommand: 'agent-usage-analyze import-codex',
       recovery: `Restore ${backupDir} to its original paths, or run the rebuild command. Source history and Git repositories were not changed.`,
     };
   } finally {
