@@ -4,7 +4,8 @@ const STORAGE_KEY = 'agent-analytics:user-profile';
 
 export interface UserProfile {
   name: string;
-  githubUsername: string;
+  githubUsername: string; // legacy optional field kept for old share-card data
+  avatarUrl?: string;
   avatarDataUrl?: string; // base64-cached avatar for Canvas export (no CORS issues)
 }
 
@@ -24,7 +25,7 @@ function writeStorage(profile: UserProfile): void {
 
 /** Returns true when both name and githubUsername are non-empty. */
 export function isProfileComplete(profile: UserProfile | null): boolean {
-  return !!(profile?.name.trim() && profile?.githubUsername.trim());
+  return !!profile?.name.trim();
 }
 
 /** Normalize a GitHub username: strip leading @ and strip full URLs down to username. */
@@ -63,6 +64,23 @@ export async function fetchAvatarAsDataUrl(username: string): Promise<string | u
   }
 }
 
+async function fetchImageAsDataUrl(url: string): Promise<string | undefined> {
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return undefined;
+    const response = await fetch(parsed.toString());
+    if (!response.ok) return undefined;
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : undefined);
+      reader.onerror = () => resolve(undefined);
+      reader.readAsDataURL(blob);
+    });
+  } catch { return undefined; }
+}
+
 /**
  * localStorage-backed user profile (name + GitHub username + cached avatar).
  * Returns current profile and a save function.
@@ -75,13 +93,12 @@ export function useUserProfile() {
   const profile = readStorage();
 
   const saveProfile = useCallback(
-    async (name: string, githubUsername: string): Promise<UserProfile> => {
-      const normalized = normalizeGithubUsername(githubUsername);
-      // Fetch and cache avatar as base64 — updates localStorage when done
-      const avatarDataUrl = await fetchAvatarAsDataUrl(normalized);
+    async (name: string, avatarUrl = ''): Promise<UserProfile> => {
+      const avatarDataUrl = await fetchImageAsDataUrl(avatarUrl.trim());
       const saved: UserProfile = {
         name: name.trim(),
-        githubUsername: normalized,
+        githubUsername: '',
+        avatarUrl: avatarUrl.trim() || undefined,
         avatarDataUrl,
       };
       writeStorage(saved);

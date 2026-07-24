@@ -21,15 +21,30 @@ beforeEach(() => {
 });
 
 describe('delivery page error states', () => {
-  it('shows list, discovery, and artifact failures as user-visible non-destructive states', async () => {
+  it('presents a test-run as a readable result and keeps the event hash in technical details', async () => {
+    api.fetchDeliveries.mockResolvedValue({ deliveries: [{
+      id: 'delivery:test', kind: 'test-run', repositoryIdentity: 'repository',
+      resultIdentity: 'event:4cdb1300', occurredAt: '2026-07-21T08:00:00.000Z',
+      metadata: { validationKind: 'build', status: 'unknown' },
+      taskRefs: [{ id: 'task', title: '检查投屏异常' }],
+    }] });
+
+    render(<QueryClientProvider client={client()}><MemoryRouter><DeliveriesPage /></MemoryRouter></QueryClientProvider>);
+
+    expect(await screen.findByText('Build verification')).toBeInTheDocument();
+    expect(screen.getByText(/did not preserve a clear pass or fail result/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '检查投屏异常' })).toHaveAttribute('href', '/tasks/task');
+    expect(screen.queryByText('event:4cdb1300', { selector: '[data-slot="card-title"]' })).not.toBeInTheDocument();
+    expect(screen.getByText('event:4cdb1300')).toBeInTheDocument();
+  });
+
+  it('keeps discovery out of the delivery page and shows list and artifact failures', async () => {
     api.fetchDeliveries.mockRejectedValue(new Error('offline'));
-    api.discoverDeliveries.mockRejectedValue(new Error('git failed'));
     api.recordTaskArtifact.mockRejectedValue(new Error('artifact failed'));
     render(<QueryClientProvider client={client()}><MemoryRouter><DeliveriesPage /></MemoryRouter></QueryClientProvider>);
 
     expect(await screen.findByText('Delivery list is unavailable.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Discover local results' }));
-    expect(await screen.findByText(/Local discovery failed/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Discover local results' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Task ID'), { target: { value: 'task' } });
     fireEvent.change(screen.getByLabelText('Artifact path'), { target: { value: 'build/app.bundle' } });
     fireEvent.click(screen.getByRole('button', { name: 'Record local artifact' }));
@@ -50,7 +65,7 @@ describe('delivery page error states', () => {
       id: 'delivery', kind: 'git-commit', repositoryIdentity: 'repository', resultIdentity: 'abc',
       occurredAt: '2026-07-21T08:00:00.000Z', metadata: {}, candidates: [{
         id: 'candidate', taskId: 'task', algorithmVersion: 'task-delivery-v1', coverage: 0.8,
-        confidence: 0.2, status: 'abstained', delivery: {
+        confidence: 0.2, status: 'candidate', delivery: {
           id: 'delivery', kind: 'git-commit', repositoryIdentity: 'repository', resultIdentity: 'abc',
           occurredAt: '2026-07-21T08:00:00.000Z', metadata: {},
         }, evidence: [{
@@ -65,9 +80,9 @@ describe('delivery page error states', () => {
     render(<QueryClientProvider client={client()}><MemoryRouter initialEntries={['/deliveries/delivery']}><Routes>
       <Route path="/deliveries/:id" element={<DeliveryDetailPage />} />
     </Routes></MemoryRouter></QueryClientProvider>);
-    expect(await screen.findByText('temporal-proximity · supports · deterministic · 10%')).toBeInTheDocument();
+    expect(await screen.findByText('temporal-proximity')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'confirmed' }));
     expect(await screen.findByText(/correction could not be appended/)).toBeInTheDocument();
-    expect(screen.getByText('abstained')).toBeInTheDocument();
+    expect(screen.getByText('candidate')).toBeInTheDocument();
   });
 });

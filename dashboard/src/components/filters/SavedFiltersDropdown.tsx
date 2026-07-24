@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { SavedFilter } from '@/hooks/useSavedFilters';
+import { useLanguage } from '@/i18n/LanguageProvider';
 
 interface SavedFiltersDropdownProps {
   savedFilters: SavedFilter[];
@@ -23,20 +24,21 @@ export function SavedFiltersDropdown({
   onApply,
   onDelete,
 }: SavedFiltersDropdownProps) {
+  const { t } = useLanguage();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 shrink-0">
           <Bookmark className="h-3.5 w-3.5" />
-          Saved
+          {t('filters.saved', 'Saved')}
           <ChevronDown className="h-3 w-3 ml-0.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72 p-1">
         {savedFilters.length === 0 ? (
           <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-            <p className="font-medium">No saved filters yet.</p>
-            <p className="mt-0.5">Apply filters, then click Save.</p>
+            <p className="font-medium">{t('filters.none', 'No saved filters yet.')}</p>
+            <p className="mt-0.5">{t('filters.noneHint', 'Apply filters, then click Save.')}</p>
           </div>
         ) : (
           savedFilters.map((sf) => {
@@ -61,7 +63,7 @@ export function SavedFiltersDropdown({
                     onDelete(sf.id);
                   }}
                   className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5 text-muted-foreground hover:text-destructive"
-                  aria-label="Delete saved filter"
+                  aria-label={t('filters.delete', 'Delete saved filter')}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

@@ -14,8 +14,10 @@
 
 import posthog from 'posthog-js';
 
-const POSTHOG_API_KEY = 'phc_552ZSApq5xuagswylfdw2vx8nckm31jn6LCpTVyVn8j';
-const POSTHOG_HOST = 'https://agent-analytics.app/ingest';
+// Intentionally empty in the public build. Deployments that own a PostHog
+// project can inject their own write key and endpoint at build time.
+const POSTHOG_API_KEY = import.meta.env.VITE_POSTHOG_API_KEY ?? '';
+const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? '';
 
 let initialized = false;
 
@@ -25,6 +27,7 @@ let initialized = false;
  */
 export async function initTelemetry(): Promise<void> {
   if (initialized) return;
+  if (!POSTHOG_API_KEY || !POSTHOG_HOST) return;
   try {
     const res = await fetch('/api/telemetry/identity');
     if (!res.ok) return;

@@ -4,12 +4,15 @@ import { useLlmConfig } from '@/hooks/useConfig';
 import type { Session } from '@/lib/types';
 import { Link } from 'react-router';
 import { Loader2, Target } from 'lucide-react';
+import { useLanguage } from '@/i18n/LanguageProvider';
+import { isAutomaticAnalysisAvailable } from '@/lib/analysis-availability';
 
 /** Minimal analyze button for the Prompt Quality empty state. */
 export function PromptQualityAnalyzeButton({ session }: { session: Session }) {
+  const { t } = useLanguage();
   const { getAnalysisState, startAnalysis } = useAnalysis();
   const { data: llmConfig } = useLlmConfig();
-  const configured = !!(llmConfig?.provider && llmConfig?.model);
+  const configured = isAutomaticAnalysisAvailable(llmConfig);
 
   const analysisState = getAnalysisState(session.id, 'prompt_quality');
   const isAnalyzing = analysisState?.status === 'analyzing';
@@ -17,7 +20,7 @@ export function PromptQualityAnalyzeButton({ session }: { session: Session }) {
   if (!configured) {
     return (
       <Link to="/settings" className="text-xs text-muted-foreground underline hover:text-foreground">
-        Configure AI in Settings
+        {t('analysis.configure', 'Configure AI in Settings')}
       </Link>
     );
   }
@@ -31,12 +34,12 @@ export function PromptQualityAnalyzeButton({ session }: { session: Session }) {
       {isAnalyzing ? (
         <>
           <Loader2 className="h-4 w-4 animate-spin" />
-          Analyzing...
+          {t('analysis.analyzing', 'Analyzing…')}
         </>
       ) : (
         <>
           <Target className="h-4 w-4" />
-          Analyze
+          {t('analysis.analyze', 'Analyze')}
         </>
       )}
     </Button>

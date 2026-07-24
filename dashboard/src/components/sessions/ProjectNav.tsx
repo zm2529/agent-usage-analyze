@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { SOURCE_TOOLS } from '@/components/filters/SourceToolSelect';
 import type { Project } from '@/lib/types';
+import { useLanguage } from '@/i18n/LanguageProvider';
 
 interface ProjectNavProps {
   projects: Project[];
@@ -28,6 +29,7 @@ export function ProjectNav({
   onSelectProject,
   onSelectSource,
 }: ProjectNavProps) {
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const showSearch = projects.length > 8;
 
@@ -47,7 +49,7 @@ export function ProjectNav({
       <div className="p-3 space-y-2">
         {showSearch && (
           <Input
-            placeholder="Search projects..."
+            placeholder={t('sessions.searchProjects', 'Search projects...')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-8 text-xs"
@@ -67,7 +69,7 @@ export function ProjectNav({
               : 'text-foreground hover:bg-accent/50'
           )}
         >
-          <span className="truncate">All Projects</span>
+          <span className="truncate">{t('sessions.allProjects', 'All Projects')}</span>
           <span className="text-xs text-muted-foreground tabular-nums shrink-0">{totalSessions}</span>
         </button>
 
@@ -103,10 +105,10 @@ export function ProjectNav({
       <div className="p-3 border-t">
         <Select value={selectedSource} onValueChange={onSelectSource}>
           <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="All Sources" />
+            <SelectValue placeholder={t('sessions.allSources', 'All Sources')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Sources</SelectItem>
+            <SelectItem value="all">{t('sessions.allSources', 'All Sources')}</SelectItem>
             {SOURCE_TOOLS.map((tool) => (
               <SelectItem key={tool.value} value={tool.value}>{tool.label}</SelectItem>
             ))}

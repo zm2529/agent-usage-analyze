@@ -7,7 +7,7 @@ export function Logo({ className }: LogoProps) {
     <svg
       viewBox="0 0 24 24"
       fill="none"
-      aria-label="Agent Analytics logo"
+      aria-label="Agent 使用分析标志"
       className={className}
     >
       {/* Magnifying glass circle */}

@@ -15,6 +15,7 @@ import { Link } from 'react-router';
 import { useAnalysis } from './AnalysisContext';
 import { useLlmConfig } from '@/hooks/useConfig';
 import type { Session } from '@/lib/types';
+import { isAutomaticAnalysisAvailable } from '@/lib/analysis-availability';
 
 interface AnalyzeButtonProps {
   session: Session;
@@ -27,7 +28,7 @@ export function AnalyzeButton({ session, hasExistingInsights, insightCount }: An
   const { getAnalysisState, startAnalysis, cancelAnalysis } = useAnalysis();
   const { data: llmConfig } = useLlmConfig();
 
-  const configured = !!(llmConfig?.provider && llmConfig?.model);
+  const configured = isAutomaticAnalysisAvailable(llmConfig);
 
   const analysisState = getAnalysisState(session.id, 'session');
   const isAnalyzingThisSession = analysisState?.status === 'analyzing';
@@ -53,11 +54,8 @@ export function AnalyzeButton({ session, hasExistingInsights, insightCount }: An
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <AlertCircle className="h-4 w-4" />
         <span>
-          Configure an AI provider in{' '}
-          <Link to="/settings" className="underline hover:text-foreground">
-            Settings
-          </Link>{' '}
-          to analyze sessions
+          Automatic analysis is currently unavailable.{' '}
+          <Link to="/settings" className="underline hover:text-foreground">View analysis status</Link>
         </span>
       </div>
     );

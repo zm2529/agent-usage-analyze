@@ -25,8 +25,7 @@ export function Layout() {
     <TooltipProvider>
       <div className="min-h-screen bg-background">
         <Header onOpenSearch={open} />
-        {/* pt-14 accounts for the fixed header height; pb-14 accounts for mobile bottom nav */}
-        <main className="pt-14 pb-14 md:pb-0">
+        <main className="pb-16 md:ml-[188px] md:pt-[61px] md:pb-0">
           <Outlet />
         </main>
         <Toaster />

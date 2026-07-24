@@ -1,5 +1,5 @@
 // Analysis cost indicator — renders below VitalsStrip in the Insights tab.
-// Shows what Agent Analytics' own LLM analysis calls cost for this session.
+// Shows what Agent Usage Analyzer' own LLM analysis calls cost for this session.
 // Deliberately separated from VitalsStrip (which shows the coding session cost).
 // Clicking opens a Popover with per-analysis-type breakdown.
 
@@ -79,12 +79,12 @@ export function AnalysisCostLine({ sessionId, isAnalyzing }: AnalysisCostLinePro
   // This shouldn't happen post-V7, but guard against it gracefully.
   const isLegacy = totalCostUsd === 0 && !allOllama && !allNative;
 
-  // Native analysis via Claude Code — billed to Claude subscription, not a tracked cost
+  // Legacy native analysis — billed to its subscription, not a tracked cost
   if (allNative) {
     const durationSec = totalDurationMs > 0 ? Math.round(totalDurationMs / 1000) : null;
     const nativeLabel = durationSec != null
-      ? `Analyzed via Claude Code · ${durationSec}s`
-      : 'Analyzed via Claude Code';
+      ? `Analyzed via native subscription · ${durationSec}s`
+      : 'Analyzed via native subscription';
     return (
       <div className="flex flex-col gap-0.5 px-1 py-1 select-none">
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">

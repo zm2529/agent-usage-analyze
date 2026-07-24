@@ -5,13 +5,14 @@ import { formatDuration, getSessionTitle, cn } from '@/lib/utils';
 import { Sparkles, Target, Loader2 } from 'lucide-react';
 import type { Session } from '@/lib/types';
 import { getScoreTier } from '@/lib/score-utils';
+import { useLanguage } from '@/i18n/LanguageProvider';
 
 const SOURCE_LABELS: Record<string, string> = {
+  'codex-cli': 'Codex',
   'claude-code': 'Claude Code',
   cursor: 'Cursor',
-  'codex-cli': 'Codex CLI',
-  'copilot-cli': 'Copilot CLI',
-  copilot: 'Copilot',
+  'copilot-cli': 'GitHub Copilot CLI',
+  copilot: 'GitHub Copilot',
 };
 
 const SCORE_TEXT_COLORS: Record<string, string> = {
@@ -44,6 +45,7 @@ export function CompactSessionRow({
   isQueued = false,
   onClick,
 }: CompactSessionRowProps) {
+  const { language, t } = useLanguage();
   const startedAt = new Date(session.started_at);
   const endedAt = new Date(session.ended_at);
   const title = getSessionTitle(session);
@@ -54,6 +56,10 @@ export function CompactSessionRow({
   const sourceLabel = session.source_tool
     ? (SOURCE_LABELS[session.source_tool] ?? session.source_tool)
     : null;
+  const durationText = formatDuration(startedAt, endedAt);
+  const localizedDuration = language === 'zh-CN'
+    ? durationText.replace(/(\d+)d/g, '$1天').replace(/(\d+)h/g, '$1小时').replace(/(\d+)m/g, '$1分')
+    : durationText;
 
   const insightTotal = insightCounts
     ? Object.entries(insightCounts)
@@ -80,7 +86,7 @@ export function CompactSessionRow({
         {isQueued && (
           <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-blue-600 border-blue-300 gap-0.5">
             <Loader2 className="h-2.5 w-2.5 animate-spin" />
-            Analyzing...
+            {t('sessions.analyzing', 'Analyzing...')}
           </Badge>
         )}
         {outcome && OUTCOME_DOT[outcome] && (
@@ -88,12 +94,12 @@ export function CompactSessionRow({
             <TooltipTrigger asChild>
               <span className={cn('w-2 h-2 rounded-full shrink-0', OUTCOME_DOT[outcome].color)} />
             </TooltipTrigger>
-            <TooltipContent side="right" className="text-xs">{OUTCOME_DOT[outcome].label}</TooltipContent>
+            <TooltipContent side="right" className="text-xs">{t(`sessions.${outcome}`, OUTCOME_DOT[outcome].label)}</TooltipContent>
           </Tooltip>
         )}
         {session.session_character && characterColor && (
           <Badge variant="outline" className={`text-[10px] px-1.5 py-0 capitalize ${characterColor}`}>
-            {session.session_character.replace(/_/g, ' ')}
+            {t(`sessions.character.${session.session_character}`, session.session_character.replace(/_/g, ' '))}
           </Badge>
         )}
       </div>
@@ -106,10 +112,10 @@ export function CompactSessionRow({
             <span className="text-muted-foreground/30">&middot;</span>
           </>
         )}
-        <span>{session.message_count} msgs</span>
+        <span>{session.message_count} {t('sessions.messages', 'msgs')}</span>
         <span className="text-muted-foreground/30">&middot;</span>
-        <span>{formatDuration(startedAt, endedAt)}</span>
-        {session.estimated_cost_usd != null && (
+        <span>{localizedDuration}</span>
+        {typeof session.estimated_cost_usd === 'number' && session.estimated_cost_usd > 0 && (
           <>
             <span className="text-muted-foreground/30">&middot;</span>
             <span>${session.estimated_cost_usd.toFixed(2)}</span>
@@ -127,7 +133,7 @@ export function CompactSessionRow({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="right" className="text-xs max-w-[200px]">
-                  Missing pattern data — re-analyze or run <code className="text-[10px]">reflect backfill</code>
+                  {t('sessions.missingPattern', 'Missing pattern data — re-analyze or run reflect backfill.')}
                 </TooltipContent>
               </Tooltip>
             ) : (

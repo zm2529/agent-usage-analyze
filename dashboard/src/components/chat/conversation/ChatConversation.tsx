@@ -8,7 +8,8 @@ import type { Message, ToolResult } from '@/lib/types';
 import { parseJsonField } from '@/lib/types';
 import { DateSeparator } from './DateSeparator';
 import { LoadMoreSentinel } from './LoadMoreSentinel';
-import { isAgentMessage } from '../message/preprocess';
+import { classifyUserMessage, isAgentMessage } from '../message/preprocess';
+import { useLanguage } from '@/i18n/LanguageProvider';
 
 interface ChatConversationProps {
   messages: Message[];
@@ -40,11 +41,17 @@ function shouldShowDateSeparator(messages: Message[], index: number): boolean {
 export function ChatConversation({
   messages, loading, loadingMore, hasMore, onLoadMore, error, sourceTool, highlightMessageId, searchQuery,
 }: ChatConversationProps) {
+  const { t } = useLanguage();
   const highlightRef = useRef<HTMLDivElement>(null);
 
   // showRawMessages: when true, hidden protocol messages (skill-load, command-frame, exit-command)
   // render as RawMessageBlock — dashed-border monospace blocks with type labels.
   const [showRawMessages, setShowRawMessages] = useState(false);
+  const hiddenProtocolMessageCount = useMemo(() => messages.filter((message) => {
+    if (message.type !== 'user' || !message.content?.trim()) return false;
+    const kind = classifyUserMessage(message.content).kind;
+    return kind === 'exit-command' || kind === 'skill-load' || kind === 'command-frame';
+  }).length, [messages]);
 
   // Only pass searchQuery to messages that actually match, so the highlight
   // walker doesn't run on every message in large conversations (1000+).
@@ -113,16 +120,18 @@ export function ChatConversation({
 
   return (
     <div className="w-full">
-      {/* Raw messages toggle — reveals hidden protocol messages (skill-load, command-frame, exit-command) */}
-      <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-border">
-        <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">Show raw messages</span>
-        <Switch
-          checked={showRawMessages}
-          onCheckedChange={setShowRawMessages}
-          aria-label="Show raw protocol messages"
-        />
-      </div>
+      {/* Only offer the toggle when this normalized conversation actually contains hidden protocol rows. */}
+      {hiddenProtocolMessageCount > 0 && <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-border">
+          <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">
+            {t('sessions.rawMessages', 'Show protocol messages')} ({hiddenProtocolMessageCount})
+          </span>
+          <Switch
+            checked={showRawMessages}
+            onCheckedChange={setShowRawMessages}
+            aria-label={t('sessions.rawMessages', 'Show protocol messages')}
+          />
+        </div>}
 
       <div className="px-2">
         {messages.map((message, index) => {

@@ -25,19 +25,14 @@ interface MessageBubbleProps {
 }
 
 function getAssistantConfig(sourceTool?: string): { name: string; avatarColor: string } {
-  switch (sourceTool) {
-    case 'cursor':
-      return { name: 'Cursor', avatarColor: 'bg-blue-500' };
-    case 'codex-cli':
-      return { name: 'Codex', avatarColor: 'bg-green-500' };
-    case 'copilot':
-      return { name: 'Copilot', avatarColor: 'bg-violet-500' };
-    case 'copilot-cli':
-      return { name: 'Copilot', avatarColor: 'bg-cyan-500' };
-    case 'claude-code':
-    default:
-      return { name: 'Claude', avatarColor: 'bg-purple-500' };
-  }
+  const sources: Record<string, { name: string; avatarColor: string }> = {
+    'codex-cli': { name: 'Codex', avatarColor: 'bg-green-500' },
+    'claude-code': { name: 'Claude Code', avatarColor: 'bg-orange-500' },
+    cursor: { name: 'Cursor', avatarColor: 'bg-blue-500' },
+    'copilot-cli': { name: 'GitHub Copilot CLI', avatarColor: 'bg-cyan-500' },
+    copilot: { name: 'GitHub Copilot', avatarColor: 'bg-violet-500' },
+  };
+  return sources[sourceTool ?? ''] ?? { name: 'Coding agent', avatarColor: 'bg-slate-500' };
 }
 
 export function MessageBubble({ message, showHeader = true, nextToolResults = [], sourceTool, searchQuery, showRawMessages = false }: MessageBubbleProps) {

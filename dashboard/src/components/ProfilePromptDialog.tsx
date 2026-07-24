@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useUserProfile, normalizeGithubUsername } from '@/hooks/useUserProfile';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import type { UserProfile } from '@/hooks/useUserProfile';
 
 interface ProfilePromptDialogProps {
@@ -27,7 +27,7 @@ interface ProfilePromptDialogProps {
 
 /**
  * Dialog shown before share card download when the user profile is incomplete.
- * Collects Display Name + GitHub Username with a live avatar preview.
+ * Collects a display name and an optional generic avatar URL.
  * On save, persists to localStorage and calls onSave so the caller can proceed with the download.
  */
 export function ProfilePromptDialog({
@@ -39,27 +39,24 @@ export function ProfilePromptDialog({
   const { profile, saveProfile } = useUserProfile();
 
   const [name, setName] = useState(profile?.name ?? '');
-  const [githubUsername, setGithubUsername] = useState(profile?.githubUsername ?? '');
+  const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl ?? '');
   const [avatarError, setAvatarError] = useState(false);
 
   // Reset fields when dialog opens, pre-fill from existing profile if any
   useEffect(() => {
     if (open) {
       setName(profile?.name ?? '');
-      setGithubUsername(profile?.githubUsername ?? '');
+      setAvatarUrl(profile?.avatarUrl ?? '');
       setAvatarError(false);
     }
-  }, [open, profile?.name, profile?.githubUsername]);
+  }, [open, profile?.name, profile?.avatarUrl]);
 
-  const normalizedUsername = normalizeGithubUsername(githubUsername);
-  const avatarUrl = normalizedUsername ? `https://github.com/${normalizedUsername}.png` : '';
-
-  const canSave = name.trim().length > 0 && normalizedUsername.length > 0;
+  const canSave = name.trim().length > 0;
 
   async function handleSave() {
     if (!canSave) return;
     // Await saveProfile — it fetches and caches the avatar as base64
-    const saved = await saveProfile(name, githubUsername);
+    const saved = await saveProfile(name, avatarUrl);
     // Pass the saved profile (with cached avatar) directly to the caller
     // to avoid stale closure on triggerDownload
     onSave(saved);
@@ -73,9 +70,9 @@ export function ProfilePromptDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add your profile to the share card</DialogTitle>
+          <DialogTitle>添加分享卡片署名</DialogTitle>
           <DialogDescription>
-            Your name and GitHub avatar will appear in the card footer, personalizing it for social sharing.
+            显示名称会出现在卡片底部；头像地址可选，不依赖 GitHub。
           </DialogDescription>
         </DialogHeader>
 
@@ -86,7 +83,7 @@ export function ProfilePromptDialog({
               {avatarUrl && !avatarError ? (
                 <img
                   src={avatarUrl}
-                  alt="GitHub avatar preview"
+                  alt="头像预览"
                   className="h-full w-full object-cover"
                   onError={() => setAvatarError(true)}
                   onLoad={() => setAvatarError(false)}
@@ -99,49 +96,45 @@ export function ProfilePromptDialog({
             </div>
             <div className="text-sm">
               <p className="font-medium">{name.trim() || 'Your Name'}</p>
-              {normalizedUsername ? (
-                <p className="text-muted-foreground text-xs">@{normalizedUsername}</p>
-              ) : (
-                <p className="text-muted-foreground text-xs italic">Enter your GitHub username</p>
-              )}
+              <p className="text-muted-foreground text-xs">{avatarUrl ? '已填写头像地址' : '未设置头像'}</p>
             </div>
           </div>
 
           {/* Name input */}
           <div>
-            <label className="text-sm font-medium">Display Name</label>
+            <label className="text-sm font-medium">显示名称</label>
             <Input
               className="mt-1"
-              placeholder="e.g. Srikanth Rao"
+              placeholder="例如：你的姓名"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
 
-          {/* GitHub username input */}
+          {/* Optional generic avatar URL */}
           <div>
-            <label className="text-sm font-medium">GitHub Username</label>
+            <label className="text-sm font-medium">头像 URL（可选）</label>
             <Input
               className="mt-1"
-              placeholder="e.g. melagiri"
-              value={githubUsername}
+              placeholder="https://example.com/avatar.png"
+              value={avatarUrl}
               onChange={(e) => {
-                setGithubUsername(e.target.value);
+                setAvatarUrl(e.target.value);
                 setAvatarError(false);
               }}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Used to load your GitHub avatar. No @ prefix needed.
+              仅在本地生成分享卡片时读取。
             </p>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={handleSkip} type="button">
-            Skip
+            跳过
           </Button>
           <Button onClick={handleSave} disabled={!canSave} type="button">
-            Save & Download
+            保存并下载
           </Button>
         </DialogFooter>
       </DialogContent>

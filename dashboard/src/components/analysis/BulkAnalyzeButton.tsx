@@ -9,10 +9,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { analyzeSession } from '@/lib/api';
+import { analyzeSessionAutomatically } from '@/lib/api';
 import { useLlmConfig } from '@/hooks/useConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@/lib/types';
+import { useLanguage } from '@/i18n/LanguageProvider';
+import { isAutomaticAnalysisAvailable } from '@/lib/analysis-availability';
 
 interface BulkAnalyzeButtonProps {
   sessions: Session[];
@@ -29,28 +31,34 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
     errors: string[];
   } | null>(null);
   const { data: llmConfig } = useLlmConfig();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
+  const eligibleSessions = sessions.filter((session) => session.user_message_count > 0
+    && session.assistant_message_count > 0);
 
-  const configured = !!(llmConfig?.provider && llmConfig?.model);
+  const configured = isAutomaticAnalysisAvailable(llmConfig);
 
   const handleAnalyze = async () => {
-    if (!configured || sessions.length === 0) return;
+    if (!configured || eligibleSessions.length === 0) return;
 
     setAnalyzing(true);
-    setProgress({ completed: 0, total: sessions.length });
+    setProgress({ completed: 0, total: eligibleSessions.length });
     setResult(null);
 
     let successful = 0;
     let failed = 0;
     const errors: string[] = [];
 
-    for (const session of sessions) {
+    for (const session of eligibleSessions) {
       try {
-        await analyzeSession(session.id);
+        await analyzeSessionAutomatically(session.id);
         successful++;
       } catch (error) {
         failed++;
-        errors.push(error instanceof Error ? error.message : `Failed: ${session.id}`);
+        const message = error instanceof Error ? error.message : `Failed: ${session.id}`;
+        errors.push(/API 422|no genuine user messages|insufficient.evidence/i.test(message)
+          ? t('bulk.unavailable', 'This session has no complete real conversation and was skipped.')
+          : message.replace(/^API \d+:\s*/, ''));
       }
       setProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
     }
@@ -64,43 +72,43 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
     onComplete?.();
   };
 
-  const handleClose = () => {
-    if (!analyzing) {
-      setOpen(false);
-      setResult(null);
-      setProgress({ completed: 0, total: 0 });
-    }
+  const resetAndClose = () => {
+    setOpen(false);
+    setResult(null);
+    setProgress({ completed: 0, total: 0 });
   };
 
   if (!configured) {
     return (
       <Button variant="outline" disabled className="gap-2">
         <Sparkles className="h-4 w-4" />
-        Analyze Selected
-        <span className="text-xs text-muted-foreground ml-1">(Configure AI first)</span>
+        {t('bulk.selected', 'Analyze Selected')}
+        <span className="text-xs text-muted-foreground ml-1">({t('bulk.runnerRequired', 'Automatic LLM runner required')})</span>
       </Button>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
           className="gap-2"
-          disabled={sessions.length === 0}
-          onClick={() => setOpen(true)}
+          disabled={eligibleSessions.length === 0}
         >
-          <Sparkles className="h-4 w-4" />
-          Analyze {sessions.length} Session{sessions.length !== 1 ? 's' : ''}
+          {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {analyzing
+            ? `${t('bulk.backgroundProgress', 'Analyzing in background')} ${progress.completed}/${progress.total}`
+            : result
+              ? `${result.successful} ${t('bulk.completedShort', 'analyzed')}`
+              : `${t('bulk.analyze', 'Analyze')} ${eligibleSessions.length} ${eligibleSessions.length === 1 ? t('bulk.session', 'Session') : t('bulk.sessions', 'Sessions')}`}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Bulk Analysis</DialogTitle>
+          <DialogTitle>{t('bulk.title', 'Bulk Analysis')}</DialogTitle>
           <DialogDescription>
-            Generate AI insights for {sessions.length} selected session
-            {sessions.length !== 1 ? 's' : ''}.
+            {t('bulk.generate', 'Generate AI insights for')} {eligibleSessions.length} {eligibleSessions.length === 1 ? t('bulk.selectedSession', 'selected session') : t('bulk.selectedSessions', 'selected sessions')}.
           </DialogDescription>
         </DialogHeader>
 
@@ -108,11 +116,11 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
           {!analyzing && !result && (
             <>
               <p className="text-sm text-muted-foreground">
-                This will use your configured LLM provider to analyze each session and generate insights.
+                {t('bulk.desc', 'This uses the automatic analysis runner shown in Settings. With a ChatGPT login, Codex native analysis works without another API key.')}
               </p>
               <Button onClick={handleAnalyze} className="w-full gap-2">
                 <Sparkles className="h-4 w-4" />
-                Start Analysis
+                {t('bulk.start', 'Start Analysis')}
               </Button>
             </>
           )}
@@ -122,7 +130,7 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">
-                  Analyzing session {progress.completed} of {progress.total}...
+                  {t('bulk.progress', 'Analyzing session')} {progress.completed} {t('bulk.of', 'of')} {progress.total}...
                 </span>
               </div>
               <div className="w-full bg-muted rounded-full h-2">
@@ -131,6 +139,12 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
                   style={{ width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%` }}
                 />
               </div>
+              <p className="text-xs text-muted-foreground">
+                {t('bulk.backgroundHint', 'You can close this window and continue using the dashboard. Analysis will keep running in the background.')}
+              </p>
+              <Button variant="outline" onClick={() => setOpen(false)} className="w-full">
+                {t('bulk.continueInBackground', 'Continue in background')}
+              </Button>
             </div>
           )}
 
@@ -139,14 +153,14 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle className="h-4 w-4" />
                 <span>
-                  {result.successful} session{result.successful !== 1 ? 's' : ''} analyzed successfully
+                  {result.successful} {result.successful === 1 ? t('bulk.sessionLower', 'session') : t('bulk.sessionsLower', 'sessions')} {t('bulk.success', 'analyzed successfully')}
                 </span>
               </div>
               {result.failed > 0 && (
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-red-500">
                     <AlertCircle className="h-4 w-4" />
-                    <span>{result.failed} failed</span>
+                    <span>{result.failed} {t('bulk.failed', 'failed')}</span>
                   </div>
                   <ul className="text-xs text-muted-foreground list-disc list-inside max-h-32 overflow-y-auto">
                     {result.errors.slice(0, 5).map((err, i) => (
@@ -158,8 +172,8 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
                   </ul>
                 </div>
               )}
-              <Button onClick={handleClose} className="w-full">
-                Done
+              <Button onClick={resetAndClose} className="w-full">
+                {t('bulk.done', 'Done')}
               </Button>
             </div>
           )}

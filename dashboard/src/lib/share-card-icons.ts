@@ -2,12 +2,8 @@
 // Lucide SVG paths extracted from lucide-react v0.475.0 (24×24 viewBox, 2px stroke).
 // Tool logos loaded as Vite asset URLs and rendered via Image() objects.
 
-// Tool logo URLs — served from dashboard/public/icons/ as static assets (no Vite hashing needed;
-// these are brand marks, not app assets that change with code).
-const claudeCodeUrl = '/icons/Claude_Code.svg';
-const cursorUrl = '/icons/cursor.png';
+// Codex logo URL — served from dashboard/public/icons/ as a static asset.
 const codexUrl = '/icons/codex.png';
-const copilotUrl = '/icons/github-copilot-icon.png';
 
 export interface IconDef {
   /** SVG path d-strings for a 24×24 viewBox */
@@ -152,15 +148,13 @@ export function drawIcon(
 // ── Tool logo loading ──────────────────────────────────────────────────────────
 
 /**
- * Deduplication: copilot + copilot-cli map to the same icon.
- * Returns a deduplicated list of unique tool identifiers for icon rendering.
+ * Returns a deduplicated list of unique source identifiers for icon rendering.
  */
 export function deduplicateToolsForIcons(sourceTools: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const tool of sourceTools) {
-    // Both copilot variants share the same icon — normalize to 'copilot'
-    const key = tool === 'copilot-cli' ? 'copilot' : tool;
+    const key = tool;
     if (!seen.has(key)) {
       seen.add(key);
       result.push(key);
@@ -170,20 +164,16 @@ export function deduplicateToolsForIcons(sourceTools: string[]): string[] {
 }
 
 const TOOL_ICON_URLS: Record<string, string> = {
-  'claude-code': claudeCodeUrl,
-  'cursor': cursorUrl,
   'codex-cli': codexUrl,
-  'copilot': copilotUrl,
-  'copilot-cli': copilotUrl,
 };
 
 /** Human-readable display names for source tools (used in share card evidence section). */
 export const SOURCE_TOOL_DISPLAY_NAMES: Record<string, string> = {
+  'codex-cli': 'Codex',
   'claude-code': 'Claude Code',
-  'cursor': 'Cursor',
-  'codex-cli': 'Codex CLI',
-  'copilot': 'GitHub Copilot',
-  'copilot-cli': 'GitHub Copilot',
+  cursor: 'Cursor',
+  'copilot-cli': 'GitHub Copilot CLI',
+  copilot: 'GitHub Copilot',
 };
 
 /** Pre-load tool logo images. Returns a map of tool key → HTMLImageElement. */

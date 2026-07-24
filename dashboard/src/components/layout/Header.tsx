@@ -1,214 +1,112 @@
 import { Link, useLocation } from 'react-router';
-import {
-  LayoutDashboard,
-  Settings,
-  Menu,
-  MoreHorizontal,
-  Github,
-  Search,
-  Network,
-  PackageCheck,
-  Scale,
-  BellRing,
-  Sparkles,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-import { ThemeToggle } from './ThemeToggle';
-import { Logo } from '@/components/brand/Logo';
+import { BookOpenText, Footprints, Search, Settings2, Sprout, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ThemeToggle } from './ThemeToggle';
+import { LanguageToggle } from './LanguageToggle';
+import { useLanguage } from '@/i18n/LanguageProvider';
+import { useIngestionHealth } from '@/hooks/useIngestionHealth';
+import { useBehaviorReport } from '@/hooks/useBehaviorReport';
 
 export const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
-  { href: '/tasks', label: 'Tasks', icon: Network, exact: false },
-  { href: '/deliveries', label: 'Deliveries', icon: PackageCheck, exact: false },
-  { href: '/patterns', label: 'Patterns', icon: Sparkles, exact: false },
-  { href: '/advice', label: 'Advice', icon: BellRing, exact: false },
-  { href: '/scorecards', label: 'Scorecards', icon: Scale, exact: false },
-  { href: '/settings', label: 'Settings', icon: Settings, exact: false },
+  { href: '/dashboard', label: '总览', fallback: 'Overview', icon: BookOpenText, exact: true },
+  { href: '/improve', label: '能力', fallback: 'Capability', icon: Sprout, exact: false },
+  { href: '/advice', label: '行动', fallback: 'Actions', icon: Target, exact: false },
+  { href: '/sessions', label: '记录', fallback: 'Activity', icon: Footprints, exact: false },
 ];
 
-// Bottom tab bar shows the first 4 primary nav items
-const BOTTOM_TABS = NAV_ITEMS.slice(0, 4);
-
-interface HeaderProps {
-  onOpenSearch?: () => void;
-}
+interface HeaderProps { onOpenSearch?: () => void }
 
 export function Header({ onOpenSearch }: HeaderProps) {
   const { pathname } = useLocation();
-
-  const isActive = (href: string, exact: boolean) =>
-    exact ? pathname === href : pathname.startsWith(href);
-
-  const navLinkClass = (href: string, exact: boolean) =>
-    cn(
-      'text-sm font-medium transition-colors',
-      isActive(href, exact)
-        ? 'text-foreground font-semibold'
-        : 'text-muted-foreground hover:text-foreground'
-    );
+  const { language } = useLanguage();
+  const { data: ingestion } = useIngestionHealth();
+  const { data: behavior } = useBehaviorReport();
+  const isActive = (href: string, exact: boolean) => exact ? pathname === href : pathname.startsWith(href);
+  const currentItem = NAV_ITEMS.find(({ href, exact }) => isActive(href, exact));
+  const currentLabel = pathname.startsWith('/settings')
+    ? (language === 'zh-CN' ? '设置' : 'Settings')
+    : language === 'zh-CN' ? currentItem?.label : currentItem?.fallback;
+  const importRunning = ingestion?.status === 'running';
+  const importAvailable = ingestion && ingestion.status !== 'never-run' && ingestion.status !== 'failed';
+  const reportRunning = behavior?.generation.running ?? false;
 
   return (
     <>
-      {/* Main header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border/50">
-        <div className="px-4 h-14 flex items-center gap-4">
-          {/* Mobile hamburger — visible below lg */}
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 lg:hidden">
-                <Menu className="h-4 w-4" />
-                <span className="sr-only">Open navigation</span>
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0 flex flex-col">
-              <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle className="flex items-center gap-2 text-sm font-semibold">
-                  <Logo className="h-4 w-4" />
-                  Agent Analytics
-                </SheetTitle>
-                <SheetDescription className="sr-only">Navigation menu</SheetDescription>
-              </SheetHeader>
-              <nav className="px-2 py-2">
-                {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
-                  <Button
-                    key={href}
-                    variant="ghost"
-                    size="sm"
-                    asChild
-                    className={cn(
-                      'w-full justify-start h-9 px-3 mb-0.5',
-                      isActive(href, exact)
-                        ? 'text-foreground font-semibold bg-accent'
-                        : 'text-muted-foreground'
-                    )}
-                  >
-                    <Link to={href}>
-                      <Icon className="h-4 w-4 mr-2" />
-                      {label}
-                    </Link>
-                  </Button>
-                ))}
-              </nav>
-            </SheetContent>
-          </Sheet>
-
-          {/* Logo */}
-          <Link to="/dashboard" className="flex items-center gap-2 shrink-0">
-            <Logo className="h-5 w-5" />
-            <span className="font-semibold">Agent Analytics</span>
-          </Link>
-
-          {/* Desktop nav links — hidden below lg */}
-          <nav className="hidden lg:flex items-center gap-0.5">
-            {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
-              <Button
-                key={href}
-                variant="ghost"
-                size="sm"
-                asChild
-                className={cn('h-9 px-3', navLinkClass(href, exact))}
-              >
-                <Link to={href}>
-                  <Icon className="h-4 w-4 mr-1.5" />
-                  {label}
-                </Link>
-              </Button>
-            ))}
-          </nav>
-
-          {/* Right section */}
-          <div className="ml-auto flex items-center gap-1">
-            {/* Search hint — desktop only (lg+), teaches Cmd+K shortcut */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="hidden lg:flex items-center gap-2 h-8 w-48 text-xs text-muted-foreground justify-between px-3"
-              onClick={onOpenSearch}
-            >
-              <span className="flex items-center gap-1.5">
-                <Search className="h-3.5 w-3.5" />
-                Search...
-              </span>
-              <kbd className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-mono">
-                ⌘K
-              </kbd>
-            </Button>
-
-            <ThemeToggle />
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 hidden sm:flex"
-              asChild
-            >
-              <a
-                href="https://github.com/melagiri/agent-analytics"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="GitHub repository"
-              >
-                <Github className="h-4 w-4" />
-                <span className="sr-only">GitHub</span>
-              </a>
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Mobile bottom tab bar — visible below md only */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t bg-background flex items-stretch h-14">
-        {BOTTOM_TABS.map(({ href, label, icon: Icon, exact }) => {
-          const active = isActive(href, exact);
-          return (
+      <aside className="vibe-rail hidden md:flex" aria-label={language === 'zh-CN' ? '主导航' : 'Primary navigation'}>
+        <Link to="/dashboard" className="vibe-wordmark" aria-label="Agent 使用分析首页">
+          <span className="vibe-brand-mark" aria-hidden>◎</span>
+          <span className="vibe-brand-copy"><strong>Agent 使用分析</strong><small>LOCAL ENGINEERING INTELLIGENCE</small></span>
+        </Link>
+        <nav className="vibe-rail-nav">
+          {NAV_ITEMS.map(({ href, label, fallback, icon: Icon, exact }) => (
             <Link
               key={href}
               to={href}
-              className={cn(
-                'flex-1 flex flex-col items-center justify-center gap-0.5 text-xs transition-colors',
-                active ? 'text-foreground font-semibold' : 'text-muted-foreground'
-              )}
+              aria-current={isActive(href, exact) ? 'page' : undefined}
+              className={cn('vibe-rail-link', isActive(href, exact) && 'is-active')}
             >
-              <Icon className="h-5 w-5" />
-              <span>{label}</span>
+              <Icon aria-hidden className="h-4 w-4" />
+              <span>{language === 'zh-CN' ? label : fallback}</span>
             </Link>
-          );
-        })}
-        {/* "More" tab — bottom sheet for overflow items */}
-        <Sheet>
-          <SheetTrigger asChild>
-            <button className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground transition-colors">
-              <MoreHorizontal className="h-5 w-5" />
-              <span>More</span>
-            </button>
-          </SheetTrigger>
-          <SheetContent side="bottom" className="h-auto">
-            <SheetHeader className="px-4 py-3">
-              <SheetTitle className="text-sm font-semibold sr-only">More options</SheetTitle>
-              <SheetDescription className="sr-only">Additional navigation options</SheetDescription>
-            </SheetHeader>
-            <nav className="px-4 pb-6 grid grid-cols-2 gap-2">
-              {NAV_ITEMS.slice(4).map(({ href, label, icon: Icon }) => (
-                <Button key={href} variant="outline" asChild className="justify-start gap-2">
-                  <Link to={href}>
-                    <Icon className="h-4 w-4" />
-                    {label}
-                  </Link>
-                </Button>
-              ))}
-            </nav>
-          </SheetContent>
-        </Sheet>
+          ))}
+        </nav>
+        <div className="vibe-rail-tools">
+          <button type="button" onClick={onOpenSearch} className="vibe-icon-button" aria-label="Search">
+            <Search className="h-4 w-4" />
+          </button>
+          <LanguageToggle />
+          <ThemeToggle />
+          <Link to="/settings" className={cn('vibe-system-link', pathname.startsWith('/settings') && 'is-active')}>
+            <Settings2 className="h-4 w-4" />
+            <span>{language === 'zh-CN' ? '设置' : 'Settings'}</span>
+          </Link>
+        </div>
+      </aside>
+
+      <nav className="vibe-mobile-nav md:hidden" aria-label={language === 'zh-CN' ? '主导航' : 'Primary navigation'}>
+        {NAV_ITEMS.map(({ href, label, fallback, icon: Icon, exact }) => (
+          <Link key={href} to={href} className={cn(isActive(href, exact) && 'is-active')}>
+            <Icon className="h-4 w-4" />
+            <span>{language === 'zh-CN' ? label : fallback}</span>
+          </Link>
+        ))}
+        <Link to="/settings" className={cn(pathname.startsWith('/settings') && 'is-active')}>
+          <Settings2 className="h-4 w-4" />
+          <span>{language === 'zh-CN' ? '设置' : 'Settings'}</span>
+        </Link>
       </nav>
+
+      <header className="vibe-topbar hidden md:flex">
+        <div className="vibe-breadcrumb">
+          <span>Agent 使用分析</span>
+          <span aria-hidden>/</span>
+          <strong>{currentLabel ?? (language === 'zh-CN' ? '本地工作台' : 'Local workspace')}</strong>
+        </div>
+        <div className="vibe-pipeline" aria-label="自动采集与分析流水线">
+          <span className={cn('vibe-stage', importAvailable && 'is-ready')}>
+            <i aria-hidden />
+            <b>Hook</b>
+            <span>{importAvailable ? '已连接' : '等待事件'}</span>
+          </span>
+          <span className="vibe-pipe-arrow" aria-hidden>→</span>
+          <span className={cn('vibe-stage', importRunning ? 'is-running' : importAvailable && 'is-ready')}>
+            <i aria-hidden />
+            <b>导入</b>
+            <span>{importRunning ? '处理中' : importAvailable ? '已稳定' : '等待'}</span>
+          </span>
+          <span className="vibe-pipe-arrow" aria-hidden>→</span>
+          <span className={cn('vibe-stage', reportRunning ? 'is-running' : behavior?.report && 'is-ready')}>
+            <i aria-hidden />
+            <b>LLM</b>
+            <span>{reportRunning ? '报告生成中' : behavior?.report ? '异步就绪' : '等待证据'}</span>
+          </span>
+        </div>
+      </header>
+
+      {reportRunning && <div className="vibe-global-report hidden md:flex" role="status">
+        <div><i aria-hidden /><strong>跨会话报告正在后台生成</strong><span>切换页面不会中断；完成后自动更新工程画像。</span></div>
+        <span className="vibe-report-track" aria-hidden><i /></span>
+      </div>}
     </>
   );
 }

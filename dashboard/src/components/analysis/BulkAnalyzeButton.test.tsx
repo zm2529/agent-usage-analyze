@@ -1,22 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BulkAnalyzeButton } from './BulkAnalyzeButton';
 import type { Session } from '@/lib/types';
 
 vi.mock('@/lib/api', () => ({
-  analyzeSession: vi.fn(),
+  analyzeSessionAutomatically: vi.fn(),
 }));
 
 vi.mock('@/hooks/useConfig', () => ({
   useLlmConfig: vi.fn(),
 }));
 
-import { analyzeSession } from '@/lib/api';
+import { analyzeSessionAutomatically } from '@/lib/api';
 import { useLlmConfig } from '@/hooks/useConfig';
 
-const mockAnalyzeSession = vi.mocked(analyzeSession);
+const mockAnalyzeSession = vi.mocked(analyzeSessionAutomatically);
 const mockUseLlmConfig = vi.mocked(useLlmConfig);
 
 function makeSession(id: string): Session {
@@ -72,18 +72,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: LLM configured
   mockUseLlmConfig.mockReturnValue({
-    data: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+    data: {
+      provider: 'anthropic', model: 'claude-sonnet-4-6',
+      analysis: { effectiveRunner: 'provider' },
+    },
   } as ReturnType<typeof useLlmConfig>);
 });
 
 describe('BulkAnalyzeButton', () => {
   describe('unconfigured state', () => {
-    it('renders disabled button with configure message when LLM not configured', () => {
+    it('renders disabled button with an optional-provider message when manual analysis is not configured', () => {
       mockUseLlmConfig.mockReturnValue({ data: null } as unknown as ReturnType<typeof useLlmConfig>);
       setup([makeSession('s1')]);
       const btn = screen.getByRole('button', { name: /analyze selected/i });
       expect(btn).toBeDisabled();
-      expect(screen.getByText(/configure ai first/i)).toBeInTheDocument();
+      expect(screen.getByText(/automatic llm runner required/i)).toBeInTheDocument();
     });
   });
 
@@ -113,7 +116,7 @@ describe('BulkAnalyzeButton', () => {
       expect(screen.getByText('Bulk Analysis')).toBeInTheDocument();
     });
 
-    it('does not close dialog when Escape pressed while analyzing (regression #293)', async () => {
+    it('closes the dialog while analysis continues in the background', async () => {
       // analyzeSession never resolves — keeps component in analyzing=true state
       mockAnalyzeSession.mockReturnValue(new Promise(() => {}));
 
@@ -126,11 +129,13 @@ describe('BulkAnalyzeButton', () => {
         expect(screen.getByText(/analyzing session/i)).toBeInTheDocument();
       });
 
-      // Fire Escape — dialog must stay open
-      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape', code: 'Escape' });
+      await userEvent.click(screen.getByRole('button', { name: /continue in background/i }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /analyzing in background 0\/1/i })).toBeInTheDocument();
 
-      // Dialog should still be present
+      await userEvent.click(screen.getByRole('button', { name: /analyzing in background 0\/1/i }));
       expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText(/analyzing session 0 of 1/i)).toBeInTheDocument();
     });
 
     it('can be closed after analysis completes', async () => {

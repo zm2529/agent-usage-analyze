@@ -3,6 +3,8 @@ import { Link } from 'react-router';
 import { X, Sparkles, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLlmConfig } from '@/hooks/useConfig';
+import { useLanguage } from '@/i18n/LanguageProvider';
+import { isAutomaticAnalysisAvailable } from '@/lib/analysis-availability';
 
 interface LlmNudgeBannerProps {
   context: 'insights' | 'patterns';
@@ -18,6 +20,7 @@ function localStorageKey(context: LlmNudgeBannerProps['context']): string {
 }
 
 export function LlmNudgeBanner({ context }: LlmNudgeBannerProps) {
+  const { t } = useLanguage();
   const { data: llmConfig, isLoading: configLoading } = useLlmConfig();
   const [dismissed, setDismissed] = useState<boolean>(() => {
     try {
@@ -30,8 +33,8 @@ export function LlmNudgeBanner({ context }: LlmNudgeBannerProps) {
   // Don't render until config has resolved (prevents flash)
   if (configLoading) return null;
 
-  // Don't show if LLM is already configured
-  if (llmConfig?.provider) return null;
+  // Don't show if the resolved automatic policy already has a runner.
+  if (isAutomaticAnalysisAvailable(llmConfig)) return null;
 
   // Don't show if user dismissed
   if (dismissed) return null;
@@ -43,7 +46,7 @@ export function LlmNudgeBanner({ context }: LlmNudgeBannerProps) {
     setDismissed(true);
   }
 
-  const title = TITLES[context];
+  const title = t(`llmNudge.title.${context}`, TITLES[context]);
 
   return (
     <div role="status" className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
@@ -52,17 +55,17 @@ export function LlmNudgeBanner({ context }: LlmNudgeBannerProps) {
         <div className="flex-1 min-w-0">
           <p className="font-medium">{title}</p>
 
-          {/* Primary path: Claude Code hook */}
+          {/* Primary path: Codex capture and signed-in analysis */}
           <div className="mt-2.5 rounded-md border border-dashed px-3 py-2.5 bg-background/60">
             <div className="flex items-start gap-2">
               <Terminal className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0">
-                <p className="font-medium text-foreground text-xs">Using Claude Code?</p>
+                <p className="font-medium text-foreground text-xs">{t('llmNudge.usingCodex', 'Using Codex?')}</p>
                 <p className="text-muted-foreground text-xs mt-0.5">
-                  Analyze sessions automatically with your Claude subscription — no API key needed.
+                  {t('llmNudge.codexDesc', 'Capture completed work automatically and reuse an eligible signed-in Codex session without adding an API key.')}
                 </p>
                 <code className="inline-block mt-1.5 rounded bg-muted px-2 py-0.5 text-[11px] font-mono text-foreground">
-                  agent-analytics install-hook
+                  agent-usage-analyze start
                 </code>
               </div>
             </div>
@@ -71,13 +74,13 @@ export function LlmNudgeBanner({ context }: LlmNudgeBannerProps) {
           {/* Divider */}
           <div className="flex items-center gap-2 my-2.5">
             <div className="flex-1 border-t" />
-            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">or</span>
+            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">{t('llmNudge.or', 'or')}</span>
             <div className="flex-1 border-t" />
           </div>
 
           {/* Secondary path: configure a provider */}
           <p className="text-muted-foreground text-xs">
-            Configure a provider for manual analysis. Install{' '}
+            {t('llmNudge.providerPrefix', 'Configure a provider for manual analysis. Install')}{' '}
             <a
               href="https://ollama.com"
               target="_blank"
@@ -86,20 +89,20 @@ export function LlmNudgeBanner({ context }: LlmNudgeBannerProps) {
             >
               Ollama
             </a>{' '}
-            for free local analysis, or set up any provider in Settings.
+            {t('llmNudge.providerSuffix', 'for free local analysis, or set up any provider in Settings.')}
           </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 ml-2">
           <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-            <Link to="/settings">Configure AI Provider</Link>
+            <Link to="/settings">{t('analysis.configure', 'Configure AI provider')}</Link>
           </Button>
           <Button
             variant="ghost"
             size="icon"
             className="h-7 w-7"
             onClick={handleDismiss}
-            aria-label="Dismiss"
+            aria-label={t('advice.dismiss', 'Dismiss')}
           >
             <X className="h-3.5 w-3.5" />
           </Button>

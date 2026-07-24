@@ -16,10 +16,47 @@ export interface IngestionHealth {
   };
   eventCount: number;
   sourceCount: number;
+  processedSources: number;
+  startedAt: string | null;
+  completedAt: string | null;
   eras: Array<{
     id: string;
     mode: 'historical-backfill' | 'continuous-observation';
     parserVersion: string;
+  }>;
+}
+
+export interface HistorySyncResult {
+  status: 'completed';
+  startedAt: string;
+  completedAt: string;
+  forceRepair: boolean;
+  sessions: {
+    syncedCount: number;
+    messageCount: number;
+    errorCount: number;
+    updatedExistingCount: number;
+  };
+  deliveries: { repositories: number; deliveries: number; failed: number };
+  projection: {
+    staleBefore: number;
+    sessions: number;
+    usableSessions: number;
+    emptySessions: number;
+    invalidatedInsights: number;
+  };
+}
+
+export interface PatternOverview {
+  analyzedTaskCount: number;
+  patterns: Array<{
+    pattern: 'rework' | 'waiting' | 'context-switching' | 'validation-missing' | 'late-constraint' | 'repeated-failure';
+    label: string;
+    observableFact: string;
+    taskCount: number;
+    evidenceCount: number;
+    sampleTaskRefs: string[];
+    evidenceRefs: string[];
   }>;
 }
 
@@ -32,11 +69,18 @@ export interface WorkTaskNode {
   status: string;
   startedAt: string;
   endedAt: string | null;
+  sessionTitle: string | null;
   repository: { root: string | null; worktree: string | null; branch: string | null };
+  sessionId?: string;
+  analysisStatus?: 'analyzed' | 'not-analyzed';
+  analyzedAt?: string | null;
 }
 
 export interface WorkTaskDetail {
   id: string;
+  sessionId: string | null;
+  analysisStatus: 'analyzed' | 'not-analyzed';
+  analyzedAt: string | null;
   nodes: WorkTaskNode[];
   events: Array<{
     id: string; sourceArtifactId: string; sequence: number; kind: string; actor: string;
@@ -62,6 +106,7 @@ export interface Delivery {
   resultIdentity: string;
   occurredAt: string;
   metadata: Record<string, unknown>;
+  taskRefs?: Array<{ id: string; title: string | null }>;
 }
 export interface DeliveryEvidence {
   id: string;
@@ -290,6 +335,10 @@ export interface AdviceState {
     }>;
   };
   attention: { shown: number; adopted: number; ignored: number; dismissed: number };
+  strategic: null | {
+    generatedAt: string; headline: string; northStar: string;
+    actions: Array<{ title: string; rationale: string }>;
+  };
   diagnostics: string[];
 }
 
@@ -414,6 +463,195 @@ export interface Insight {
   linked_insight_ids: string | null; // JSON-encoded string[] | null — decode with parseJsonField<string[]>(x, [])
 }
 
+export type AnalysisRunStatus = 'completed' | 'unavailable' | 'failed' | 'rejected';
+
+/** Immutable local record of what an LLM analysis received and returned. */
+export interface AnalysisRunRecord {
+  id: string;
+  analysisType: string;
+  sessionId: string | null;
+  status: AnalysisRunStatus;
+  unavailableReason: string | null;
+  provider: string | null;
+  model: string | null;
+  promptVersion: string;
+  systemPrompt: string | null;
+  inputPrompt: string | null;
+  inputSummary: Record<string, unknown>;
+  outputJson: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+export interface BehaviorReport {
+  identity: { title: string; stage: string; rationale: string; evidenceRefs: string[] };
+  headline: string;
+  summary: string;
+  portrait: Array<{ title: string; finding: string; evidenceRefs: string[] }>;
+  strengths: Array<{ title: string; explanation: string; mechanism: string; evidenceRefs: string[] }>;
+  bottlenecks: Array<{
+    title: string; explanation: string; mechanism: string; counterEvidence: string[]; evidenceRefs: string[];
+  }>;
+  dimensions: Array<{
+    id: string;
+    label: string;
+    status: 'established' | 'candidate' | 'qualitative';
+    observation: string;
+    benefitHypothesis: string;
+    applicability: string[];
+    limitations: string[];
+    confidence: 'high' | 'medium' | 'low';
+    evidenceRefs: string[];
+  }>;
+  skillAssessments: Array<{
+    name: string;
+    fit: 'appropriate' | 'mixed' | 'uncertain';
+    observation: string;
+    issue: string | null;
+    recommendation: string;
+    evidenceRefs: string[];
+  }>;
+  contextDocumentAssessments: Array<{
+    documentRef: string;
+    name: string;
+    assessment: 'helpful' | 'mixed' | 'costly' | 'uncertain';
+    observation: string;
+    tokenCost: string;
+    optimization: string | null;
+    evidenceRefs: string[];
+  }>;
+  tokenEfficiencyFindings: Array<{
+    title: string;
+    observation: string;
+    savingMechanism: string;
+    applicability: string;
+    evidenceRefs: string[];
+  }>;
+  skillOpportunities: Array<{
+    type: 'existing-skill' | 'create-skill';
+    name: string;
+    necessity: 'high' | 'medium';
+    trigger: string;
+    evidence: string;
+    expectedBenefit: string;
+    evidenceRefs: string[];
+  }>;
+  developmentPlan: {
+    northStar: string;
+    operatingRules: string[];
+    experiments: Array<{
+      title: string;
+      hypothesis: string;
+      eligibleCohort: string;
+      observableOutcome: string;
+      guardrail: string;
+      reviewAfter: string;
+      evidenceRefs: string[];
+    }>;
+    taskTemplate: string;
+  };
+  uncertainty: string;
+}
+
+export interface BehaviorReportState {
+  dataset: {
+    window: { startsAt: string; endsAt: string; spanDays: number };
+    basis: {
+      generatedAt: string;
+      latestSessionAt: string | null;
+      latestLlmAnalysisAt: string | null;
+    };
+    coverage: {
+      windowSessions: number;
+      structurallyAnalyzedSessions: number;
+      semanticEnrichedSessions: number;
+      structuralRatio: number;
+      semanticEnrichmentRatio: number;
+    };
+    activity: Record<string, number>;
+    promptSignals: Record<string, number>;
+    representativeEpisodes: Array<{
+      sessionRef: string;
+      cohort: { projectRef: string; projectLabel: string; lengthBand: 'short' | 'medium' | 'long' };
+      activity: { durationMinutes: number; userMessages: number; assistantMessages: number; toolCalls: number; compactCount: number };
+      behaviorSignals: {
+        firstMessage: {
+          hasPathContext: boolean;
+          hasConstraintUpfront: boolean;
+          hasValidationUpfront: boolean;
+          hasSkillReference: boolean;
+        };
+        followups: { messages: number; shortMessages: number; shortRate: number };
+        semanticEnriched: boolean;
+      };
+      selectionReasons: string[];
+      findings: Array<{
+        type: string; title: string; summary: string;
+        findingCategories: Array<Record<string, unknown>>;
+        skillUsage: Array<Record<string, unknown>>;
+      }>;
+    }>;
+    leverage: {
+      skills: {
+        explicitInvocations: number;
+        coveredSessions: number;
+        items: Array<{
+          name: string;
+          invocations: number;
+          sessions: number;
+          sessionShare: number;
+          weeklyInvocations: [number, number, number, number];
+          lastUsedAt: string | null;
+          coUsedWith: Array<{ name: string; sessions: number }>;
+        }>;
+      };
+      tools: {
+        totalCalls: number;
+        coveredTasks: number;
+        families: Array<{
+          family: string;
+          calls: number;
+          tasks: number;
+        }>;
+        topTools: Array<{ name: string; calls: number; tasks: number }>;
+      };
+    };
+    contextDocuments: {
+      discovered: number;
+      estimatedTokens: number;
+      items: Array<{
+        documentRef: string; name: string; scope: 'project' | 'ancestor'; projects: string[]; bytes: number;
+        lines: number; headings: number; directiveSignals: number; estimatedTokens: number;
+        coveredSessions: number; medianUserMessages: number; shortFollowupRate: number; compactionRate: number;
+      }>;
+      measurementNote: string;
+    };
+    tokenEfficiency: {
+      inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number;
+      cacheReadShare: number; tokensPerUserMessage: number; sessionsWithCompaction: number;
+      longSessions: number; p90UserMessages: number; measurementNote: string;
+    };
+  };
+  eligibilityReason: string | null;
+  run: AnalysisRunRecord | null;
+  report: BehaviorReport | null;
+  needsRegeneration: boolean;
+  automation: {
+    enabled: boolean;
+    due: boolean;
+    reason: 'disabled' | 'insufficient-evidence' | 'up-to-date' | 'cooldown' | 'due';
+    policy: 'hook-after-settle';
+    intervalHours: 24;
+    latestAttemptAt: string | null;
+    latestSuccessfulAt: string | null;
+    latestEvidenceAt: string | null;
+    nextEligibleAt: string | null;
+  };
+  generation: { running: boolean; startedAt: string | null };
+}
+
 export interface ToolCall {
   id: string;                   // tool_use_id from JSONL
   name: string;
@@ -484,6 +722,52 @@ export interface DashboardStats {
   estimated_cost_usd: number | null;
 }
 
+export type OverviewRange = 'today' | '7d' | '30d';
+export interface OverviewAnalytics {
+  range: OverviewRange;
+  generatedAt: string;
+  startsAt: string;
+  totals: {
+    sessions: number; projects: number; rootTasks: number; subagents: number;
+    messages: number; toolCalls: number; skillInvocations: number; durationMinutes: number;
+    inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number;
+    promptScore: number | null;
+  };
+  timeline: Array<{
+    key: string; label: string; sessions: number; messages: number; toolCalls: number;
+    durationMinutes: number; inputTokens: number; outputTokens: number; cacheTokens: number;
+    subagents: number; skillInvocations: number; promptScore: number | null;
+  }>;
+  skills: Array<{ name: string; invocations: number; sessions: number }>;
+  toolFamilies: Array<{ family: string; calls: number }>;
+  durationBands: Array<{ label: string; count: number }>;
+}
+
+export interface CodexRateLimitWindow {
+  usedPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: number | null;
+}
+
+export type CodexAccountUsage =
+  | {
+    available: true;
+    source: 'codex-app-server';
+    observedAt: string;
+    resetCreditsAvailable: number | null;
+    resetCredits: Array<{ grantedAt: number | null; expiresAt: number | null }>;
+    rateLimits: Array<{
+      limitId: string | null;
+      limitName: string | null;
+      planType: string | null;
+      primary: CodexRateLimitWindow | null;
+      secondary: CodexRateLimitWindow | null;
+      credits: { hasCredits: boolean; unlimited: boolean; balance: string | null } | null;
+      rateLimitReachedType: string | null;
+    }>;
+  }
+  | { available: false; reason: string };
+
 /**
  * Typed metadata for insight rendering.
  * Mirrors cli/src/types.ts InsightMetadata — all fields optional since
@@ -507,6 +791,14 @@ export interface InsightMetadata {
   // Distinct from session_facets.outcome_satisfaction ('high'|'medium'|'low'|'abandoned')
   // which is a quantitative satisfaction rating used on the Patterns page.
   outcome?: 'success' | 'partial' | 'abandoned' | 'blocked';
+  skill_usage?: Array<{
+    name: string;
+    fit: 'appropriate' | 'mixed' | 'uncertain';
+    observation: string;
+    issue: string | null;
+    recommendation: string;
+    evidence: string[];
+  }>;
   // Legacy learning/technique
   context?: string;
   applicability?: string;
@@ -538,7 +830,7 @@ export interface InsightMetadata {
     request_specificity: number;
     scope_management: number;
     information_timing: number;
-    correction_quality: number;
+    correction_quality: number | null;
   };
   // Legacy prompt quality fields (pre-taxonomy — still in old insights)
   efficiencyScore?: number;
@@ -595,6 +887,16 @@ export interface LLMConfig {
   semanticProviderLocality?: 'local' | 'remote';
   semanticAnalysisEnabled: boolean;
   analysis: AnalysisExecutionState;
+  capabilities: AnalysisCapabilities;
+}
+
+export interface AnalysisCapabilities {
+  hookCapture: boolean;
+  sessionLlmAnalysis: boolean;
+  automaticBehaviorReport: boolean;
+  contextDocumentAnalysis: boolean;
+  tokenEfficiencyAnalysis: boolean;
+  skillOpportunityAnalysis: boolean;
 }
 
 export type AnalysisExecutionMode = 'auto' | 'codex-native' | 'claude-native' | 'provider' | 'local-only' | 'off';
@@ -616,6 +918,7 @@ export interface RuntimeConfig {
   eras: Array<{ mode: string; parserVersion: string; count: number }>;
   llm: { configured: boolean; provider?: string; model?: string; locality?: 'local' | 'remote'; enabled: boolean };
   analysis: AnalysisExecutionState;
+  capabilities: AnalysisCapabilities;
   migration: { databaseSchema: number; status: string; completedAt: string | null };
   dataActions: {
     exportPath: string; archiveCommand: string; rebuildCommand: string; scope: string; recovery: string;

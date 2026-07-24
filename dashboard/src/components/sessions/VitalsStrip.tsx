@@ -1,6 +1,5 @@
 import { format } from 'date-fns';
-import { formatDuration, formatModelName, formatTokenCount } from '@/lib/utils';
-import { parseJsonField } from '@/lib/types';
+import { formatDuration, formatTokenCount } from '@/lib/utils';
 import type { Session } from '@/lib/types';
 
 interface VitalsStripProps {
@@ -24,7 +23,6 @@ function formatTimeRange(start: Date, end: Date): string {
 export function VitalsStrip({ session }: VitalsStripProps) {
   const startedAt = new Date(session.started_at);
   const endedAt = new Date(session.ended_at);
-  const modelsUsed = parseJsonField<string[]>(session.models_used, []);
 
   // Build message sublabel with compact indicators
   const compactCount = session.compact_count ?? 0;
@@ -60,7 +58,7 @@ export function VitalsStrip({ session }: VitalsStripProps) {
   return (
     <div className="space-y-1.5">
       {/* Primary stats grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 border-y">
         <StatCell
           label="Duration"
           value={formatDuration(startedAt, endedAt)}
@@ -75,15 +73,6 @@ export function VitalsStrip({ session }: VitalsStripProps) {
           label="Tokens"
           value={hasTokens ? formatTokenCount(totalTokens) : '--'}
           sublabel={hasTokens ? tokenSublabel : undefined}
-        />
-        <StatCell
-          label="Cost"
-          value={
-            session.estimated_cost_usd != null
-              ? `$${session.estimated_cost_usd.toFixed(2)}`
-              : '--'
-          }
-          sublabel={modelsUsed.length > 0 ? modelsUsed.map(formatModelName).join(', ') : undefined}
         />
       </div>
     </div>
@@ -100,9 +89,9 @@ function StatCell({
   sublabel?: string;
 }) {
   return (
-    <div className="rounded-lg border px-3 py-2 text-center">
-      <div className="text-lg font-semibold tabular-nums leading-tight">{value}</div>
-      <div className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</div>
+    <div className="min-w-0 border-r px-3 py-3 text-left last:border-r-0">
+      <div className="text-base font-semibold tabular-nums leading-tight">{value}</div>
+      <div className="mt-1 text-[9px] text-muted-foreground uppercase tracking-[.08em]">{label}</div>
       {sublabel && (
         <div className="text-[10px] text-muted-foreground/60 leading-tight">{sublabel}</div>
       )}

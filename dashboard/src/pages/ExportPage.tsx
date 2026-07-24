@@ -244,7 +244,7 @@ export default function ExportPage() {
               <ExportTypeCard
                 icon={Bot}
                 title="Agent Rules"
-                description="Imperative instructions for CLAUDE.md or .cursorrules"
+                description="Reusable instructions for your Codex working agreement"
                 selected={format_ === 'agent-rules'}
                 onSelect={() => setFormat('agent-rules')}
               />

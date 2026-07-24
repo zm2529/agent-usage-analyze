@@ -6,6 +6,7 @@ import { AnalysisProvider } from '@/components/analysis/AnalysisContext';
 import App from './App';
 import './styles/globals.css';
 import { initTelemetry } from '@/lib/telemetry';
+import { LanguageProvider } from '@/i18n/LanguageProvider';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,9 +27,11 @@ createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system">
-        <AnalysisProvider>
-          <App />
-        </AnalysisProvider>
+        <LanguageProvider>
+          <AnalysisProvider>
+            <App />
+          </AnalysisProvider>
+        </LanguageProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </StrictMode>,

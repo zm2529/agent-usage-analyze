@@ -1,235 +1,202 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { useDashboardStats } from '@/hooks/useAnalytics';
-import { useSessions } from '@/hooks/useSessions';
-import { useInsights } from '@/hooks/useInsights';
-import { useProjects } from '@/hooks/useProjects';
-import { StatsHero } from '@/components/dashboard/StatsHero';
-import { IngestionHealthCard } from '@/components/dashboard/IngestionHealthCard';
+import {
+  Activity, Bot, Clock3, Cpu, Database, FileText, MessageSquareText,
+  Sparkles, Wrench,
+} from 'lucide-react';
+import {
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
+  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts';
+import { useOverviewAnalytics } from '@/hooks/useAnalytics';
+import { useBehaviorReport } from '@/hooks/useBehaviorReport';
 import { useIngestionHealth } from '@/hooks/useIngestionHealth';
-import { DashboardActivityChart } from '@/components/dashboard/DashboardActivityChart';
-import { ActivityFeed } from '@/components/dashboard/ActivityFeed';
-import { BulkAnalyzeButton } from '@/components/analysis/BulkAnalyzeButton';
-import { StatsHeroSkeleton } from '@/components/skeletons/StatsHeroSkeleton';
-import { ErrorCard } from '@/components/ErrorCard';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import type { DailyStats } from '@/lib/types';
-import { Sparkles, ArrowRight } from 'lucide-react';
-import { ObserverOverheadSection } from '@/components/dashboard/ObserverOverheadSection';
-import { ActiveScorecardOverview, ProductOverviewSections } from '@/components/dashboard/ProductOverviewSections';
+import { useSessions } from '@/hooks/useSessions';
+import { HistorySyncButton } from '@/components/dashboard/HistorySyncButton';
+import type { OverviewRange } from '@/lib/types';
 
-type DashboardRange = '7d' | '30d' | '90d' | 'all';
+const COLORS = ['#28666E', '#3B6EA8', '#BF7A45', '#6B7280'];
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+function compact(value: number): string {
+  return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 }
 
+function duration(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function parseStoredDate(value: string): Date {
+  return new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(' ', 'T')}Z` : value);
+}
+
+function Metric({ label, value, detail, icon: Icon }: {
+  label: string; value: string; detail: string; icon: typeof Activity;
+}) {
+  return <div className="overview-metric">
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground"><Icon className="h-3.5 w-3.5" />{label}</div>
+    <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
+    <p className="mt-1 truncate text-[10px] text-muted-foreground">{detail}</p>
+  </div>;
+}
+
+function SectionTitle({ title, description, aside }: { title: string; description: string; aside?: React.ReactNode }) {
+  return <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+    <div><h2 className="text-lg font-semibold tracking-tight">{title}</h2><p className="mt-1 text-xs text-muted-foreground">{description}</p></div>
+    {aside}
+  </div>;
+}
+
+const tooltipStyle = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 2, fontSize: 11, boxShadow: '0 10px 30px rgb(0 0 0 / .18)' };
+const chartCursor = { fill: 'rgba(40, 102, 110, 0.08)' };
+
 export default function DashboardPage() {
-  const [range, setRange] = useState<DashboardRange>('7d');
+  const [range, setRange] = useState<OverviewRange>('7d');
+  const overview = useOverviewAnalytics(range);
+  const behavior = useBehaviorReport();
+  const { data: health } = useIngestionHealth();
+  const { data: sessions = [] } = useSessions({ limit: 8 });
+  const data = overview.data;
+  const report = behavior.data?.report;
+  const reportAutomation = behavior.data?.automation;
+  const generatedAt = behavior.data?.run?.createdAt ?? null;
+  const tokenComposition = useMemo(() => data ? [
+    { name: '输入', value: data.totals.inputTokens },
+    { name: '输出', value: data.totals.outputTokens },
+    { name: '缓存写入', value: data.totals.cacheCreationTokens },
+    { name: '缓存读取', value: data.totals.cacheReadTokens },
+  ] : [], [data]);
 
-  const { data: dashStats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useDashboardStats(range);
-  const { data: sessions = [], isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } = useSessions({ limit: 500 });
-  const { data: insights = [], isLoading: insightsLoading } = useInsights();
-  const { data: projects = [] } = useProjects();
-  const { data: ingestionHealth } = useIngestionHealth();
+  if (overview.isLoading) {
+    return <div className="vibe-page pb-16"><header className="border-b border-foreground/80 pb-6 pt-8"><p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">ANALYTICS OVERVIEW</p><h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">Agent 使用总览</h1><p className="mt-3 text-sm text-muted-foreground">正在读取本地统计与趋势…</p></header><div className="overview-metrics mt-5" aria-hidden>{Array.from({ length: 8 }, (_, index) => <div key={index} className="overview-metric animate-pulse bg-muted/30" />)}</div></div>;
+  }
+  if (overview.isError || !data) {
+    return <div className="vibe-page pb-16"><header className="border-b border-foreground/80 pb-6 pt-8"><p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">ANALYTICS OVERVIEW</p><h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">Agent 使用总览</h1><p className="mt-3 text-sm text-destructive">本地统计暂时不可用，请确认服务仍在运行后刷新。</p></header></div>;
+  }
 
-  const loading = statsLoading || sessionsLoading || insightsLoading;
-  const hasError = statsError || sessionsError;
-
-  const todayLabel = new Date().toLocaleDateString(undefined, {
-    month: 'long',
-    day: 'numeric',
-  });
-
-  // Sessions not yet analyzed
-  const analyzedSessionIds = new Set(insights.map((i) => i.session_id));
-  const unanalyzedSessions = sessions.filter((s) => !analyzedSessionIds.has(s.id));
-
-  // Build daily stats for activity chart
-  const dailyStats: DailyStats[] = useMemo(() => {
-    const now = Date.now();
-    const rangeDays = range === '7d' ? 7 : range === '30d' ? 30 : range === '90d' ? 90 : Infinity;
-    const cutoff = rangeDays === Infinity ? 0 : now - rangeDays * 86_400_000;
-
-    const grouped: Record<string, { session_count: number; insight_count: number }> = {};
-    for (const s of sessions) {
-      if (new Date(s.started_at).getTime() < cutoff) continue;
-      const date = s.started_at.slice(0, 10);
-      if (!grouped[date]) grouped[date] = { session_count: 0, insight_count: 0 };
-      grouped[date].session_count++;
-    }
-    for (const i of insights) {
-      if (new Date(i.timestamp).getTime() < cutoff) continue;
-      const date = i.timestamp.slice(0, 10);
-      if (!grouped[date]) grouped[date] = { session_count: 0, insight_count: 0 };
-      grouped[date].insight_count++;
-    }
-    return Object.entries(grouped)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, counts]) => ({
-        date,
-        session_count: counts.session_count,
-        message_count: 0,
-        insight_count: counts.insight_count,
-      }));
-  }, [sessions, insights, range]);
-
-  // Compute stats for hero — all from dashStats (range-filtered)
-  const totalTokens = dashStats
-    ? (dashStats.total_input_tokens ?? 0) +
-      (dashStats.total_output_tokens ?? 0) +
-      (dashStats.cache_creation_tokens ?? 0) +
-      (dashStats.cache_read_tokens ?? 0)
-    : 0;
-
-  const totalCost = dashStats?.estimated_cost_usd ?? 0;
-
-  const tokenBreakdown = dashStats
-    ? {
-        inputTokens: dashStats.total_input_tokens ?? 0,
-        outputTokens: dashStats.total_output_tokens ?? 0,
-        cacheCreationTokens: dashStats.cache_creation_tokens ?? 0,
-        cacheReadTokens: dashStats.cache_read_tokens ?? 0,
-      }
-    : undefined;
-
-  return (
-    <div className="p-3 lg:p-4 space-y-2">
-      {/* Greeting header */}
-      <div className="flex items-start justify-between">
+  return <div className="vibe-page pb-16">
+    <header className="border-b border-foreground/80 pb-6 pt-8">
+      <div className="flex flex-wrap items-start justify-between gap-5">
         <div>
-          <h1 className="text-lg font-bold">{getGreeting()}.</h1>
-          {!loading && (
-            <p className="text-muted-foreground text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
-              {sessions.length} session{sessions.length !== 1 ? 's' : ''} loaded
-              {' '}&middot; {projects.length} project{projects.length !== 1 ? 's' : ''}
-            </p>
-          )}
+          <p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">ANALYTICS OVERVIEW</p>
+          <h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">Agent 使用总览</h1>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">查看使用规模、Agent 编排、Skill 与工具、Token 结构和提示词质量。所有数值来自本地已导入会话。</p>
         </div>
-        <span className="text-sm text-muted-foreground">{todayLabel}</span>
+        <div className="flex items-center gap-2">
+          <div className="flex border border-border bg-card p-1" aria-label="统计时间范围">
+            {([['today', '当天'], ['7d', '7 天'], ['30d', '30 天']] as const).map(([value, label]) => <button
+              key={value} type="button" onClick={() => setRange(value)}
+              className={`px-3 py-1.5 text-xs ${range === value ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
+            >{label}</button>)}
+          </div>
+          <HistorySyncButton />
+        </div>
       </div>
+    </header>
 
-      {/* Error state */}
-      {hasError && !loading && (
-        <ErrorCard
-          message="Failed to load dashboard data"
-          onRetry={() => { refetchStats(); refetchSessions(); }}
-        />
-      )}
-
-      {ingestionHealth && <IngestionHealthCard health={ingestionHealth} />}
-
-      <ProductOverviewSections />
-
-      <ObserverOverheadSection />
-
-      <ActiveScorecardOverview />
-
-      {/* All-time stats hero */}
-      {loading ? (
-        <StatsHeroSkeleton />
-      ) : (
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-          <StatsHero
-            totalSessions={dashStats?.session_count ?? sessions.length}
-            totalMessages={dashStats?.total_messages ?? 0}
-            totalToolCalls={dashStats?.total_tool_calls ?? 0}
-            totalDurationMin={dashStats?.total_duration_min ?? 0}
-            totalProjects={dashStats?.active_projects ?? projects.length}
-            isExact={true}
-            totalTokens={totalTokens > 0 ? totalTokens : undefined}
-            totalCost={totalCost > 0 ? totalCost : undefined}
-            tokenBreakdown={tokenBreakdown}
-          />
-        </div>
-      )}
-
-      {/* Activity chart */}
-      {loading ? (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-1">
-            <Skeleton className="h-4 w-16" />
-            <div className="flex gap-1">
-              <Skeleton className="h-7 w-8 rounded" />
-              <Skeleton className="h-7 w-10 rounded" />
-              <Skeleton className="h-7 w-10 rounded" />
-              <Skeleton className="h-7 w-8 rounded" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-[200px] w-full rounded" />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
-          <DashboardActivityChart data={dailyStats} range={range} onRangeChange={setRange} />
-        </div>
-      )}
-
-      {/* Needs Attention banner */}
-      {unanalyzedSessions.length > 0 && (
-        <Card className="border-amber-500/20 bg-amber-500/5 hover:shadow-md transition-shadow animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-          <CardContent className="flex items-center justify-between py-2.5">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-amber-600" />
-              <div>
-                <p className="text-sm font-medium">
-                  {unanalyzedSessions.length} session{unanalyzedSessions.length !== 1 ? 's' : ''}{' '}
-                  without analysis
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Generate AI insights to extract learnings and decisions
-                </p>
-              </div>
-            </div>
-            <BulkAnalyzeButton sessions={unanalyzedSessions} />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Unified activity feed */}
-      <div
-        className={
-          loading ? '' : 'animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300'
-        }
-      >
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-xs font-semibold">Recent Activity</h2>
-          <Link
-            to="/sessions"
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            View all
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
-        <Card>
-          <CardContent className="px-4 py-2">
-            {loading ? (
-              <div className="divide-y divide-border">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Skeleton className="h-6 w-6 rounded-md shrink-0" />
-                        <Skeleton className="h-4 w-48" />
-                        <Skeleton className="h-3.5 w-20" />
-                      </div>
-                      <Skeleton className="h-3.5 w-16 shrink-0" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <ActivityFeed sessions={sessions} insights={insights} limit={7} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+    <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b py-2 text-[10px] text-muted-foreground">
+      <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${health?.status === 'completed' ? 'bg-[#28666E]' : 'bg-[#BF7A45]'}`} />Hook 事件登记后约 10 秒开始导入；页面会在事件处理期间刷新本地结果</span>
+      <span>{data ? `统计生成 ${new Date(data.generatedAt).toLocaleTimeString('zh-CN')}` : '正在读取统计'}</span>
     </div>
-  );
+
+    <section className="overview-metrics">
+      <Metric label="会话" value={compact(data?.totals.sessions ?? 0)} detail={`${data?.totals.projects ?? 0} 个项目`} icon={MessageSquareText} />
+      <Metric label="主任务" value={compact(data?.totals.rootTasks ?? 0)} detail="根任务" icon={FileText} />
+      <Metric label="子 Agent" value={compact(data?.totals.subagents ?? 0)} detail="委派任务" icon={Bot} />
+      <Metric label="持续时间" value={duration(data?.totals.durationMinutes ?? 0)} detail="会话累计" icon={Clock3} />
+      <Metric label="工具调用" value={compact(data?.totals.toolCalls ?? 0)} detail="全部工具事件" icon={Wrench} />
+      <Metric label="Skill" value={compact(data?.totals.skillInvocations ?? 0)} detail="显式调用" icon={Sparkles} />
+      <Metric
+        label="Token"
+        value={compact((data?.totals.inputTokens ?? 0) + (data?.totals.outputTokens ?? 0))}
+        detail={`输入 ${compact(data?.totals.inputTokens ?? 0)}（其中缓存 ${compact((data?.totals.cacheCreationTokens ?? 0) + (data?.totals.cacheReadTokens ?? 0))}）· 输出 ${compact(data?.totals.outputTokens ?? 0)}`}
+        icon={Cpu}
+      />
+      <Metric label="提示词质量" value={data?.totals.promptScore == null ? '—' : String(data.totals.promptScore)} detail="已分析会话均值" icon={Activity} />
+    </section>
+
+    <section className="border-b py-7">
+      <SectionTitle title="活动节奏" description={range === 'today' ? '今天按小时显示会话、工具调用与子 Agent 数量。' : `${range === '7d' ? '最近 7 天' : '最近 30 天'}按天显示，不用累计值掩盖波动。`} />
+      <div className="h-[280px] w-full">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 900, height: 280 }}><AreaChart data={data?.timeline ?? []} margin={{ left: -20, right: 8 }}>
+          <defs><linearGradient id="sessionsArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#28666E" stopOpacity={0.3} /><stop offset="100%" stopColor="#28666E" stopOpacity={0} /></linearGradient></defs>
+          <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+          <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={range === 'today' ? 2 : range === '30d' ? 4 : 0} />
+          <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+          <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} />
+          <Legend iconType="line" wrapperStyle={{ fontSize: 11 }} />
+          <Area name="会话" type="monotone" dataKey="sessions" stroke="#28666E" fill="url(#sessionsArea)" strokeWidth={2} />
+          <Line name="工具调用" type="monotone" dataKey="toolCalls" stroke="#3B6EA8" dot={false} strokeWidth={1.5} />
+          <Line name="子 Agent" type="monotone" dataKey="subagents" stroke="#BF7A45" dot={false} strokeWidth={1.5} />
+        </AreaChart></ResponsiveContainer>
+      </div>
+    </section>
+
+    <section className="grid gap-8 border-b py-7 lg:grid-cols-[1.35fr_.9fr]">
+      <div>
+        <SectionTitle title="Token 消耗趋势" description="输入、输出与缓存 Token 分开统计；缓存读取不与输入重复合并。" />
+        <div className="h-[250px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 650, height: 250 }}><BarChart data={data?.timeline ?? []} margin={{ left: -12 }}>
+          <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+          <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={range === '30d' ? 4 : range === 'today' ? 2 : 0} />
+          <YAxis tickFormatter={compact} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+          <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} formatter={(value) => compact(Number(value))} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Bar name="输入" dataKey="inputTokens" stackId="tokens" fill="#28666E" />
+          <Bar name="输出" dataKey="outputTokens" stackId="tokens" fill="#3B6EA8" />
+          <Bar name="缓存" dataKey="cacheTokens" stackId="tokens" fill="#A7B9AE" />
+        </BarChart></ResponsiveContainer></div>
+      </div>
+      <div>
+        <SectionTitle title="Token 组成" description="当前时间范围内的累计组成。" />
+        <div className="h-[250px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 360, height: 250 }}><PieChart>
+          <Pie data={tokenComposition} dataKey="value" nameKey="name" innerRadius={58} outerRadius={88} paddingAngle={2}>
+            {tokenComposition.map((item, index) => <Cell key={item.name} fill={COLORS[index]} />)}
+          </Pie><Tooltip contentStyle={tooltipStyle} cursor={false} formatter={(value) => compact(Number(value))} /><Legend wrapperStyle={{ fontSize: 11 }} />
+        </PieChart></ResponsiveContainer></div>
+      </div>
+    </section>
+
+    <section className="grid gap-8 border-b py-7 lg:grid-cols-3">
+      <div>
+        <SectionTitle title="Skill 使用" description="显式 $skill 与 Skill 链接；次数不等同于效果。" />
+        <div className="border-t">{(data?.skills ?? []).slice(0, 8).map((skill) => <div key={skill.name} className="grid grid-cols-[1fr_56px_62px] gap-3 border-b py-2.5 text-xs"><strong className="truncate">${skill.name}</strong><span className="text-right tabular-nums">{skill.invocations}</span><span className="text-right text-muted-foreground">{skill.sessions} 会话</span></div>)}{!data?.skills.length && <p className="border-b py-8 text-center text-xs text-muted-foreground">当前范围未发现显式 Skill 调用</p>}</div>
+      </div>
+      <div>
+        <SectionTitle title="工具族" description="按调用目的归类，便于识别工作方式变化。" />
+        <div className="h-[250px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 360, height: 250 }}><BarChart data={(data?.toolFamilies ?? []).slice(0, 7)} layout="vertical" margin={{ left: 8 }}>
+          <XAxis type="number" hide /><YAxis type="category" dataKey="family" width={84} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} /><Bar dataKey="calls" name="调用" fill="#3B6EA8" radius={[0, 3, 3, 0]} />
+        </BarChart></ResponsiveContainer></div>
+      </div>
+      <div>
+        <SectionTitle title="会话持续时间" description="查看短任务与长线程的结构，而非只看平均值。" />
+        <div className="h-[250px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 360, height: 250 }}><BarChart data={data?.durationBands ?? []} margin={{ left: -20 }}>
+          <CartesianGrid vertical={false} stroke="hsl(var(--border))" /><XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} /><Bar dataKey="count" name="会话" fill="#BF7A45" radius={[3, 3, 0, 0]} />
+        </BarChart></ResponsiveContainer></div>
+      </div>
+    </section>
+
+    <section className="grid gap-8 border-b py-7 lg:grid-cols-[1.25fr_.75fr]">
+      <div>
+        <SectionTitle title="提示词质量趋势" description="仅包含已经完成提示词质量分析的会话；空值不会被当作 0 分。" />
+        <div className="h-[230px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 700, height: 230 }}><LineChart data={data?.timeline ?? []} margin={{ left: -16 }}>
+          <CartesianGrid vertical={false} stroke="hsl(var(--border))" /><XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={range === '30d' ? 4 : range === 'today' ? 2 : 0} /><YAxis domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: 'rgba(40, 102, 110, 0.35)', strokeWidth: 1 }} /><Line dataKey="promptScore" name="提示词得分" connectNulls={false} stroke="#28666E" strokeWidth={2} dot={{ r: 2 }} />
+        </LineChart></ResponsiveContainer></div>
+      </div>
+      <aside className="border border-border bg-card p-5">
+        <div className="flex items-center justify-between gap-3"><div><p className="vibe-mono text-[10px] tracking-[.14em] text-[#28666E]">CROSS-SESSION REPORT</p><h2 className="mt-2 text-lg font-semibold">跨会话行为报告</h2></div><Database className="h-5 w-5 text-muted-foreground" /></div>
+        <p className="mt-4 text-sm font-medium leading-6">{report?.headline ?? '等待第一份跨会话报告'}</p>
+        <dl className="mt-5 space-y-3 border-t pt-4 text-xs"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">最近生成</dt><dd className="text-right">{generatedAt ? parseStoredDate(generatedAt).toLocaleString('zh-CN') : '尚未生成'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">自动策略</dt><dd className="max-w-[220px] text-right">会话事件与文件监听完成稳定导入后检查；有新证据且距上次尝试满 24 小时才生成</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">当前状态</dt><dd className={reportAutomation?.reason === 'due' || reportAutomation?.reason === 'cooldown' ? 'text-[#BF7A45]' : 'text-[#28666E]'}>{reportAutomation?.reason === 'due' ? '下一条稳定证据后可生成' : reportAutomation?.reason === 'cooldown' ? `冷却中${reportAutomation.nextEligibleAt ? `，最早 ${parseStoredDate(reportAutomation.nextEligibleAt).toLocaleString('zh-CN')}` : ''}` : reportAutomation?.reason === 'disabled' ? '自动生成已关闭' : reportAutomation?.reason === 'insufficient-evidence' ? '结构样本尚不足' : '已覆盖当前稳定证据'}</dd></div></dl>
+        <Link to="/improve" className="mt-5 block border border-foreground px-3 py-2 text-center text-xs font-semibold hover:bg-foreground hover:text-background">查看完整报告</Link>
+      </aside>
+    </section>
+
+    <section className="py-7">
+      <SectionTitle title="最近会话" description="会话事件或本地文件变化会触发稳定导入；通常在会话写入结束后数秒出现。" aside={<Link to="/sessions" className="text-xs text-[#28666E] hover:underline">查看全部记录 →</Link>} />
+      <div className="border-t">{sessions.slice(0, 6).map((session) => <Link key={session.id} to={`/sessions?session=${encodeURIComponent(session.id)}`} className="grid grid-cols-[112px_112px_minmax(0,1fr)_80px] gap-4 border-b py-3 text-xs hover:bg-[#28666E]/[.055]"><span className="text-muted-foreground"><small className="mr-1 text-[9px]">开始</small>{new Date(session.started_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span className="text-muted-foreground"><small className="mr-1 text-[9px]">更新</small>{new Date(session.ended_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span className="truncate font-medium">{session.custom_title || session.generated_title || session.summary || session.project_name}</span><span className="text-right text-muted-foreground">{session.message_count} 条消息</span></Link>)}</div>
+      {!sessions.length && <div className="flex items-center justify-center gap-2 border-b py-10 text-sm text-muted-foreground"><Database className="h-4 w-4" />等待第一条已稳定会话</div>}
+    </section>
+  </div>;
 }

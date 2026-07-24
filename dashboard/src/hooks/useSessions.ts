@@ -12,7 +12,9 @@ export function useSessions(filters?: SessionFilters) {
   return useQuery({
     queryKey: ['sessions', filters],
     queryFn: () => fetchSessions(filters).then((r) => r.sessions),
-    refetchInterval: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: true,
   });
 }
 

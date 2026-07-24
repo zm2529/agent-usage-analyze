@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, DashboardStats, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, AdviceState } from '@/lib/types';
+import type { Project, Session, Message, Insight, AnalysisRunRecord, BehaviorReportState, DashboardStats, OverviewAnalytics, OverviewRange, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, HistorySyncResult, PatternOverview, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, AdviceState, CodexAccountUsage } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -98,6 +98,29 @@ export function deleteInsight(id: string) {
   return request<{ ok: boolean }>(`/insights/${id}`, { method: 'DELETE' });
 }
 
+export function fetchAnalysisRuns(params?: {
+  sessionId?: string;
+  analysisType?: string;
+  limit?: number;
+}) {
+  const q = new URLSearchParams();
+  if (params?.sessionId) q.set('sessionId', params.sessionId);
+  if (params?.analysisType) q.set('analysisType', params.analysisType);
+  if (params?.limit !== undefined) q.set('limit', String(params.limit));
+  const qs = q.toString() ? `?${q.toString()}` : '';
+  return request<{ runs: AnalysisRunRecord[] }>(`/analysis/runs${qs}`);
+}
+
+export function fetchBehaviorReport() {
+  return request<BehaviorReportState>('/behavior-report');
+}
+
+export function runBehaviorReport() {
+  return request<BehaviorReportState & { status: 'completed' | 'unavailable'; reason?: string }>('/behavior-report/run', {
+    method: 'POST',
+  });
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export interface SearchSessionResult {
@@ -135,12 +158,36 @@ export function fetchDashboardStats(range: '7d' | '30d' | '90d' | 'all' = '7d') 
   return request<{ range: string; stats: DashboardStats }>(`/analytics/dashboard?range=${range}`);
 }
 
+export function fetchOverviewAnalytics(range: OverviewRange = '7d') {
+  return request<OverviewAnalytics>(`/analytics/overview?range=${range}`);
+}
+
+export function fetchCodexAccountUsage() {
+  return request<CodexAccountUsage>('/codex/usage');
+}
+
+export function analyzeSessionAutomatically(sessionId: string, force = false) {
+  return request<{ success: boolean }>('/analysis/automatic-session', {
+    method: 'POST', body: JSON.stringify({ sessionId, force }),
+  });
+}
+
 export function fetchIngestionHealth() {
   return request<IngestionHealth>('/ingestion/health');
 }
 
-export function fetchWorkTasks() {
-  return request<{ tasks: WorkTaskNode[] }>('/tasks');
+export function syncHistory(force = false) {
+  return request<HistorySyncResult>('/ingestion/sync-history', {
+    method: 'POST', body: JSON.stringify({ force }),
+  });
+}
+
+export function fetchWorkTasks(params?: { limit?: number; offset?: number }) {
+  const query = new URLSearchParams();
+  if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  if (params?.offset !== undefined) query.set('offset', String(params.offset));
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
+  return request<{ tasks: WorkTaskNode[]; total: number }>(`/tasks${suffix}`);
 }
 
 export function fetchWorkTask(id: string) {
@@ -211,6 +258,10 @@ export function clearAdviceMute(input: { scopeKind: 'issue' | 'category'; scopeK
 export function fetchPatternTrends(currentStart: string, currentEnd: string) {
   const query = new URLSearchParams({ currentStart, currentEnd });
   return request<{ comparison: TrendComparison }>(`/patterns/trends?${query.toString()}`);
+}
+
+export function fetchPatternOverview() {
+  return request<PatternOverview>('/patterns/overview');
 }
 
 export function fetchDeliveries() {
@@ -284,6 +335,7 @@ export function saveLlmConfig(body: {
   baseUrl?: string;
   semanticAnalysisEnabled?: boolean;
   analysisMode?: import('./types').AnalysisExecutionMode;
+  capabilities?: Partial<import('./types').AnalysisCapabilities>;
 }) {
   return request<{ ok: boolean }>('/config/llm', {
     method: 'PUT',

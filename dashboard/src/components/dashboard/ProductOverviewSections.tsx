@@ -1,54 +1,38 @@
-import { ArrowRight, BellRing, Scale, TrendingUp } from 'lucide-react';
+import { ArrowRight, Scale, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router';
-import { useAdvice } from '@/hooks/useAdvice';
 import { useScorecards } from '@/hooks/useScorecards';
-import { eventAnchorHref } from '@/lib/event-links';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useLanguage } from '@/i18n/LanguageProvider';
+import { useLlmConfig } from '@/hooks/useConfig';
+import { Badge } from '@/components/ui/badge';
 
 export function ProductOverviewSections() {
-  const advice = useAdvice();
-  const activeAdvice = advice.data?.active[0];
+  const { t } = useLanguage();
+  const config = useLlmConfig();
+  const runner = config.data?.analysis;
+  const llmEnabled = Boolean(runner && ['provider', 'codex-native', 'claude-native'].includes(runner.effectiveRunner));
 
   return (
-    <div className="grid gap-2 lg:grid-cols-2">
+    <div>
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle role="heading" aria-level={2} className="flex items-center gap-2 text-sm">
-            <TrendingUp className="h-4 w-4" />Period changes
-          </CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle role="heading" aria-level={2} className="flex items-center gap-2 text-sm">
+              <TrendingUp className="h-4 w-4" />{t('analysis.change', 'Behavior analysis')}
+            </CardTitle>
+            <Badge className="ml-auto" variant={llmEnabled ? 'default' : 'secondary'}>
+              {llmEnabled ? t('analysis.llmOn', 'LLM on') : t('analysis.localOnly', 'Local rules')}
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent className="text-xs">
-          <p className="text-muted-foreground">Compare equal observation windows with coverage, unknown, and incomparable states intact.</p>
-          <Link className="mt-2 inline-flex items-center gap-1 font-medium underline-offset-2 hover:underline" to="/patterns">
-            Review observed changes <ArrowRight className="h-3 w-3" />
+          <p className="text-muted-foreground">{t('analysis.changeDesc', 'LLM session insights run automatically when a supported runner is available. Cross-session patterns stay evidence-backed, and missing evidence remains visible.')}</p>
+          {llmEnabled && runner && <p className="mt-1 text-muted-foreground">{runner.effectiveRunner} · {runner.authentication}</p>}
+          <Link className="mt-2 inline-flex items-center gap-1 font-medium underline-offset-2 hover:underline" to="/improve">
+            {t('analysis.open', 'Open analysis and advice')} <ArrowRight className="h-3 w-3" />
           </Link>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle role="heading" aria-level={2} className="flex items-center gap-2 text-sm">
-            <BellRing className="h-4 w-4" />Active suggestions
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-xs">
-          {advice.isLoading ? <p className="text-muted-foreground">Loading suggestions…</p>
-            : advice.isError ? <p className="text-destructive">Suggestions unavailable.</p>
-              : activeAdvice ? <>
-                <p>{activeAdvice.triggerFact}</p>
-                <p className="mt-1 text-muted-foreground">Non-blocking · coverage {(activeAdvice.coverage * 100).toFixed(0)}%</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {activeAdvice.evidenceRefs.map((eventId) => (
-                    <Link key={eventId} className="font-mono underline" to={eventAnchorHref(activeAdvice.taskId, eventId)}>
-                      Evidence {eventId}
-                    </Link>
-                  ))}
-                  <Link className="font-medium underline" to="/advice">All advice</Link>
-                </div>
-              </> : <p className="text-muted-foreground">No active suggestions.</p>}
-        </CardContent>
-      </Card>
-
     </div>
   );
 }

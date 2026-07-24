@@ -1,7 +1,8 @@
 /**
  * Analysis context for the embedded dashboard.
- * Consumes SSE streaming endpoints for real-time progress and cancellation.
- * Uses fetch() + ReadableStream (not EventSource) for AbortController support.
+ * Uses the same automatic runner policy exposed by Settings. This lets a
+ * signed-in Codex account analyze sessions without a separately configured
+ * API provider while retaining AbortController cancellation.
  *
  * State model: Map<analysisKey, AnalysisState> where analysisKey = `${sessionId}:${type}`.
  * Each analysis entry owns its own AbortController — multiple analyses can run concurrently.
@@ -18,7 +19,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getSessionTitle } from '@/lib/utils';
 import type { Session } from '@/lib/types';
 import { toast } from 'sonner';
-import { parseSSEStream } from '@/lib/sse';
 
 export interface AnalysisState {
   status: 'idle' | 'analyzing' | 'complete' | 'error';
@@ -70,24 +70,6 @@ const AnalysisContext = createContext<AnalysisContextValue>({
 
 export function useAnalysis() {
   return useContext(AnalysisContext);
-}
-
-function buildToastMessage(
-  sessionTitle: string,
-  phase: string,
-  currentChunk?: number,
-  totalChunks?: number
-): string {
-  if (phase === 'loading_messages') {
-    return `Loading messages for "${sessionTitle}"...`;
-  }
-  if (phase === 'saving') {
-    return `Saving insights for "${sessionTitle}"...`;
-  }
-  if (currentChunk !== undefined && totalChunks !== undefined) {
-    return `Analyzing "${sessionTitle}"... (${currentChunk} of ${totalChunks})`;
-  }
-  return `Analyzing "${sessionTitle}"...`;
 }
 
 export function AnalysisProvider({ children }: { children: ReactNode }) {
@@ -151,13 +133,22 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
 
       toast.loading(`Loading messages for "${sessionTitle}"...`, { id: toastId });
 
-      const endpoint =
-        type === 'session'
-          ? `/api/analysis/session/stream?sessionId=${encodeURIComponent(session.id)}`
-          : `/api/analysis/prompt-quality/stream?sessionId=${encodeURIComponent(session.id)}`;
-
       try {
-        const response = await fetch(endpoint, {
+        setAnalyses((prev) => {
+          const next = new Map(prev);
+          const entry = next.get(key);
+          if (entry) next.set(key, {
+            ...entry,
+            progress: { phase: 'analyzing', message: 'Analyzing with the automatic runner…' },
+          });
+          return next;
+        });
+        toast.loading(`Analyzing "${sessionTitle}" with the automatic runner...`, { id: toastId });
+
+        const response = await fetch('/api/analysis/automatic-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: session.id, force: true }),
           signal: controller.signal,
         });
 
@@ -165,112 +156,24 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
           const text = await response.text().catch(() => response.statusText);
           throw new Error(`API ${response.status}: ${text}`);
         }
+        const result = await response.json() as { success: boolean; runner?: string };
+        if (!result.success) throw new Error('Automatic analysis failed');
 
-        if (!response.body) {
-          throw new Error('No response body for SSE stream');
-        }
-
-        for await (const sseEvent of parseSSEStream(response.body)) {
-          if (controller.signal.aborted) return;
-
-          try {
-            if (sseEvent.event === 'progress') {
-              const progress = JSON.parse(sseEvent.data) as {
-                phase: 'loading_messages' | 'analyzing' | 'saving';
-                currentChunk?: number;
-                totalChunks?: number;
-                message: string;
-              };
-              const toastMsg = buildToastMessage(
-                sessionTitle,
-                progress.phase,
-                progress.currentChunk,
-                progress.totalChunks
-              );
-              setAnalyses((prev) => {
-                const next = new Map(prev);
-                const entry = next.get(key);
-                if (entry) next.set(key, { ...entry, progress });
-                return next;
-              });
-              toast.loading(toastMsg, { id: toastId });
-            } else if (sseEvent.event === 'complete') {
-              const result = JSON.parse(sseEvent.data) as {
-                success: boolean;
-                insightCount: number;
-                tokenUsage?: { inputTokens: number; outputTokens: number };
-                costUsd?: number;
-                provider?: string;
-                model?: string;
-              };
-
-              queryClient.invalidateQueries({ queryKey: ['insights'] });
-              queryClient.invalidateQueries({ queryKey: ['session', session.id] });
-              queryClient.invalidateQueries({ queryKey: ['sessions'] });
-              queryClient.invalidateQueries({ queryKey: ['analysis-cost', session.id] });
-
-              const successMsg = `${result.insightCount} insight${result.insightCount !== 1 ? 's' : ''} saved for "${sessionTitle}"`;
-
-              setAnalyses((prev) => {
-                const next = new Map(prev);
-                next.set(key, {
-                  status: 'complete',
-                  sessionId: session.id,
-                  sessionTitle,
-                  type,
-                  progress: null,
-                  result: {
-                    success: true,
-                    insightCount: result.insightCount,
-                    tokenUsage: result.tokenUsage,
-                    costUsd: result.costUsd,
-                    provider: result.provider,
-                    model: result.model,
-                  },
-                });
-                return next;
-              });
-              toast.success(successMsg, { id: toastId });
-            } else if (sseEvent.event === 'error') {
-              const errorData = JSON.parse(sseEvent.data) as { error: string };
-              setAnalyses((prev) => {
-                const next = new Map(prev);
-                next.set(key, {
-                  status: 'error',
-                  sessionId: session.id,
-                  sessionTitle,
-                  type,
-                  progress: null,
-                  result: { success: false, error: errorData.error },
-                });
-                return next;
-              });
-              toast.error(`Analysis failed: ${errorData.error}`, { id: toastId });
-            }
-          } catch {
-            // Malformed SSE event data — skip and continue
-            continue;
-          }
-        }
-
-        // Stream ended — if no terminal event was received, treat as unexpected close
-        if (!controller.signal.aborted) {
-          setAnalyses((prev) => {
-            const entry = prev.get(key);
-            if (entry?.status === 'analyzing') {
-              toast.error('Analysis connection closed unexpectedly', { id: toastId });
-              const next = new Map(prev);
-              next.set(key, {
-                ...entry,
-                status: 'error',
-                progress: null,
-                result: { success: false, error: 'Connection closed unexpectedly' },
-              });
-              return next;
-            }
-            return prev;
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['insights'] }),
+          queryClient.invalidateQueries({ queryKey: ['session', session.id] }),
+          queryClient.invalidateQueries({ queryKey: ['sessions'] }),
+          queryClient.invalidateQueries({ queryKey: ['analysis-cost', session.id] }),
+        ]);
+        setAnalyses((prev) => {
+          const next = new Map(prev);
+          next.set(key, {
+            status: 'complete', sessionId: session.id, sessionTitle, type,
+            progress: null, result: { success: true, provider: result.runner },
           });
-        }
+          return next;
+        });
+        toast.success(`Analysis completed for "${sessionTitle}"`, { id: toastId });
       } catch (error) {
         if (controller.signal.aborted) {
           return;

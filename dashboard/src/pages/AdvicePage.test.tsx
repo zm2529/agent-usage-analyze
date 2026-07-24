@@ -67,29 +67,28 @@ describe('AdvicePage', () => {
     });
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Advice' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '把观察转成可验证的行动' })).toBeInTheDocument();
     expect(screen.getByText('Validation was not observed.')).toBeInTheDocument();
-    expect(screen.getByText(/confidence 90% · coverage 80%/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'event:one' }))
+    expect(screen.getByText(/置信度 90%；观察覆盖 80%/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '证据 1' })[0])
       .toHaveAttribute('href', '/tasks/task%3Aroot#event-event%3Aone');
-    expect(screen.getByText('Muted')).toBeInTheDocument();
+    expect(screen.getByText(/已静音建议/)).toBeInTheDocument();
     expect(screen.getAllByText(/observational before\/after only; no causal claim/i)).toHaveLength(2);
-    expect(screen.getByText(/shown 4 · adopted 2 · ignored 1 · dismissed 1/i)).toBeInTheDocument();
     await waitFor(() => expect(api.recordAdviceEvent).toHaveBeenCalledWith({
       taskId: 'task:root', issueKey: 'pattern:validation-missing', action: 'shown',
     }));
     expect(api.recordAdviceEvent).not.toHaveBeenCalledWith(expect.objectContaining({ taskId: 'task:muted' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Mark adopted' }));
+    fireEvent.click(screen.getByRole('button', { name: /采纳/ }));
     await waitFor(() => expect(api.recordAdviceEvent).toHaveBeenCalledWith({
       taskId: 'task:root', issueKey: 'pattern:validation-missing', action: 'adopted',
       interventionId: 'advisory-intervention:one',
     }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mute issue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mute issue 验证证据尚不可见' }));
     expect(api.setAdviceMute).toHaveBeenCalledWith({
       scopeKind: 'issue', scopeKey: 'pattern:validation-missing', mutedUntil: null,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Unmute pattern:waiting' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute 工具等待时间较长' }));
     expect(api.clearAdviceMute).toHaveBeenCalledWith({ scopeKind: 'issue', scopeKey: 'pattern:waiting' });
   });
 
@@ -101,7 +100,7 @@ describe('AdvicePage', () => {
     expect(screen.queryByText('No active suggestions.')).not.toBeInTheDocument();
   });
 
-  it('makes failed display accounting visible and retryable', async () => {
+  it('keeps failed display accounting silent because suggestions remain usable', async () => {
     api.fetchAdvice.mockResolvedValue({
       status: 'ok', diagnostics: [],
       active: [{
@@ -118,9 +117,8 @@ describe('AdvicePage', () => {
       .mockRejectedValueOnce(new Error('offline'));
     renderPage();
 
-    expect(await screen.findByText('Display not recorded: degraded')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Retry display accounting' }));
-    expect(await screen.findByText('Display not recorded: unavailable')).toBeInTheDocument();
-    expect(api.recordAdviceEvent).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(api.recordAdviceEvent).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Display was not recorded/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry display accounting' })).not.toBeInTheDocument();
   });
 });

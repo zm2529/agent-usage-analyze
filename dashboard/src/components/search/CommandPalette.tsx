@@ -10,10 +10,8 @@ import {
   SearchX,
   Clock,
   Zap,
-  Scale,
-  BellRing,
-  Network,
-  PackageCheck,
+  BriefcaseBusiness,
+  TrendingUp,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -51,11 +49,8 @@ function pushRecent(item: Omit<RecentItem, 'timestamp'>): void {
 
 const NAV_ITEMS = [
   { label: 'Go to Overview', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Go to Tasks', href: '/tasks', icon: Network },
-  { label: 'Go to Deliveries', href: '/deliveries', icon: PackageCheck },
-  { label: 'Go to Patterns', href: '/patterns', icon: Sparkles },
-  { label: 'Go to Advice', href: '/advice', icon: BellRing },
-  { label: 'Go to Scorecards', href: '/scorecards', icon: Scale },
+  { label: 'Go to Work', href: '/tasks', icon: BriefcaseBusiness },
+  { label: 'Go to Improve', href: '/improve', icon: TrendingUp },
   { label: 'Go to Settings', href: '/settings', icon: Settings },
 ];
 

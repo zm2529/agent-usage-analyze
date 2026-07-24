@@ -32,13 +32,20 @@ export function useAnalysisQueue() {
     : false;
 
   useEffect(() => {
+    // Queue polling is event-bounded: while a Hook-triggered frontier is active,
+    // refresh the local projections too. Import and LLM analysis are separate,
+    // so the session can become visible minutes before the analysis worker exits.
+    if (isActive) {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    }
     if (wasActiveRef.current && !isActive) {
       // Queue just drained — invalidate so insights and session list refresh
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       queryClient.invalidateQueries({ queryKey: ['insights'] });
     }
     wasActiveRef.current = isActive;
-  }, [isActive, queryClient]);
+  }, [isActive, queryClient, result.dataUpdatedAt]);
 
   return result;
 }

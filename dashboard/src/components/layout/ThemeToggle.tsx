@@ -2,9 +2,11 @@ import { Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTheme } from './ThemeProvider';
+import { useLanguage } from '@/i18n/LanguageProvider';
 
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
+  const { t } = useLanguage();
 
   return (
     <Tooltip>
@@ -20,11 +22,11 @@ export function ThemeToggle() {
           ) : (
             <Moon className="h-4 w-4" />
           )}
-          <span className="sr-only">Toggle theme</span>
+          <span className="sr-only">{t('theme.toggle', 'Toggle theme')}</span>
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        {resolvedTheme === 'dark' ? t('theme.light', 'Switch to light mode') : t('theme.dark', 'Switch to dark mode')}
       </TooltipContent>
     </Tooltip>
   );

@@ -27,16 +27,16 @@ describe('DeliveryCandidateCard', () => {
   it('shows abstention, confidence, and all evidence with two-way drill links', () => {
     render(<MemoryRouter><DeliveryCandidateCard candidate={candidate} showTaskLink showDeliveryLink /></MemoryRouter>);
     expect(screen.getByText('abstained')).toBeInTheDocument();
-    expect(screen.getByText(/confidence 30%/)).toBeInTheDocument();
+    expect(screen.getByText(/Confidence 30%/)).toBeInTheDocument();
     expect(screen.getByText(/temporal-proximity · supports/)).toBeInTheDocument();
     expect(screen.getByText(/branch-mismatch · opposes/)).toBeInTheDocument();
     expect(screen.getAllByText(/compatible · era:1/)).toHaveLength(2);
-    expect(screen.getAllByRole('link', { name: 'task:1' })[0]).toHaveAttribute('href', '/tasks/task%3A1');
-    expect(screen.getByRole('link', { name: 'abc123' })).toHaveAttribute('href', '/deliveries/delivery%3A1');
-    expect(screen.getByRole('link', { name: 'event:1' })).toHaveAttribute('href', '/tasks/task%3A1#event-event%3A1');
+    expect(screen.getByRole('link', { name: 'Unnamed task' })).toHaveAttribute('href', '/tasks/task%3A1');
+    expect(screen.getByRole('link', { name: 'Code commit · View details' })).toHaveAttribute('href', '/deliveries/delivery%3A1');
+    expect(screen.getByRole('link', { name: 'Open raw event' })).toHaveAttribute('href', '/tasks/task%3A1#event-event%3A1');
   });
 
-  it('renders Git AI provenance and abstain limitations as evidence rather than ownership', () => {
+  it('renders optional provenance and abstain limitations as evidence rather than ownership', () => {
     const provenance: TaskDeliveryCandidate = {
       ...candidate,
       algorithmVersion: 'git-ai-provenance-v1',
@@ -56,7 +56,7 @@ describe('DeliveryCandidateCard', () => {
     expect(screen.getByText(/git-ai-note-provenance · supports · deterministic · 95%/)).toBeInTheDocument();
     expect(screen.getByText(/compatible · era:sidecar/)).toBeInTheDocument();
     expect(screen.getByText(/git-ai-provenance-v1/)).toBeInTheDocument();
-    expect(screen.getByText(/Note digest sha256:opaque/)).toBeInTheDocument();
+    expect(screen.getByText(/Provenance digest sha256:opaque/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'git-ai-note:sha256:opaque' })).not.toBeInTheDocument();
   });
 });

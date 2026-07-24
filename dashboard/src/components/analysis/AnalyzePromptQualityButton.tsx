@@ -14,6 +14,7 @@ import {
 import { useAnalysis } from './AnalysisContext';
 import { useLlmConfig } from '@/hooks/useConfig';
 import type { Session } from '@/lib/types';
+import { isAutomaticAnalysisAvailable } from '@/lib/analysis-availability';
 
 interface AnalyzePromptQualityButtonProps {
   session: Session;
@@ -25,7 +26,7 @@ export function AnalyzePromptQualityButton({ session, hasExistingScore }: Analyz
   const { getAnalysisState, startAnalysis, cancelAnalysis } = useAnalysis();
   const { data: llmConfig } = useLlmConfig();
 
-  const configured = !!(llmConfig?.provider && llmConfig?.model);
+  const configured = isAutomaticAnalysisAvailable(llmConfig);
 
   const analysisState = getAnalysisState(session.id, 'prompt_quality');
   const isAnalyzingThisSession = analysisState?.status === 'analyzing';

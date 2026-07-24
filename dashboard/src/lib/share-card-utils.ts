@@ -237,7 +237,7 @@ export function drawShareCard(
   ctx.font = `600 13px ${FONT_STACK}`;
   ctx.fillStyle = '#64748b';
   ctx.letterSpacing = '2px';
-  ctx.fillText('CODE INSIGHTS', PAD + LOGO_SIZE + 10, PAD + LOGO_SIZE * 0.72);
+  ctx.fillText('AGENT USAGE ANALYZER', PAD + LOGO_SIZE + 10, PAD + LOGO_SIZE * 0.72);
   ctx.letterSpacing = '0px';
 
   const monthYear = getMonthYearFromWeek(props.currentWeek);
@@ -434,7 +434,7 @@ export function drawShareCard(
     ctx.font = `500 17px ${FONT_STACK}`;
     ctx.fillStyle = '#475569';
     ctx.textAlign = 'center';
-    ctx.fillText('Get started at agent-analytics.app', EVIDENCE_CENTER_X, EVIDENCE_Y1);
+    ctx.fillText('npx agent-usage-analyze start', EVIDENCE_CENTER_X, EVIDENCE_Y1);
     ctx.textAlign = 'left';
   }
 
@@ -455,7 +455,7 @@ export function drawShareCard(
     const toolEntries = dedupedTools
       .filter(t => toolIcons.has(t))
       .map(t => {
-        const label = SOURCE_TOOL_DISPLAY_NAMES[t] ?? t;
+        const label = SOURCE_TOOL_DISPLAY_NAMES[t] ?? 'Imported';
         const labelW = ctx.measureText(label).width;
         return { tool: t, label, entryW: LOGO_PX + LOGO_TEXT_GAP + labelW };
       });
@@ -604,11 +604,11 @@ export function drawShareCard(
 
     ctx.font = `400 15px ${FONT_STACK}`;
     ctx.fillStyle = '#475569';
-    ctx.fillText('agent-analytics.app', PAD + FOOTER_LOGO_SIZE + 10, FOOTER_Y);
+    ctx.fillText('Agent 使用分析', PAD + FOOTER_LOGO_SIZE + 10, FOOTER_Y);
   }
 
-  // CLI CTA: `npx @agent-analytics/cli` — monospace, terminal-style with subtle bg
-  const CLI_CMD = 'npx @agent-analytics/cli';
+  // CLI CTA — monospace, terminal-style with subtle background.
+  const CLI_CMD = 'agent-usage-analyze start';
   ctx.font = `500 13px ${MONO_STACK}`;
   const cmdW = ctx.measureText(CLI_CMD).width;
   const CMD_PAD_X = 10;
@@ -674,7 +674,7 @@ export async function downloadShareCard(props: ShareCardProps): Promise<void> {
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.download = 'agent-analytics-ai-fluency.png';
+  link.download = 'agent-usage-analyze-ai-fluency.png';
   link.href = url;
   link.click();
   URL.revokeObjectURL(url);

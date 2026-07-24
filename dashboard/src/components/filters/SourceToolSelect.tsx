@@ -5,24 +5,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SOURCE_TOOL_COLORS } from '@/lib/constants/colors';
-
+import { useLanguage } from '@/i18n/LanguageProvider';
 export const SOURCE_TOOLS = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'cursor', label: 'Cursor' },
-  { value: 'codex-cli', label: 'Codex CLI' },
-  { value: 'copilot-cli', label: 'Copilot CLI' },
-  { value: 'copilot', label: 'Copilot' },
+  { value: 'codex-cli', label: 'Codex', support: 'full' },
+  { value: 'claude-code', label: 'Claude Code', support: 'sessions' },
+  { value: 'cursor', label: 'Cursor', support: 'sessions' },
+  { value: 'copilot-cli', label: 'GitHub Copilot CLI', support: 'sessions' },
+  { value: 'copilot', label: 'GitHub Copilot', support: 'sessions' },
 ] as const;
 
 // Extract the dot color class from SOURCE_TOOL_COLORS badge string (e.g. "bg-orange-500/10 text-orange-600 ...")
 // We only need the text color for the dot background — use the bg-*-500/10 converted to bg-*-500
 const DOT_COLORS: Record<string, string> = {
-  'claude-code': 'bg-orange-500',
-  'cursor': 'bg-blue-500',
   'codex-cli': 'bg-green-500',
+  'claude-code': 'bg-orange-500',
+  cursor: 'bg-blue-500',
   'copilot-cli': 'bg-cyan-500',
-  'copilot': 'bg-violet-500',
+  copilot: 'bg-violet-500',
 };
 
 interface SourceToolSelectProps {
@@ -32,18 +31,24 @@ interface SourceToolSelectProps {
 }
 
 export function SourceToolSelect({ value, onValueChange, className }: SourceToolSelectProps) {
+  const { language } = useLanguage();
   return (
     <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger className={className}>
-        <SelectValue placeholder="All Sources" />
+        <SelectValue placeholder={language === 'zh-CN' ? '全部来源' : 'All sources'} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">All Sources</SelectItem>
+        <SelectItem value="all">{language === 'zh-CN' ? '全部来源' : 'All sources'}</SelectItem>
         {SOURCE_TOOLS.map((tool) => (
           <SelectItem key={tool.value} value={tool.value}>
             <span className="flex items-center gap-1.5">
               <span className={`h-2 w-2 rounded-full shrink-0 ${DOT_COLORS[tool.value]}`} />
-              {tool.label}
+              <span>{tool.label}</span>
+              <span className="text-xs text-muted-foreground">
+                {tool.support === 'full'
+                  ? (language === 'zh-CN' ? '完整支持' : 'full support')
+                  : (language === 'zh-CN' ? '会话分析' : 'session analytics')}
+              </span>
             </span>
           </SelectItem>
         ))}

@@ -23,6 +23,8 @@ import { useLlmConfig } from '@/hooks/useConfig';
 import { useAnalysisCost } from '@/hooks/useAnalysisCost';
 import { estimateAnalysisCost, formatCost, formatEstimatedInputTokens } from '@/lib/cost-utils';
 import type { Session } from '@/lib/types';
+import { useLanguage } from '@/i18n/LanguageProvider';
+import { isAutomaticAnalysisAvailable } from '@/lib/analysis-availability';
 
 interface AnalyzeDropdownProps {
   session: Session;
@@ -37,13 +39,14 @@ export function AnalyzeDropdown({
   insightCount,
   hasExistingPromptQuality,
 }: AnalyzeDropdownProps) {
+  const { t } = useLanguage();
   const [confirmSessionOpen, setConfirmSessionOpen] = useState(false);
   const [confirmPromptOpen, setConfirmPromptOpen] = useState(false);
   const { getAnalysisState, startAnalysis, cancelAnalysis } = useAnalysis();
   const { data: llmConfig } = useLlmConfig();
   const { data: costData } = useAnalysisCost(session.id);
 
-  const configured = !!(llmConfig?.provider && llmConfig?.model);
+  const configured = isAutomaticAnalysisAvailable(llmConfig);
   // Local providers with no per-token cost
   const isLocalFreeProvider = llmConfig?.provider === 'ollama' || llmConfig?.provider === 'llamacpp';
   const isOllama = isLocalFreeProvider;
@@ -110,7 +113,7 @@ export function AnalyzeDropdown({
         to="/settings"
         className="text-xs text-muted-foreground underline hover:text-foreground"
       >
-        Configure AI in Settings
+        {t('analysis.configure', 'Configure AI in Settings')}
       </Link>
     );
   }
@@ -124,9 +127,9 @@ export function AnalyzeDropdown({
         <Button disabled variant="outline" size="sm" className="h-8 gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           <span className="hidden sm:inline">
-            {activeState?.progress?.message || 'Analyzing...'}
+            {activeState?.progress?.message || t('analysis.analyzing', 'Analyzing…')}
           </span>
-          <span className="sm:hidden">Analyzing...</span>
+          <span className="sm:hidden">{t('analysis.analyzing', 'Analyzing…')}</span>
         </Button>
         <Button
           variant="ghost"
@@ -135,13 +138,14 @@ export function AnalyzeDropdown({
           onClick={() => cancelAnalysis(session.id, activeType)}
         >
           <X className="h-3.5 w-3.5" />
-          <span className="sr-only sm:not-sr-only">Cancel</span>
+          <span className="sr-only sm:not-sr-only">{t('sessions.cancel', 'Cancel')}</span>
         </Button>
       </div>
     );
   }
 
   const showPromptOption = session.user_message_count >= 2;
+  const hasAnyExistingAnalysis = Boolean(hasExistingInsights || hasExistingPromptQuality);
 
   return (
     <>
@@ -149,14 +153,16 @@ export function AnalyzeDropdown({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-8 gap-1.5">
             <Sparkles className="h-3.5 w-3.5" />
-            Analyze
+            {hasAnyExistingAnalysis
+              ? t('analysis.reanalyze', 'Re-analyze')
+              : t('analysis.analyze', 'Analyze')}
             <ChevronDown className="h-3 w-3 opacity-50" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={handleSessionClick}>
             <Sparkles className="h-4 w-4" />
-            {hasExistingInsights ? 'Re-analyze Session' : 'Analyze Session'}
+            {hasExistingInsights ? t('analysis.reanalyzeSession', 'Re-analyze session') : t('analysis.analyzeSession', 'Analyze session')}
             {sessionCostEstimate !== null && (
               <div className="text-xs text-muted-foreground pl-7 pb-1 w-full">
                 {isOllama
@@ -168,7 +174,7 @@ export function AnalyzeDropdown({
           {showPromptOption && (
             <DropdownMenuItem onClick={handlePromptClick}>
               <Target className="h-4 w-4" />
-              {hasExistingPromptQuality ? 'Re-analyze Prompt Quality' : 'Analyze Prompt Quality'}
+              {hasExistingPromptQuality ? t('analysis.reanalyzePromptQuality', 'Re-analyze prompt quality') : t('analysis.analyzePromptQuality', 'Analyze prompt quality')}
               {pqCostEstimate !== null && (
                 <div className="text-xs text-muted-foreground pl-7 pb-0.5 w-full">
                   {isOllama ? 'free (local)' : `~${formatCost(pqCostEstimate)} · same conversation`}

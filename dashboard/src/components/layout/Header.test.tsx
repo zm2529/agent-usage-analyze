@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { NAV_ITEMS } from './Header';
 
 describe('primary navigation', () => {
-  it('exposes exactly the seven product-spec destinations in order', () => {
+  it('keeps the primary navigation focused on the four user decisions', () => {
     expect(NAV_ITEMS.map(({ href, label }) => [href, label])).toEqual([
-      ['/dashboard', 'Overview'], ['/tasks', 'Tasks'], ['/deliveries', 'Deliveries'],
-      ['/patterns', 'Patterns'], ['/advice', 'Advice'], ['/scorecards', 'Scorecards'],
-      ['/settings', 'Settings'],
+      ['/dashboard', '总览'], ['/improve', '能力'], ['/advice', '行动'],
+      ['/sessions', '记录'],
     ]);
   });
 });

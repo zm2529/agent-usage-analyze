@@ -18,6 +18,8 @@ import DeliveriesPage from '@/pages/DeliveriesPage';
 import DeliveryDetailPage from '@/pages/DeliveryDetailPage';
 import ScorecardsPage from '@/pages/ScorecardsPage';
 import AdvicePage from '@/pages/AdvicePage';
+import ImprovePage from '@/pages/ImprovePage';
+import { useLanguage } from '@/i18n/LanguageProvider';
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard': 'Overview',
@@ -29,6 +31,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/patterns': 'Patterns',
   '/scorecards': 'Scorecards',
   '/advice': 'Advice',
+  '/improve': 'Improve',
   '/export': 'Export',
   '/journal': 'Journal',
   '/settings': 'Settings',
@@ -39,6 +42,7 @@ function RouteEffects() {
   const [searchParams] = useSearchParams();
   const insightParam = searchParams.get('insight');
   const navStartRef = useRef<number>(Date.now());
+  const { language } = useLanguage();
 
   // Scroll to top on route change, unless deep-linking to a specific insight
   useEffect(() => {
@@ -52,7 +56,13 @@ function RouteEffects() {
   useEffect(() => {
     const segment = '/' + pathname.split('/')[1];
     const page = ROUTE_TITLES[segment];
-    document.title = page ? `${page} — Agent Analytics` : 'Agent Analytics';
+    const localizedPage = language === 'zh-CN' ? ({
+      Overview: '总览', Sessions: '活动记录', Tasks: '任务与交付', Deliveries: '交付证据',
+      Insights: '洞察', Analytics: '统计', Patterns: '行为模式', Scorecards: '评分卡',
+      Advice: '行动计划', Improve: '能力分析', Export: '导出', Journal: '日志', Settings: '设置',
+    } as Record<string, string>)[page] ?? page : page;
+    const product = language === 'zh-CN' ? 'Agent 使用分析' : 'Agent Usage Analytics';
+    document.title = localizedPage ? `${localizedPage} — ${product}` : product;
 
     // Track page view on every route change
     capturePageView(pathname);
@@ -64,7 +74,7 @@ function RouteEffects() {
     }
     // Reset nav start for next navigation
     navStartRef.current = Date.now();
-  }, [pathname]);
+  }, [pathname, language]);
 
   return null;
 }
@@ -89,6 +99,7 @@ export default function App() {
           <Route path="/patterns" element={<PatternsPage />} />
           <Route path="/scorecards" element={<ScorecardsPage />} />
           <Route path="/advice" element={<AdvicePage />} />
+          <Route path="/improve" element={<ImprovePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/export" element={<ExportPage />} />
           <Route path="/journal" element={<JournalPage />} />
