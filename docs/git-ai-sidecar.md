@@ -1,28 +1,28 @@
 # Managed Git AI prospective sidecar
 
-Agent Analytics vendors Git AI `1.6.16` at source commit `da79071f21f3b018aa7d4ee4e7d5fa8bf3555a88` as an optional prospective provenance sidecar. The product integrates only through read-only CLI JSON inspection and local `refs/notes/ai` records using `authorship/3.0.0`; it does not use Rust FFI and does not reimplement provenance in TypeScript.
+Agent Usage Analyzer vendors Git AI `1.6.16` at source commit `da79071f21f3b018aa7d4ee4e7d5fa8bf3555a88` as an optional prospective provenance sidecar. The product integrates only through read-only CLI JSON inspection and local `refs/notes/ai` records using `authorship/3.0.0`; it does not use Rust FFI and does not reimplement provenance in TypeScript.
 
 ## Source and build contract
 
 - `cli/vendor/git-ai/` contains the complete 869-file frozen source archive and the upstream Apache-2.0 license.
 - `cli/vendor/git-ai-files.sha256` covers every vendored file's Git mode, symlink target or bytes; `git-ai-manifest.json` fixes the upstream commit, Git-compatible tree, version, schema and file-manifest digest.
 - The local patch stack is intentionally empty. Dirty-state protection and abstention are product evidence policy outside the Rust source.
-- `agent-analytics git-ai-sidecar verify` checks every file and rejects missing, changed, duplicate or unmanifested source.
-- `agent-analytics git-ai-sidecar build` runs `cargo build --locked --offline --release` with Cargo offline mode forced. It cannot fetch dependencies.
-- If the locked crates are not already cached, `agent-analytics git-ai-sidecar build --allow-network` is the explicit dependency-fetch opt-in. It still uses the frozen source and lockfile; runtime inspection, gates and Notes consumption never use the network.
+- `agent-usage-analyze git-ai-sidecar verify` checks every file and rejects missing, changed, duplicate or unmanifested source.
+- `agent-usage-analyze git-ai-sidecar build` runs `cargo build --locked --offline --release` with Cargo offline mode forced. It cannot fetch dependencies.
+- If the locked crates are not already cached, `agent-usage-analyze git-ai-sidecar build --allow-network` is the explicit dependency-fetch opt-in. It still uses the frozen source and lockfile; runtime inspection, gates and Notes consumption never use the network.
 
 ## Explicit configuration
 
 ```sh
-agent-analytics git-ai-sidecar verify
-agent-analytics git-ai-sidecar build
-agent-analytics git-ai-sidecar configure \
+agent-usage-analyze git-ai-sidecar verify
+agent-usage-analyze git-ai-sidecar build
+agent-usage-analyze git-ai-sidecar configure \
   --binary /absolute/path/to/cli/vendor/git-ai/target/release/git-ai \
   --notes-export local-only
-agent-analytics git-ai-sidecar inspect --repository /absolute/path/to/an-explicit-repository
+agent-usage-analyze git-ai-sidecar inspect --repository /absolute/path/to/an-explicit-repository
 ```
 
-Configuration is stored with user-only permissions and binds the executable's SHA-256 and reported `1.6.16` version. Every sidecar invocation receives an isolated product-managed HOME containing Git AI's native `telemetry_oss: off`, local-only prompt storage, disabled version/update checks, and disabled daemon-upload/transcript-streaming feature flags. Health inspection reads Git AI's own `config` JSON and verifies those effective values. It never relies on or edits the user's normal `~/.git-ai` state. Product configuration never installs Git/Codex hooks and never pushes Notes. `manual-external` records that any Notes export is a separate user-controlled action; Agent Analytics still performs no push.
+Configuration is stored with user-only permissions and binds the executable's SHA-256 and reported `1.6.16` version. Every sidecar invocation receives an isolated product-managed HOME containing Git AI's native `telemetry_oss: off`, local-only prompt storage, disabled version/update checks, and disabled daemon-upload/transcript-streaming feature flags. Health inspection reads Git AI's own `config` JSON and verifies those effective values. It never relies on or edits the user's normal `~/.git-ai` state. Product configuration never installs Git/Codex hooks and never pushes Notes. `manual-external` records that any Notes export is a separate user-controlled action; Agent Usage Analyzer still performs no push.
 
 Passing `--enable` only requests evidence consumption. Consumption remains disabled until the latest prospective gate passes with the frozen source tree, binary hash/version and JSON health check intact. A failed or corrupt report, unreadable/corrupt configuration, binary drift or health-check failure immediately hides Git AI candidates while preserving the historical evidence record.
 
@@ -31,7 +31,7 @@ Passing `--enable` only requests evidence consumption. Consumption remains disab
 The local gate reads a strict, sanitized `agent-analytics.git-ai-prospective-evidence.v1` matrix and validates referenced commits and Git AI Notes directly in a disposable repository:
 
 ```sh
-agent-analytics git-ai-gate /absolute/path/to/sanitized-matrix.json \
+agent-usage-analyze git-ai-gate /absolute/path/to/sanitized-matrix.json \
   --repository /absolute/path/to/disposable-repository
 ```
 

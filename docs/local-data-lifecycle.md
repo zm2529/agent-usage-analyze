@@ -1,11 +1,11 @@
 # Local data lifecycle
 
-Agent Analytics keeps its database, sync cursor, migration reports, and recoverable backups under the local data directory shown in **Settings → Local runtime and data**. The HTTP server binds to `127.0.0.1` only.
+Agent Usage Analyzer keeps its database, sync cursor, migration reports, and recoverable backups under the local data directory shown in **Settings → Local runtime and data**. The HTTP server binds to `127.0.0.1` only.
 
 ## Migrate a frozen Code Insights database
 
 ```sh
-agent-analytics migrate-product
+agent-usage-analyze migrate-product
 ```
 
 For the frozen V9 schema, this command creates a SQLite backup before applying canonical migrations. It backfills only structural metadata into canonical events, reconciles session/message counts, makes legacy tables read-only, and writes a redacted migration report. Automatic startup migration refuses to mutate a frozen legacy database until this backup-first command has run.
@@ -17,8 +17,8 @@ Use **Download sanitized export** in Settings. The versioned JSON contains aggre
 ## Archive and rebuild local analysis
 
 ```sh
-agent-analytics reset
-agent-analytics import-codex
+agent-usage-analyze reset
+agent-usage-analyze import-codex
 ```
 
 `reset` moves the product-owned database and sync state into a timestamped backup instead of permanently deleting them. It refuses an incomplete archive while another WAL reader is active. It does not modify imported history files or Git repositories. Restore the reported backup paths for recovery, or run `import-codex` to rebuild canonical projections from the original local sources.

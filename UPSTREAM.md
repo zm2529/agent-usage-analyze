@@ -1,6 +1,6 @@
 # Upstream provenance
 
-Agent Analytics began from selected source in Code Insights under the MIT License.
+Agent Usage Analyzer began from selected source in Code Insights under the MIT License.
 
 - Upstream project: `melagiri/code-insights`
 - Frozen source commit: `4177d3c496a4a517ff72aa2f4a813dd69865371c`

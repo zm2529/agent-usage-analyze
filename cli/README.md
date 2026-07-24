@@ -1,15 +1,11 @@
-# Agent Analytics CLI
+# Agent Usage Analyzer CLI
 
-The CLI imports local Codex work into the canonical event store and starts the loopback-only dashboard.
+The CLI syncs local coding-agent sessions and starts the loopback-only dashboard. Codex has the most complete V1 task, evidence, automatic-capture, and advice path.
 
 ```sh
-agent-analytics ingest-fixture ./canonical-batch.json
-agent-analytics migrate-product
-agent-analytics import-codex
-agent-analytics dashboard --no-open
-agent-analytics reset
+npx --yes agent-usage-analyze start
 ```
 
-For automatic Codex analysis, run `agent-analytics install-hook --source codex`, trust the handler from Codex `/hooks`, then inspect it with `agent-analytics doctor` and `agent-analytics queue status`. See the repository [Codex zero-config guide](../docs/codex-zero-config-analysis.md).
+The command initializes private local storage, syncs Codex, Claude Code, Cursor, GitHub Copilot CLI, and GitHub Copilot history, installs or refreshes Codex capture, and opens the dashboard immediately. The first Codex history backfill runs in the background while the WebUI shows progress and an ETA. Use `--wait-for-import` to keep that work in the terminal. Trust the handler once from Codex `/hooks` if prompted. Use `npx --yes agent-usage-analyze doctor` for diagnostics and see the repository [automatic analysis guide](../docs/codex-zero-config-analysis.md) for advanced controls.
 
 Product telemetry and remote semantic analysis are disabled by default. See the repository [README](../README.md), [UPSTREAM](../UPSTREAM.md), and [LICENSE](../LICENSE).

@@ -1,6 +1,6 @@
-# Contributing to Agent Analytics
+# Contributing to Agent Usage Analyzer
 
-Agent Analytics is a local-first, single-user Codex analysis product. Read `CONTEXT.md`, the active local ticket, and the V1 specification before changing domain behavior.
+Agent Usage Analyzer is a local-first, single-user Codex analysis product. Read `CONTEXT.md`, the active local ticket, and the V1 specification before changing domain behavior.
 
 ## Development
 
