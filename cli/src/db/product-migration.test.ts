@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { assertCanonicalAutoMigrationAllowed, expandProjectContract } from './product-migration.js';
 import { acquireDatabaseOwner } from './lifecycle-lock.js';
 import { recordSettledFrontier } from '../analysis/settled-frontier.js';
+import { CURRENT_SCHEMA_VERSION } from './schema.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -83,7 +84,7 @@ describe('expandProjectContract', () => {
     const second = expandProjectContract({ dbPath, now: '2026-07-21T02:00:00.000Z' });
 
     expect(first).toMatchObject({
-      status: 'migrated', sourceSchemaVersion: 9, targetSchemaVersion: 27,
+      status: 'migrated', sourceSchemaVersion: 9, targetSchemaVersion: CURRENT_SCHEMA_VERSION,
       reconciliation: { legacySessions: 1, canonicalTasks: 1, legacyMessages: 2, canonicalEvents: 2 },
     });
     expect(first.backupPath).toMatch(/\.backup$/);
@@ -93,7 +94,7 @@ describe('expandProjectContract', () => {
 
     const migrated = new Database(dbPath);
     expect(migrated.prepare('SELECT MAX(version) AS version FROM schema_version').get())
-      .toEqual({ version: 27 });
+      .toEqual({ version: CURRENT_SCHEMA_VERSION });
     expect(migrated.prepare('SELECT COUNT(*) AS count FROM work_tasks').get()).toEqual({ count: 1 });
     expect(migrated.prepare('SELECT COUNT(*) AS count FROM canonical_events').get()).toEqual({ count: 2 });
     expect(JSON.stringify(migrated.prepare('SELECT payload_json FROM canonical_events').all()))
@@ -122,7 +123,11 @@ describe('expandProjectContract', () => {
     const first = expandProjectContract({ dbPath, now: '2026-07-21T01:00:00.000Z' });
     const second = expandProjectContract({ dbPath, now: '2026-07-21T02:00:00.000Z' });
 
-    expect(first).toMatchObject({ status: 'initialized', backupPath: null, targetSchemaVersion: 27 });
+    expect(first).toMatchObject({
+      status: 'initialized',
+      backupPath: null,
+      targetSchemaVersion: CURRENT_SCHEMA_VERSION,
+    });
     expect(second).toMatchObject({ status: 'current', migrationId: first.migrationId });
   });
 

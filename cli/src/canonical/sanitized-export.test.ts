@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { runMigrations } from '../db/migrate.js';
+import { CURRENT_SCHEMA_VERSION } from '../db/schema.js';
 import { buildSanitizedExport } from './sanitized-export.js';
 
 describe('buildSanitizedExport', () => {
@@ -45,7 +46,7 @@ describe('buildSanitizedExport', () => {
       generatedAt: '2026-07-21T01:00:00.000Z',
       summary: { taskCount: 1, eventCount: 1 },
       coverage: { discovered: 1, parsed: 1, skipped: 0, failed: 0, unknown: 0 },
-      versions: { databaseSchema: 27, parsers: ['parser-v1'] },
+      versions: { databaseSchema: CURRENT_SCHEMA_VERSION, parsers: ['parser-v1'] },
     });
     expect(result.evidenceLocators).toEqual([
       expect.stringMatching(/^event:sha256:[a-f0-9]{64}$/),
