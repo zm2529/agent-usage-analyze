@@ -1,25 +1,26 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router';
 import { capturePageView, captureDashboardLoaded } from '@/lib/telemetry';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Layout } from '@/components/layout/Layout';
-import DashboardPage from '@/pages/DashboardPage';
-import SessionsPage from '@/pages/SessionsPage';
-import SessionDetailPage from '@/pages/SessionDetailPage';
-import InsightsPage from '@/pages/InsightsPage';
-import AnalyticsPage from '@/pages/AnalyticsPage';
-import SettingsPage from '@/pages/SettingsPage';
-import ExportPage from '@/pages/ExportPage';
-import JournalPage from '@/pages/JournalPage';
-import PatternsPage from '@/pages/PatternsPage';
-import TasksPage from '@/pages/TasksPage';
-import TaskDetailPage from '@/pages/TaskDetailPage';
-import DeliveriesPage from '@/pages/DeliveriesPage';
-import DeliveryDetailPage from '@/pages/DeliveryDetailPage';
-import ScorecardsPage from '@/pages/ScorecardsPage';
-import AdvicePage from '@/pages/AdvicePage';
-import ImprovePage from '@/pages/ImprovePage';
 import { useLanguage } from '@/i18n/LanguageProvider';
+
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const SessionsPage = lazy(() => import('@/pages/SessionsPage'));
+const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage'));
+const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
+const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const ExportPage = lazy(() => import('@/pages/ExportPage'));
+const JournalPage = lazy(() => import('@/pages/JournalPage'));
+const PatternsPage = lazy(() => import('@/pages/PatternsPage'));
+const TasksPage = lazy(() => import('@/pages/TasksPage'));
+const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
+const DeliveriesPage = lazy(() => import('@/pages/DeliveriesPage'));
+const DeliveryDetailPage = lazy(() => import('@/pages/DeliveryDetailPage'));
+const ScorecardsPage = lazy(() => import('@/pages/ScorecardsPage'));
+const AdvicePage = lazy(() => import('@/pages/AdvicePage'));
+const ImprovePage = lazy(() => import('@/pages/ImprovePage'));
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard': 'Overview',
@@ -84,6 +85,7 @@ export default function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <RouteEffects />
+      <Suspense fallback={null}>
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -106,6 +108,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>
+      </Suspense>
     </BrowserRouter>
     </ErrorBoundary>
   );

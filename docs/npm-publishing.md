@@ -2,7 +2,7 @@
 
 `agent-usage-analyze` 使用两阶段发布：
 
-1. 首次人工发布用于在 npm 创建包；
+1. 首次人工发布用于在 npm 创建包；（已完成：`0.1.0`）
 2. 后续版本由 GitHub Actions 通过 npm Trusted Publishing（OIDC）发布。
 
 仓库不保存 npm access token，也不在 GitHub Actions 中配置 `NPM_TOKEN`。
@@ -35,7 +35,7 @@ GitHub 上需要存在公开仓库 `zm2529/agent-usage-analyze`，并包含
 
 创建公开仓库、添加远端或推送都属于外部操作，应由维护者明确执行。
 
-### 2. 首次发布
+### 2. 首次发布（已完成）
 
 npm 的 Trusted Publisher 在包设置中配置，因此包尚不存在时，需要先完成一次人工发布。
 

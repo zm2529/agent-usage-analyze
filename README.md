@@ -17,19 +17,19 @@ Agent 使用分析（Agent Usage Analyzer）是一套本地优先的个人工程
 
 ## 快速开始
 
-要求 Node.js 18+、pnpm 8+。当前 `agent-usage-analyze` 尚未发布到 npm，直接执行 `npx --yes agent-usage-analyze start` 会得到 `404 Not Found`。首次公开发布前，需要从源码构建并安装本地 CLI：
+要求 Node.js 18+、pnpm 8+。直接通过 npm 运行：
+
+```sh
+npx --yes agent-usage-analyze start
+```
+
+从源码开发或验证本地修改时：
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
 npm install --global ./cli
 agent-usage-analyze start
-```
-
-包发布到 npm 后，用户才可以不下载仓库直接运行：
-
-```sh
-npx --yes agent-usage-analyze start
 ```
 
 首次启动会依次完成：
