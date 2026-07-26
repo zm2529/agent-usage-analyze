@@ -118,6 +118,16 @@ function copyContents(source, destination) {
   }
 }
 
+function scanTree(rootPath, displayPrefix) {
+  if (!existsSync(rootPath)) return;
+  for (const name of readdirSync(rootPath, { withFileTypes: true })) {
+    const path = join(rootPath, name.name);
+    const displayPath = `${displayPrefix}/${name.name}`;
+    if (name.isDirectory()) scanTree(path, displayPath);
+    else if (name.isFile()) scanFile(path, displayPath, 'package');
+  }
+}
+
 const stagingRoot = mkdtempSync(join(tmpdir(), 'agent-analytics-release-audit-'));
 const staging = join(stagingRoot, 'package');
 mkdirSync(staging, { recursive: true, mode: 0o700 });
@@ -140,6 +150,10 @@ try {
     copyContents(process.env.AGENT_ANALYTICS_AUDIT_PACKAGE_OVERLAY_DIR, join(staging, 'server-dist'));
   }
 
+  for (const name of ['dist', 'dashboard-dist', 'server-dist']) {
+    scanTree(join(staging, name), name);
+  }
+
   let vendorVerified = false;
   try {
     const verifier = await import(pathToFileURL(join(root, 'cli', 'dist', 'sidecars', 'git-ai-manager.js')).href);
@@ -152,9 +166,11 @@ try {
     failures.push(`managed vendor integrity failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const pack = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+  const packEntries = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: staging, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-  }))[0];
+  }));
+  const pack = packEntries[0];
+  if (!pack?.files) throw new Error('npm pack did not return a package manifest');
   const packageFiles = pack.files.map((entry) => entry.path).sort();
   for (const path of packageFiles) {
     if (path.startsWith('vendor/') && vendorVerified) continue;
