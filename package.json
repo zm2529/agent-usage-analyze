@@ -6,7 +6,7 @@
     "build": "pnpm --filter ./cli build && pnpm --filter ./server build && pnpm --filter ./dashboard build",
     "dev": "pnpm --filter ./cli dev",
     "test": "pnpm -r test",
-    "test:release": "pnpm --filter ./cli exec vitest run --maxWorkers=1 && pnpm --filter ./server exec vitest run --maxWorkers=1 && pnpm --filter ./dashboard exec vitest run --maxWorkers=1",
+    "test:release": "pnpm --filter ./cli build && pnpm --filter ./cli exec vitest run --maxWorkers=1 && pnpm --filter ./server exec vitest run --maxWorkers=1 && pnpm --filter ./dashboard exec vitest run --maxWorkers=1",
     "test:watch": "vitest",
     "test:coverage": "pnpm --filter ./cli test:coverage && pnpm --filter ./server test:coverage",
     "audit:v1": "node scripts/release-audit.mjs",
