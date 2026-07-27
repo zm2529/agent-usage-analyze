@@ -2,14 +2,6 @@
 
 Agent Usage Analyzer keeps its database, sync cursor, migration reports, and recoverable backups under the local data directory shown in **Settings → Local runtime and data**. The HTTP server binds to `127.0.0.1` only.
 
-## Migrate a frozen Code Insights database
-
-```sh
-agent-usage-analyze migrate-product
-```
-
-For the frozen V9 schema, this command creates a SQLite backup before applying canonical migrations. It backfills only structural metadata into canonical events, reconciles session/message counts, makes legacy tables read-only, and writes a redacted migration report. Automatic startup migration refuses to mutate a frozen legacy database until this backup-first command has run.
-
 ## Export a sanitized summary
 
 Use **Download sanitized export** in Settings. The versioned JSON contains aggregate counts, coverage and diagnostics, parser/database versions, and irreversible evidence locators. It excludes prompt text, code, thinking, tool payloads, repository paths, and credentials.

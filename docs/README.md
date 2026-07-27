@@ -1,11 +1,8 @@
-# Agent Usage Analyzer documentation
+# Agent Usage Analyzer 文档
 
-The implementation contract is defined by the project glossary and the local V1 specification. Upstream Code Insights documentation is preserved under `upstream/code-insights/docs` for provenance and is not the current product contract.
-
-- [Privacy-controlled semantic analysis](semantic-analysis.md)
-- [Practice research and improvement tracking](practice-research-and-improvement-tracking.md)
-- [Product and WebUI review baseline before remediation (2026-07-27)](product-webui-review-2026-07-27.md)
-- [Git AI prospective sidecar](git-ai-sidecar.md)
-- [Buildermark historical gate](buildermark-gate.md)
-- [Local migration, sanitized export, archive, and rebuild](local-data-lifecycle.md)
-- [npm publishing and Trusted Publisher setup](npm-publishing.md)
+- [隐私受控的语义分析](semantic-analysis.md)
+- [实践研究与改进追踪](practice-research-and-improvement-tracking.md)
+- [Git AI 旁路证据](git-ai-sidecar.md)
+- [Buildermark 历史证据](buildermark-gate.md)
+- [本地数据导出、归档与重建](local-data-lifecycle.md)
+- [npm 发布与 Trusted Publisher](npm-publishing.md)
