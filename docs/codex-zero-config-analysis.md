@@ -33,7 +33,7 @@ The installer preserves unrelated Hook handlers, creates a private backup before
 1. In Codex, open `/hooks` and trust the Agent Usage Analyzer `Stop` handler. Installation cannot grant trust on your behalf.
 2. Confirm Codex authentication with `codex login status`. Automatic subscription reuse requires the result to identify a ChatGPT login.
 3. Run `agent-usage-analyze doctor`. Its Hooks and AI Analysis sections report installation and provide the exact `/hooks` trust-review instruction; `config analysis --show` reports authentication, effective runner, and downgrade reason.
-4. Finish a Codex turn. The default stable-frontier delay is 90 seconds.
+4. Finish a Codex turn. A completed turn normally becomes eligible after 10 seconds; an actively growing source retains a 90-second quiet-window guard.
 5. Inspect progress with `agent-usage-analyze queue status`, or open `agent-usage-analyze dashboard`. The status includes the recent automatic lifecycle state, effective runner, authentication type, downgrade reason, and next action.
 
 Queue lifecycle:

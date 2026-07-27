@@ -11,7 +11,9 @@ import { recordIngestionLog } from 'agent-usage-analyze/analysis/ingestion-log';
 import { loadConfig } from 'agent-usage-analyze/utils/config';
 
 const DEBOUNCE_MS = 1_200;
-const SETTLE_SECONDS = 5;
+// File notifications arrive throughout an active response. A longer fallback
+// window prevents repeatedly reparsing a rollout that is still growing.
+const SETTLE_SECONDS = 90;
 const SESSION_META_PREFIX_BYTES = 64 * 1024;
 
 interface RolloutSessionMeta {

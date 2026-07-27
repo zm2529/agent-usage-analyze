@@ -360,6 +360,11 @@ export interface AnalysisCapabilityConfig {
   skillOpportunityAnalysis?: boolean;
 }
 
+export interface KnowledgeResearchConfig {
+  enabled?: boolean;
+  authorizedAt?: string;
+}
+
 export interface ProviderModelOption {
   id: string;
   name: string;
@@ -387,6 +392,7 @@ export interface ClaudeInsightConfig {
     semanticAnalysisEnabled?: boolean;
     analysis?: AnalysisExecutionConfig;
     capabilities?: AnalysisCapabilityConfig;
+    knowledgeResearch?: KnowledgeResearchConfig;
   };
   telemetry?: boolean;              // default false (local-first opt-in)
 }

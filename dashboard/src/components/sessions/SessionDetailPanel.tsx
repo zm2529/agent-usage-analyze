@@ -617,7 +617,11 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
               </div>
             </div>
           )}
-          <AnalysisRunTrace sessionId={session.id} />
+          <AnalysisRunTrace
+            sessionId={session.id}
+            hasCurrentConversationEvidence={messages.some((message) =>
+              message.type === 'user' && message.content.trim().length > 0)}
+          />
         </TabsContent>
 
         {/* Tab 3: Conversation */}
@@ -707,7 +711,11 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
               ['05 · 外部验证与交付', '仅在结构化工具事件或已登记证据存在时显示；人工验证未登记时保持“未记录”'],
             ].map(([title, detail]) => <li key={title} className="grid grid-cols-[150px_minmax(0,1fr)] gap-4 border-b py-4 text-xs"><strong>{title}</strong><span className="text-muted-foreground">{detail}</span></li>)}
           </ol>
-          <AnalysisRunTrace sessionId={session.id} />
+          <AnalysisRunTrace
+            sessionId={session.id}
+            hasCurrentConversationEvidence={messages.some((message) =>
+              message.type === 'user' && message.content.trim().length > 0)}
+          />
         </TabsContent>
       </Tabs>
 

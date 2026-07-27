@@ -40,6 +40,8 @@ export interface MigrationResult {
  * Version 26: Add immutable, locally inspectable LLM analysis run records
  * Version 27: Repair missing settled-frontier support in databases already marked v23+
  * Version 28: Add event-time hourly Token usage projection
+ * Version 29: Add versioned practice research and LLM-led improvement tracking
+ * Version 30: Decouple durable improvement observations from the rebuildable task projection
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -171,6 +173,14 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 28) {
     applyV28(db);
+  }
+
+  if (currentVersion < 29) {
+    applyV29(db);
+  }
+
+  if (currentVersion < 30) {
+    applyV30(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -1050,5 +1060,163 @@ function applyV28(db: Database.Database): void {
     db.prepare(`UPDATE canonical_projection_state
       SET dirty = 1, updated_at = datetime('now') WHERE id = 1`).run();
     db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(28);
+  })();
+}
+
+function applyV29(db: Database.Database): void {
+  db.transaction(() => {
+    // This product has not shipped with the old cross-session report format.
+    // Remove only derived report caches so the new plan vocabulary and source
+    // contract never mix with historical output. Raw sessions and events remain.
+    db.exec(`
+      DROP TRIGGER IF EXISTS analysis_runs_no_delete;
+      DELETE FROM analysis_runs
+        WHERE analysis_type IN ('behavior_report', 'behavior_research', 'behavior_coach');
+      CREATE TRIGGER analysis_runs_no_delete
+        BEFORE DELETE ON analysis_runs BEGIN
+          SELECT RAISE(ABORT, 'analysis run records are immutable');
+        END;
+
+      CREATE TABLE IF NOT EXISTS knowledge_snapshots (
+        id                    TEXT PRIMARY KEY,
+        scope                 TEXT NOT NULL CHECK (scope IN ('weekly', 'topic')),
+        topic                 TEXT,
+        snapshot_version      TEXT NOT NULL,
+        prompt_version        TEXT NOT NULL,
+        status                TEXT NOT NULL CHECK (status IN ('completed', 'failed')),
+        research_run_id       TEXT REFERENCES analysis_runs(id),
+        source_count          INTEGER NOT NULL DEFAULT 0 CHECK (source_count >= 0),
+        practice_count        INTEGER NOT NULL DEFAULT 0 CHECK (practice_count >= 0),
+        query_summary_json    TEXT NOT NULL CHECK (json_valid(query_summary_json)),
+        output_json           TEXT NOT NULL CHECK (json_valid(output_json)),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_snapshots_scope_created
+        ON knowledge_snapshots(scope, created_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS knowledge_practices (
+        id                    TEXT PRIMARY KEY,
+        snapshot_id           TEXT NOT NULL REFERENCES knowledge_snapshots(id) ON DELETE CASCADE,
+        title                 TEXT NOT NULL,
+        summary               TEXT NOT NULL,
+        applicability         TEXT NOT NULL,
+        source_trust          TEXT NOT NULL CHECK (source_trust IN ('official', 'high', 'medium', 'limited')),
+        discussion_breadth    TEXT NOT NULL CHECK (discussion_breadth IN ('high', 'medium', 'low', 'unknown')),
+        recency               TEXT NOT NULL,
+        local_relevance       TEXT NOT NULL CHECK (local_relevance IN ('high', 'medium', 'low', 'unknown')),
+        local_effect_status   TEXT NOT NULL CHECK (local_effect_status IN ('supported', 'not-reviewed', 'insufficient', 'negative')),
+        rationale             TEXT NOT NULL,
+        tags_json             TEXT NOT NULL CHECK (json_valid(tags_json)),
+        source_refs_json      TEXT NOT NULL CHECK (json_valid(source_refs_json)),
+        conflicts_json        TEXT NOT NULL CHECK (json_valid(conflicts_json)),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_practices_snapshot
+        ON knowledge_practices(snapshot_id, source_trust, title);
+
+      CREATE TABLE IF NOT EXISTS improvement_plans (
+        id                    TEXT PRIMARY KEY,
+        source_practice_id    TEXT REFERENCES knowledge_practices(id),
+        knowledge_snapshot_id TEXT REFERENCES knowledge_snapshots(id),
+        report_run_id         TEXT REFERENCES analysis_runs(id),
+        title                 TEXT NOT NULL,
+        hypothesis            TEXT NOT NULL,
+        applicability         TEXT NOT NULL,
+        review_plan_json      TEXT NOT NULL CHECK (json_valid(review_plan_json)),
+        status                TEXT NOT NULL CHECK (status IN (
+          'queued', 'observing', 'review-ready', 'reviewed', 'paused', 'ended'
+        )),
+        sequence              INTEGER NOT NULL DEFAULT 1 CHECK (sequence BETWEEN 1 AND 3),
+        matched_task_count    INTEGER NOT NULL DEFAULT 0 CHECK (matched_task_count >= 0),
+        adoption_signal_count INTEGER NOT NULL DEFAULT 0 CHECK (adoption_signal_count >= 0),
+        max_task_count        INTEGER NOT NULL DEFAULT 30 CHECK (max_task_count BETWEEN 1 AND 30),
+        max_observation_days  INTEGER NOT NULL DEFAULT 45 CHECK (max_observation_days BETWEEN 1 AND 45),
+        evidence_cutoff       TEXT,
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_improvement_plans_status
+        ON improvement_plans(status, sequence, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS improvement_observations (
+        id                    TEXT PRIMARY KEY,
+        plan_id               TEXT NOT NULL REFERENCES improvement_plans(id) ON DELETE CASCADE,
+        task_id               TEXT NOT NULL,
+        signal                TEXT NOT NULL CHECK (signal IN (
+          'eligible', 'adoption-observed', 'adoption-not-observed',
+          'counter-evidence', 'negative-impact'
+        )),
+        rationale             TEXT NOT NULL,
+        evidence_refs_json    TEXT NOT NULL CHECK (json_valid(evidence_refs_json)),
+        analysis_run_id       TEXT REFERENCES analysis_runs(id),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(plan_id, task_id, signal)
+      );
+      CREATE INDEX IF NOT EXISTS idx_improvement_observations_plan
+        ON improvement_observations(plan_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS improvement_reviews (
+        id                    TEXT PRIMARY KEY,
+        plan_id               TEXT NOT NULL REFERENCES improvement_plans(id) ON DELETE CASCADE,
+        outcome               TEXT NOT NULL CHECK (outcome IN (
+          'improved', 'no-clear-improvement', 'insufficient-evidence', 'negative-impact'
+        )),
+        rationale             TEXT NOT NULL,
+        supporting_refs_json  TEXT NOT NULL CHECK (json_valid(supporting_refs_json)),
+        opposing_refs_json    TEXT NOT NULL CHECK (json_valid(opposing_refs_json)),
+        limitations_json      TEXT NOT NULL CHECK (json_valid(limitations_json)),
+        analysis_run_id       TEXT REFERENCES analysis_runs(id),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_improvement_reviews_plan
+        ON improvement_reviews(plan_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS improvement_feedback (
+        id                    TEXT PRIMARY KEY,
+        plan_id               TEXT NOT NULL REFERENCES improvement_plans(id) ON DELETE CASCADE,
+        kind                  TEXT NOT NULL CHECK (kind IN (
+          'judgment-wrong', 'not-applicable', 'continue-observing', 'end-tracking'
+        )),
+        note                  TEXT,
+        created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_improvement_feedback_plan
+        ON improvement_feedback(plan_id, created_at DESC);
+    `);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(29);
+  })();
+}
+
+function applyV30(db: Database.Database): void {
+  db.transaction(() => {
+    // V29 briefly tied review evidence to work_tasks, a projection that is
+    // intentionally deleted and rebuilt after canonical imports. This product
+    // has not shipped, so clear the derived tracking cache and recreate the
+    // observation ledger with a stable opaque task reference. Raw events and
+    // sessions are untouched.
+    db.exec(`
+      DELETE FROM improvement_reviews;
+      DELETE FROM improvement_feedback;
+      DELETE FROM improvement_observations;
+      DELETE FROM improvement_plans;
+      DROP TABLE improvement_observations;
+      CREATE TABLE improvement_observations (
+        id                    TEXT PRIMARY KEY,
+        plan_id               TEXT NOT NULL REFERENCES improvement_plans(id) ON DELETE CASCADE,
+        task_id               TEXT NOT NULL,
+        signal                TEXT NOT NULL CHECK (signal IN (
+          'eligible', 'adoption-observed', 'adoption-not-observed',
+          'counter-evidence', 'negative-impact'
+        )),
+        rationale             TEXT NOT NULL,
+        evidence_refs_json    TEXT NOT NULL CHECK (json_valid(evidence_refs_json)),
+        analysis_run_id       TEXT REFERENCES analysis_runs(id),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(plan_id, task_id, signal)
+      );
+      CREATE INDEX idx_improvement_observations_plan
+        ON improvement_observations(plan_id, created_at DESC);
+    `);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(30);
   })();
 }

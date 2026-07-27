@@ -24,7 +24,7 @@ describe('Buildermark helper gate API', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      status: 'disabled', experimentalEnabled: false, latestRun: null,
+      status: 'disabled', candidateEnabled: false, latestRun: null,
       realGatePassed: false, syntheticGatePassed: false, stateError: null,
     });
   });

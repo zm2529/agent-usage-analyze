@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchBehaviorReport, runBehaviorReport } from '@/lib/api';
+import { fetchBehaviorReport, fetchBehaviorReportSummary, runBehaviorReport } from '@/lib/api';
+import type { BehaviorReportState } from '@/lib/types';
 
 export function useBehaviorReport() {
   return useQuery({
@@ -9,12 +10,24 @@ export function useBehaviorReport() {
   });
 }
 
+export function useBehaviorReportSummary() {
+  return useQuery({
+    queryKey: ['behaviorReportSummary'],
+    queryFn: fetchBehaviorReportSummary,
+    refetchInterval: (query) => query.state.data?.generation.running ? 2_000 : false,
+    staleTime: 5 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+}
+
 export function useRunBehaviorReport() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: runBehaviorReport,
     onSuccess: (data) => {
-      client.setQueryData(['behaviorReport'], data);
+      client.setQueryData(['behaviorReport'], (current: BehaviorReportState | undefined) =>
+        current ? { ...current, generation: data.generation } : current);
+      client.invalidateQueries({ queryKey: ['behaviorReportSummary'] });
       client.invalidateQueries({ queryKey: ['analysisRuns'] });
     },
   });

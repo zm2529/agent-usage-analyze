@@ -31,9 +31,11 @@ interface TimelinePoint {
   messages: number;
   toolCalls: number;
   durationMinutes: number;
-  inputTokens: number;
+  uncachedInputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
   outputTokens: number;
-  cacheTokens: number;
+  totalProcessedTokens: number;
   subagents: number;
   skillInvocations: number;
   skillBreakdown: Record<string, number>;
@@ -67,7 +69,8 @@ function emptyTimeline(range: Range, now: Date, start: Date | null): TimelinePoi
       key: `${localDay(now)}T${String(hour).padStart(2, '0')}`,
       label: `${String(hour).padStart(2, '0')}:00`,
       sessions: 0, messages: 0, toolCalls: 0, durationMinutes: 0,
-      inputTokens: 0, outputTokens: 0, cacheTokens: 0, subagents: 0,
+      uncachedInputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0,
+      outputTokens: 0, totalProcessedTokens: 0, subagents: 0,
       skillInvocations: 0, promptScore: null,
       skillBreakdown: {},
     }));
@@ -80,7 +83,8 @@ function emptyTimeline(range: Range, now: Date, start: Date | null): TimelinePoi
       key: localDay(date),
       label: date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }),
       sessions: 0, messages: 0, toolCalls: 0, durationMinutes: 0,
-      inputTokens: 0, outputTokens: 0, cacheTokens: 0, subagents: 0,
+      uncachedInputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0,
+      outputTokens: 0, totalProcessedTokens: 0, subagents: 0,
       skillInvocations: 0, promptScore: null,
       skillBreakdown: {},
     };
@@ -182,10 +186,18 @@ app.get('/overview', (c) => {
   for (const usage of tokenPeriods) {
     const point = byKey.get(bucketKey(usage.hour, range));
     if (!point) continue;
-    const cached = usage.cacheCreationTokens + usage.cacheReadTokens;
-    point.inputTokens += Math.max(0, usage.inputTokens - cached);
+    const uncachedInputTokens = Math.max(
+      0,
+      usage.inputTokens - usage.cacheCreationTokens - usage.cacheReadTokens,
+    );
+    point.uncachedInputTokens += uncachedInputTokens;
+    point.cacheCreationTokens += usage.cacheCreationTokens;
+    point.cacheReadTokens += usage.cacheReadTokens;
     point.outputTokens += usage.outputTokens;
-    point.cacheTokens += cached;
+    point.totalProcessedTokens += uncachedInputTokens
+      + usage.cacheCreationTokens
+      + usage.cacheReadTokens
+      + usage.outputTokens;
   }
 
   const taskRows = db.prepare(`SELECT parent_task_id AS parentTaskId, started_at AS startedAt
@@ -293,6 +305,14 @@ app.get('/overview', (c) => {
     { label: '20–60 分钟', count: durationValues.filter((value) => value >= 20 && value < 60).length },
     { label: '> 60 分钟', count: durationValues.filter((value) => value >= 60).length },
   ];
+  const rawInputTokens = tokenPeriods.reduce((sum, row) => sum + row.inputTokens, 0);
+  const cacheCreationTokens = tokenPeriods.reduce((sum, row) => sum + row.cacheCreationTokens, 0);
+  const cacheReadTokens = tokenPeriods.reduce((sum, row) => sum + row.cacheReadTokens, 0);
+  const uncachedInputTokens = Math.max(0, rawInputTokens - cacheCreationTokens - cacheReadTokens);
+  const outputTokens = tokenPeriods.reduce((sum, row) => sum + row.outputTokens, 0);
+  const promptScoreSessions = new Set(promptRows
+    .filter((row) => sessionIds.has(row.sessionId))
+    .map((row) => row.sessionId)).size;
   const totals = {
     sessions: sessions.length,
     projects: new Set(sessions.map((session) => session.projectId)).size,
@@ -302,13 +322,17 @@ app.get('/overview', (c) => {
     toolCalls: sessions.reduce((sum, session) => sum + session.toolCalls, 0),
     skillInvocations: [...skillCounts.values()].reduce((sum, count) => sum + count, 0),
     durationMinutes: Math.round(durationValues.reduce((sum, value) => sum + value, 0)),
-    inputTokens: tokenPeriods.reduce((sum, row) => sum + row.inputTokens, 0),
-    outputTokens: tokenPeriods.reduce((sum, row) => sum + row.outputTokens, 0),
-    cacheCreationTokens: tokenPeriods.reduce((sum, row) => sum + row.cacheCreationTokens, 0),
-    cacheReadTokens: tokenPeriods.reduce((sum, row) => sum + row.cacheReadTokens, 0),
+    uncachedInputTokens,
+    cacheCreationTokens,
+    cacheReadTokens,
+    outputTokens,
+    totalProcessedTokens: uncachedInputTokens + cacheCreationTokens + cacheReadTokens + outputTokens,
+    rawInputTokens,
     promptScore: allPromptScores.length
       ? Math.round(allPromptScores.reduce((sum, score) => sum + score, 0) / allPromptScores.length)
       : null,
+    promptScoreAnalyzedSessions: promptScoreSessions,
+    promptScoreEligibleSessions: sessions.length,
   };
   const sortedSkills = [...skillCounts.entries()].sort((left, right) => right[1] - left[1]);
   const primarySkillNames = sortedSkills.slice(0, 7).map(([name]) => name);

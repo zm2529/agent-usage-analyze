@@ -161,21 +161,12 @@ export function WeekAtAGlanceStrip({
           triggerDownload();
         }}
       />
-      <div className="rounded-lg border bg-gradient-to-br from-blue-500/5 to-violet-500/5 dark:from-blue-500/10 dark:to-violet-500/10 p-4 space-y-3">
+      <div className="space-y-3 rounded-lg border bg-blue-500/5 p-4 dark:bg-blue-500/10">
         {/* Top row: tagline + streak/rate-limit badges + download button */}
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex-1 min-w-0">
             {hasGenerated && displayTagline ? (
-              <p
-                className="text-base font-semibold leading-snug"
-                style={{
-                  color: '#60a5fa',
-                  background: 'linear-gradient(to right, #3b82f6, #a855f7)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
+              <p className="text-base font-semibold leading-snug text-blue-500">
                 {displayTagline}
               </p>
             ) : (

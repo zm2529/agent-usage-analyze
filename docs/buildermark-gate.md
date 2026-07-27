@@ -12,7 +12,7 @@ The command does not start Buildermark, access the network, write a remote track
 
 ## Evidence contract
 
-The root `schemaVersion` is `agent-analytics.buildermark-evidence.v1`. The helper must be frozen to source commit `6c6374bd6b09eaf30595e3b81143baa4c92678ce`. Each commit contains zero or more experimental candidates with an opaque `task:sha256:<64 hex>` reference, a `candidate` or `abstained` state, diagnostic codes, and evidence records in one of four tiers:
+The root `schemaVersion` is `agent-analytics.buildermark-evidence.v1`. The helper must be frozen to source commit `6c6374bd6b09eaf30595e3b81143baa4c92678ce`. Each commit contains zero or more provisional candidates with an opaque `task:sha256:<64 hex>` reference, a `candidate` or `abstained` state, diagnostic codes, and evidence records in one of four tiers:
 
 - `exact`
 - `formatting`
@@ -25,6 +25,6 @@ The safety declaration must state whether the helper was offline, attempted remo
 
 ## Runtime decision
 
-The WebUI exposes `disabled`, `testing`, `passed`, and `failed`. Experimental use is enabled only while both the latest synthetic and latest real gates pass. A later failure disables it immediately. Core canonical ingestion, structural trends, and the product-native Delivery/Evidence model remain available in every state.
+The WebUI exposes `disabled`, `testing`, `passed`, and `failed`. Candidate use is enabled only while both the latest synthetic and latest real gates pass. A later failure disables it immediately. Core canonical ingestion, structural trends, and the product-native Delivery/Evidence model remain available in every state.
 
 The controlled real-history result for the frozen helper is stored in [buildermark-real-gate-2026-07-21.json](./buildermark-real-gate-2026-07-21.json). It imported all referenced commits but produced no explainable candidates, so the helper remains disabled and Agent Usage Analyzer uses its product-native delivery-evidence path.

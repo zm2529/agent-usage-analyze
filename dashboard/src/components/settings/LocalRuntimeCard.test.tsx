@@ -24,7 +24,7 @@ describe('LocalRuntimeCard', () => {
     expect(await screen.findByText('/tmp/private-data')).toBeInTheDocument();
     expect(screen.getByText(/127\.0\.0\.1:7890/)).toBeInTheDocument();
     expect(screen.getByText(/codex-native.*chatgpt.*enabled/i)).toBeInTheDocument();
-    expect(screen.getByText(/schema v22.*migrated/i)).toBeInTheDocument();
+    expect(screen.queryByText(/schema v22.*migrated/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /download sanitized export/i }))
       .toHaveAttribute('href', '/api/export/sanitized');
     expect(screen.getByText(/Local analysis only/)).toBeInTheDocument();

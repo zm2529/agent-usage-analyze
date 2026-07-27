@@ -39,7 +39,7 @@
   ],
   "reportHash": "sha256:e6c6f35d2fd21caab67ecd7206716d97faeda89003328f23e4f49851d904f352",
   "runtimeDecision": {
-    "buildermarkExperimentEnabled": false,
+    "buildermarkCandidateEnabled": false,
     "path": "product-native-delivery-evidence",
     "reasonCode": "real-backfill-gate-failed"
   }

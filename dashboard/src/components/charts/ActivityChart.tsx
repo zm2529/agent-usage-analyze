@@ -44,16 +44,6 @@ export function ActivityChart({ data }: ActivityChartProps) {
         <div className="h-[300px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="colorSessions" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={CHART_COLORS.activity.sessions} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={CHART_COLORS.activity.sessions} stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorInsights" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={CHART_COLORS.activity.insights} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={CHART_COLORS.activity.insights} stopOpacity={0} />
-                </linearGradient>
-              </defs>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               <XAxis
                 dataKey="date"
@@ -81,16 +71,16 @@ export function ActivityChart({ data }: ActivityChartProps) {
                 dataKey="sessionCount"
                 name="Sessions"
                 stroke={CHART_COLORS.activity.sessions}
-                fillOpacity={1}
-                fill="url(#colorSessions)"
+                fill={CHART_COLORS.activity.sessions}
+                fillOpacity={0.12}
               />
               <Area
                 type="monotone"
                 dataKey="insightCount"
                 name="Insights"
                 stroke={CHART_COLORS.activity.insights}
-                fillOpacity={1}
-                fill="url(#colorInsights)"
+                fill={CHART_COLORS.activity.insights}
+                fillOpacity={0.1}
               />
             </AreaChart>
           </ResponsiveContainer>

@@ -30,8 +30,10 @@ import gitAiSidecarRouter from './routes/git-ai-sidecar.js';
 import semanticAnalysisRouter from './routes/semantic-analysis.js';
 import scorecardsRouter from './routes/scorecards.js';
 import observerOverheadRouter from './routes/observer-overhead.js';
-import adviceRouter from './routes/advice.js';
 import codexUsageRouter from './routes/codex-usage.js';
+import runtimeStatusRouter from './routes/runtime-status.js';
+import practicesRouter, { startKnowledgeResearchScheduler } from './routes/practices.js';
+import improvementsRouter from './routes/improvements.js';
 import { startCodexSessionWatcher } from './codex-session-watcher.js';
 
 export interface ServerOptions {
@@ -93,8 +95,10 @@ export function createApp(): Hono {
   app.route('/api/semantic', semanticAnalysisRouter);
   app.route('/api/scorecards', scorecardsRouter);
   app.route('/api/observer-overhead', observerOverheadRouter);
-  app.route('/api/advice', adviceRouter);
   app.route('/api/codex/usage', codexUsageRouter);
+  app.route('/api/runtime-status', runtimeStatusRouter);
+  app.route('/api/practices', practicesRouter);
+  app.route('/api/improvements', improvementsRouter);
 
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true, version: '0.1.0' }));
@@ -121,6 +125,7 @@ export async function startServer(
 
   const app = createApp();
   const codexSessionWatcher = startCodexSessionWatcher();
+  const knowledgeResearchScheduler = startKnowledgeResearchScheduler();
 
   // Static file serving — only if the dashboard has been built.
   // serveStatic requires a path relative to process.cwd(), not an absolute path.
@@ -159,6 +164,7 @@ export async function startServer(
   // 3s timeout guards against PostHog SDK stalling on network issues.
   const shutdown = async () => {
     codexSessionWatcher?.close();
+    knowledgeResearchScheduler.close();
     await Promise.race([
       shutdownTelemetry(),
       new Promise<void>((resolve) => setTimeout(resolve, 3000)),

@@ -7,9 +7,12 @@ import {
   FIRST_RUN_GUIDE_STORAGE_KEY,
   FirstRunGuide,
 } from '@/components/onboarding/FirstRunGuide';
+import { useKnowledgeStatus, useSetKnowledgeResearchAuthorization } from '@/hooks/usePractices';
 
 export function Layout() {
   const [guideOpen, setGuideOpen] = useState(false);
+  const knowledge = useKnowledgeStatus();
+  const setKnowledgeAuthorization = useSetKnowledgeResearchAuthorization();
 
   useEffect(() => {
     try {
@@ -37,7 +40,12 @@ export function Layout() {
           <Outlet />
         </main>
         <Toaster />
-        <FirstRunGuide open={guideOpen} onClose={closeGuide} />
+        <FirstRunGuide
+          open={guideOpen}
+          onClose={closeGuide}
+          researchEnabled={knowledge.data?.authorization.enabled ?? false}
+          onResearchEnabledChange={(enabled) => setKnowledgeAuthorization.mutate(enabled)}
+        />
       </div>
     </TooltipProvider>
   );

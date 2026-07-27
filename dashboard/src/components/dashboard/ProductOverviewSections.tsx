@@ -28,8 +28,8 @@ export function ProductOverviewSections() {
         <CardContent className="text-xs">
           <p className="text-muted-foreground">{t('analysis.changeDesc', 'LLM session insights run automatically when a supported runner is available. Cross-session patterns stay evidence-backed, and missing evidence remains visible.')}</p>
           {llmEnabled && runner && <p className="mt-1 text-muted-foreground">{runner.effectiveRunner} · {runner.authentication}</p>}
-          <Link className="mt-2 inline-flex items-center gap-1 font-medium underline-offset-2 hover:underline" to="/improve">
-            {t('analysis.open', 'Open analysis and advice')} <ArrowRight className="h-3 w-3" />
+          <Link className="mt-2 inline-flex items-center gap-1 font-medium underline-offset-2 hover:underline" to="/analysis">
+            {t('analysis.open', 'Open analysis and improvement tracking')} <ArrowRight className="h-3 w-3" />
           </Link>
         </CardContent>
       </Card>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, DatabaseZap, Route, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, DatabaseZap, Globe2, Route, Sparkles, X } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageProvider';
+import { Switch } from '@/components/ui/switch';
 
 type SpotlightRect = {
   top: number;
@@ -26,11 +27,19 @@ const copy = {
       icon: Route,
     },
     {
-      eyebrow: '四个页面',
+      eyebrow: '主要页面',
       title: '每个页面分别看什么',
-      description: '总览了解使用量和变化，分析查看做得好的地方与可改进之处，建议查看下一步做法，记录查看每一次会话。',
+      description: '总览了解变化，分析查看优势与改进点，改进追踪记录行动和结果，实践库查看当前最佳实践，活动记录打开每一次会话。',
       target: 'primary-navigation',
       icon: DatabaseZap,
+    },
+    {
+      eyebrow: '公开资料',
+      title: '允许研究公开最佳实践',
+      description: '开启后会定期检索公开资料并更新实践库。你可以随时在设置中关闭。',
+      target: null,
+      icon: Globe2,
+      consent: true,
     },
     {
       eyebrow: '开始使用',
@@ -56,11 +65,19 @@ const copy = {
       icon: Route,
     },
     {
-      eyebrow: 'FOUR PAGES',
+      eyebrow: 'MAIN PAGES',
       title: 'What each page shows',
       description: 'Overview shows usage and changes, Capability shows strengths and areas to improve, Actions lists suggestions, and Activity opens each session.',
       target: 'primary-navigation',
       icon: DatabaseZap,
+    },
+    {
+      eyebrow: 'PUBLIC SOURCES',
+      title: 'Allow public best-practice research',
+      description: 'When enabled, public sources are checked periodically to update the Practice Library. You can turn it off in Settings at any time.',
+      target: null,
+      icon: Globe2,
+      consent: true,
     },
     {
       eyebrow: 'GET STARTED',
@@ -91,9 +108,13 @@ function targetRect(target: string | null): SpotlightRect | null {
 export function FirstRunGuide({
   open,
   onClose,
+  researchEnabled = false,
+  onResearchEnabledChange,
 }: {
   open: boolean;
   onClose: () => void;
+  researchEnabled?: boolean;
+  onResearchEnabledChange?: (enabled: boolean) => void;
 }) {
   const { language } = useLanguage();
   const steps = copy[language];
@@ -186,6 +207,16 @@ export function FirstRunGuide({
         <p className="vibe-mono mt-5 text-[10px] tracking-[.18em] text-[#28666E]">{step.eyebrow}</p>
         <h2 className="mt-2 text-xl font-semibold tracking-[-.025em]">{step.title}</h2>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">{step.description}</p>
+        {'consent' in step && step.consent && (
+          <label className="mt-5 flex items-center justify-between gap-5 border-y py-4">
+            <span className="text-sm font-medium">{language === 'zh-CN' ? '允许公开实践研究' : 'Allow public practice research'}</span>
+            <Switch
+              checked={researchEnabled}
+              onCheckedChange={(checked) => onResearchEnabledChange?.(checked)}
+              aria-label={language === 'zh-CN' ? '允许公开实践研究' : 'Allow public practice research'}
+            />
+          </label>
+        )}
 
         <div className="mt-6 flex items-center justify-between gap-4 border-t pt-4">
           <div className="flex items-center gap-1.5" aria-label={`${stepIndex + 1}/${steps.length}`}>

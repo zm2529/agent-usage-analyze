@@ -112,7 +112,7 @@ describe('Config routes', () => {
         sources: [{ kind: 'synthetic-codex', count: 1 }],
         eras: [{ mode: 'continuous-observation', parserVersion: 'fixture-v1' }],
         llm: { configured: false, enabled: false },
-        migration: { databaseSchema: 28 },
+        migration: { databaseSchema: 30 },
         dataActions: {
           exportPath: '/api/export/sanitized',
           archiveCommand: 'agent-usage-analyze reset',

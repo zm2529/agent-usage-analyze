@@ -50,7 +50,7 @@ function pushRecent(item: Omit<RecentItem, 'timestamp'>): void {
 const NAV_ITEMS = [
   { label: 'Go to Overview', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Go to Work', href: '/tasks', icon: BriefcaseBusiness },
-  { label: 'Go to Improve', href: '/improve', icon: TrendingUp },
+  { label: 'Go to Analysis', href: '/analysis', icon: TrendingUp },
   { label: 'Go to Settings', href: '/settings', icon: Settings },
 ];
 

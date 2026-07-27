@@ -597,7 +597,7 @@ const CURSOR_MESSAGE_ARRAY_KEYS = [
   'conversation',    // Observed in Cursor ≤0.42 cursorDiskKV entries
   'messages',        // Earlier workspace DB format
   'bubbles',         // Observed in some Cursor 0.43+ cursorDiskKV entries
-  'turns',           // Seen in experimental Cursor builds
+  'turns',           // Seen in preview Cursor builds
   'history',         // Alternate key used in some Cursor forks
   'richConversation',// Rich-text variant with full markdown blocks
   'thread',          // Used in agent-mode sessions

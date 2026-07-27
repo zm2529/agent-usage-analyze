@@ -1,16 +1,18 @@
 import type Database from 'better-sqlite3';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { getDb } from '../db/client.js';
 import { classifyStoredUserMessage } from './message-format.js';
-import { recordAnalysisRun } from './analysis-run-db.js';
+import { listAnalysisRuns, recordAnalysisRunWithRetry } from './analysis-run-db.js';
 import { createAnalysisRunnerFromPolicy } from './runner-factory.js';
 import type { AnalysisRunner, RunAnalysisResult } from './runner-types.js';
 import { agentAppliedSkillNames, userInvokedSkillNames } from './skill-usage.js';
 import { loadConfig } from '../utils/config.js';
 
-export const BEHAVIOR_REPORT_PROMPT_VERSION = 'behavior-report-v9';
+export const BEHAVIOR_REPORT_PROMPT_VERSION = 'behavior-report-v10';
+export const BEHAVIOR_RESEARCH_PROMPT_VERSION = 'behavior-research-v1';
+export const BEHAVIOR_COACH_PROMPT_VERSION = 'behavior-coach-v1';
 
 export type DimensionConfidence = 'high' | 'medium' | 'low';
 export type DimensionStatus = 'established' | 'candidate' | 'qualitative';
@@ -83,13 +85,15 @@ export interface BehaviorReport {
   developmentPlan: {
     northStar: string;
     operatingRules: string[];
-    experiments: Array<{
+    improvementPlans: Array<{
       title: string;
       hypothesis: string;
       eligibleCohort: string;
       observableOutcome: string;
       guardrail: string;
       reviewAfter: string;
+      relationshipToPrevious: 'parallel' | 'after-previous';
+      sequencingReason: string;
       evidenceRefs: string[];
     }>;
     taskTemplate: string;
@@ -99,6 +103,8 @@ export interface BehaviorReport {
 
 interface BehaviorResearch {
   profileThesis: string;
+  selectedEpisodeRefs: string[];
+  detailSelectionRationale: string;
   behavioralFindings: Array<{
     title: string; observation: string; mechanism: string; applicability: string[];
     counterEvidence: string[]; evidenceRefs: string[];
@@ -619,9 +625,9 @@ export function buildBehaviorReportDataset(
   const representativeEpisodes = episodeCandidates.filter((episode) => episode.behaviorSignals.semanticEnriched)
     .sort((left, right) => episodeScore(right) - episodeScore(left)
       || left.sessionRef.localeCompare(right.sessionRef))
-    .slice(0, 6);
+    .slice(0, 12);
   const selectedRefs = new Set(representativeEpisodes.map((episode) => episode.sessionRef));
-  while (representativeEpisodes.length < 24 && [...buckets.values()].some((bucket) => bucket.length > 0)) {
+  while (representativeEpisodes.length < 60 && [...buckets.values()].some((bucket) => bucket.length > 0)) {
     for (const bucket of buckets.values()) {
       let episode = bucket.shift();
       while (episode && selectedRefs.has(episode.sessionRef)) episode = bucket.shift();
@@ -629,7 +635,7 @@ export function buildBehaviorReportDataset(
         representativeEpisodes.push(episode);
         selectedRefs.add(episode.sessionRef);
       }
-      if (representativeEpisodes.length >= 24) break;
+      if (representativeEpisodes.length >= 60) break;
     }
   }
   const runtimeUsage: BehaviorReportDataset['runtimeUsage'] = {
@@ -875,9 +881,11 @@ const stringArray = { type: 'array', items: { type: 'string' } } as const;
 
 const RESEARCH_SCHEMA = {
   type: 'object',
-  required: ['profileThesis', 'behavioralFindings', 'dimensions', 'contradictions', 'missingEvidence'],
+  required: ['profileThesis', 'selectedEpisodeRefs', 'detailSelectionRationale', 'behavioralFindings', 'dimensions', 'contradictions', 'missingEvidence'],
   properties: {
     profileThesis: { type: 'string' },
+    selectedEpisodeRefs: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string' } },
+    detailSelectionRationale: { type: 'string' },
     behavioralFindings: { type: 'array', items: { type: 'object', required: ['title', 'observation', 'mechanism', 'applicability', 'counterEvidence', 'evidenceRefs'], properties: {
       title: { type: 'string' }, observation: { type: 'string' }, mechanism: { type: 'string' },
       applicability: stringArray, counterEvidence: stringArray, evidenceRefs: stringArray,
@@ -940,20 +948,22 @@ const REPORT_SCHEMA = {
       necessity: { type: 'string', enum: ['high', 'medium'] }, trigger: { type: 'string' },
       evidence: { type: 'string' }, expectedBenefit: { type: 'string' }, evidenceRefs: stringArray,
     } } },
-    developmentPlan: { type: 'object', required: ['northStar', 'operatingRules', 'experiments', 'taskTemplate'], properties: {
+    developmentPlan: { type: 'object', required: ['northStar', 'operatingRules', 'improvementPlans', 'taskTemplate'], properties: {
       northStar: { type: 'string' }, operatingRules: stringArray, taskTemplate: { type: 'string' },
-      experiments: { type: 'array', items: { type: 'object', required: ['title', 'hypothesis', 'eligibleCohort', 'observableOutcome', 'guardrail', 'reviewAfter', 'evidenceRefs'], properties: {
+      improvementPlans: { type: 'array', maxItems: 3, items: { type: 'object', required: ['title', 'hypothesis', 'eligibleCohort', 'observableOutcome', 'guardrail', 'reviewAfter', 'relationshipToPrevious', 'sequencingReason', 'evidenceRefs'], properties: {
         title: { type: 'string' }, hypothesis: { type: 'string' }, eligibleCohort: { type: 'string' },
-        observableOutcome: { type: 'string' }, guardrail: { type: 'string' }, reviewAfter: { type: 'string' }, evidenceRefs: stringArray,
+        observableOutcome: { type: 'string' }, guardrail: { type: 'string' }, reviewAfter: { type: 'string' },
+        relationshipToPrevious: { type: 'string', enum: ['parallel', 'after-previous'] },
+        sequencingReason: { type: 'string' }, evidenceRefs: stringArray,
       } } },
     } },
     uncertainty: { type: 'string' },
   },
 } as const;
 
-const INVESTIGATOR_PROMPT = `You are the investigator in a two-stage personal engineering behavior study. The deterministic aggregates cover the full structurally readable 30-day behavior corpus. Representative episodes are sampled from that full corpus; their findings arrays are optional session-level semantic enrichment, never an eligibility condition. Work from privacy-bounded engineering episodes and deterministic aggregate facts. Discover recurring behavior and mechanisms instead of filling a fixed capability rubric. Contrast task cohorts, identify counterexamples, and separate observations from benefit hypotheses. Evaluate context documents only from metadata, instruction density, coverage and cohort outcomes; never imply that correlation proves causation. Analyze token efficiency through concrete mechanisms such as repeated context loading, long-thread compaction, duplicated instructions, cache reuse and unnecessary steering, while preserving quality and safety. Evaluate model and reasoning-effort choices against the observable task type, complexity, duration, tool use, corrections and outcome evidence. A larger model or higher reasoning effort is not automatically better; a smaller or lower setting is not automatically cheaper in practice if it causes retries. Mark fit uncertain when the available record does not support a task-to-runtime comparison. Do not interpret missing semantic enrichment as missing behavior. A dimension is only established when repeated evidence and counterexample review support it; otherwise mark it candidate or qualitative. Verification can happen outside the Agent transcript. Absence of a captured validation command means unknown, not unverified; claim that validation did not happen only when explicit evidence says so. Some sessions can be created automatically by orchestration systems such as OMX workers rather than directly opened by the user. Use repeated opening-message clusters, task relationships, activity structure and semantic findings only as clues; let the evidence support the distinction, do not apply a fixed name or format filter, and do not count every session as an independent user-started task when origin is uncertain. Skill userInvocations are user-specified uses; automaticInvocations mean the Agent read and applied SKILL.md without the user naming that Skill. Analyze them separately and do not attribute automatic usage to user choice. Do not invent scores, target percentages, causal claims, or evidence references. Write in plain, idiomatic Simplified Chinese. Avoid invented management jargon, compressed slogans and untranslated analytical labels. Return only JSON matching the schema.`;
+const INVESTIGATOR_PROMPT = `You are the investigator in a two-stage personal engineering behavior study. The deterministic aggregates cover the full structurally readable 30-day behavior corpus. representativeEpisodes is an adaptive-retrieval candidate pool capped by the system at 60 privacy-bounded task summaries, not a fixed analysis sample. Select up to 20 episode references whose detailed packets should be passed to the independent coach. Choose them semantically for the current evidence: cover important patterns, counterexamples, task varieties, uncertainty, and potentially conflicting outcomes. Explain the selection briefly; do not follow a fixed scoring rubric. Their findings arrays are optional session-level semantic enrichment, never an eligibility condition. Work from privacy-bounded engineering episodes and deterministic aggregate facts. Discover recurring behavior and mechanisms instead of filling a fixed capability rubric. Contrast task cohorts, identify counterexamples, and separate observations from benefit hypotheses. Evaluate context documents only from metadata, instruction density, coverage and cohort outcomes; never imply that correlation proves causation. Analyze token efficiency through concrete mechanisms such as repeated context loading, long-thread compaction, duplicated instructions, cache reuse and unnecessary steering, while preserving quality and safety. Evaluate model and reasoning-effort choices against the observable task type, complexity, duration, tool use, corrections and outcome evidence. A larger model or higher reasoning effort is not automatically better; a smaller or lower setting is not automatically cheaper in practice if it causes retries. Mark fit uncertain when the available record does not support a task-to-runtime comparison. Do not interpret missing semantic enrichment as missing behavior. A dimension is only established when repeated evidence and counterexample review support it; otherwise mark it candidate or qualitative. Verification can happen outside the Agent transcript. Absence of a captured validation command means unknown, not unverified; claim that validation did not happen only when explicit evidence says so. Some sessions can be created automatically by orchestration systems such as OMX workers rather than directly opened by the user. Use repeated opening-message clusters, task relationships, activity structure and semantic findings only as clues; let the evidence support the distinction, do not apply a fixed name or format filter, and do not count every session as an independent user-started task when origin is uncertain. Skill userInvocations are user-specified uses; automaticInvocations mean the Agent read and applied SKILL.md without the user naming that Skill. Analyze them separately and do not attribute automatic usage to user choice. Do not invent scores, target percentages, causal claims, or evidence references. Write in plain, idiomatic Simplified Chinese. Avoid invented management jargon, compressed slogans and untranslated analytical labels. Return only JSON matching the schema.`;
 
-const COACH_PROMPT = `You are a senior engineering coach synthesizing an investigator's evidence review into a clear Agent-usage review. Produce a coherent narrative: current working style, recurring usage patterns, strengths, limiting factors, context-document effectiveness, token-saving opportunities, Skill and Agent usage, model and reasoning-effort fit, and bounded improvement suggestions. Prefer clear explanations over generic productivity advice. Preserve contradictions and applicability boundaries. Never turn a candidate dimension into a score or assume that more is better. For runtimeAssessments, only evaluate recorded model or reasoning-effort choices when the supplied episodes support a task-specific comparison. Explain where a setting fits, where it may be excessive or insufficient, and what bounded change to try; otherwise use uncertain. Do not recommend one global model or effort for every task. Verification can happen outside the Agent transcript: missing captured commands must remain unknown unless explicit evidence says validation was not performed. Distinguish user-started work from likely orchestration-created worker sessions when the investigator provides support, and keep the origin uncertain when evidence is insufficient. Distinguish userInvocations from automaticInvocations when discussing Skills; an Agent reading SKILL.md without the user naming that Skill is automatic usage, not user-initiated usage. Skill opportunities are not mandatory: return an empty skillOpportunities array unless repeated evidence shows that an existing Skill would materially reduce work or a stable repeated workflow merits a new Skill. Do not recommend a Skill merely because it exists. Token advice must name the saving mechanism and the task cohort where it applies; never trade away verification or necessary context just to reduce token count. Every substantive claim must cite only provided session or context-document references. Write in plain, idiomatic Simplified Chinese that a first-time user can understand. In user-visible fields, do not use “画像”, “高杠杆”, “北极星”, “steering”, “cohort”, “mechanism”, “profile”, or “portrait”; write “使用总结”, “中途纠偏”, “同类任务”, “原因” or another direct Chinese phrase instead. Avoid invented compounds, management jargon, compressed slogans, untranslated analytical labels, and the word “实验” when “改进做法” or “尝试” is clearer. Return only JSON matching the schema.`;
+const COACH_PROMPT = `You are a senior engineering coach synthesizing an investigator's evidence review into a clear Agent-usage review. Produce a coherent narrative: current working style, recurring usage patterns, strengths, limiting factors, context-document effectiveness, token-saving opportunities, Skill and Agent usage, model and reasoning-effort fit, and bounded improvement suggestions. Prefer clear explanations over generic productivity advice. Preserve contradictions and applicability boundaries. Never turn a candidate dimension into a score or assume that more is better. For runtimeAssessments, only evaluate recorded model or reasoning-effort choices when the supplied episodes support a task-specific comparison. Explain where a setting fits, where it may be excessive or insufficient, and what bounded change to try; otherwise use uncertain. Do not recommend one global model or effort for every task. Verification can happen outside the Agent transcript: missing captured commands must remain unknown unless explicit evidence says validation was not performed. Distinguish user-started work from likely orchestration-created worker sessions when the investigator provides support, and keep the origin uncertain when evidence is insufficient. Distinguish userInvocations from automaticInvocations when discussing Skills; an Agent reading SKILL.md without the user naming that Skill is automatic usage, not user-initiated usage. Skill opportunities are not mandatory: return an empty skillOpportunities array unless repeated evidence shows that an existing Skill would materially reduce work or a stable repeated workflow merits a new Skill. Do not recommend a Skill merely because it exists. Token advice must name the saving mechanism and the task cohort where it applies; never trade away verification or necessary context just to reduce token count. Return at most three improvementPlans, sequence overlapping plans, and let the language model describe evidence-based eligibility and review conditions. State that the system will stop observation after at most 30 eligible tasks or 45 days, whichever comes first. Every substantive claim must cite only provided session or context-document references. Write in plain, idiomatic Simplified Chinese that a first-time user can understand. In user-visible fields, do not use “画像”, “高杠杆”, “北极星”, “steering”, “cohort”, “mechanism”, “profile”, “portrait”, or the Chinese word commonly used for a controlled trial; write “使用总结”, “中途纠偏”, “同类任务”, “原因”, “改进计划” or another direct Chinese phrase instead. Avoid invented compounds, management jargon, compressed slogans, and untranslated analytical labels. Return only JSON matching the schema.`;
 
 function reportInputSummary(
   dataset: BehaviorReportDataset,
@@ -979,6 +989,13 @@ function reportInputSummary(
       count: dataset.representativeEpisodes.length,
       cohorts: [...cohortCounts.entries()].map(([cohort, count]) => ({ cohort, count })),
       sessionRefs: dataset.representativeEpisodes.map((episode) => episode.sessionRef),
+    },
+    adaptiveRetrieval: {
+      candidateSummaryCount: dataset.representativeEpisodes.length,
+      candidateSummaryLimit: 60,
+      selectedDetailCount: research?.selectedEpisodeRefs.length ?? 0,
+      selectedDetailLimit: 20,
+      selectionOwner: 'llm-investigator',
     },
     ...(research ? { research } : {}),
     ...(analysisControls ? { analysisControls } : {}),
@@ -1006,6 +1023,142 @@ function runnerFailureReason(error: unknown): string {
   return 'runner-failed';
 }
 
+function validBehaviorResearch(rawJson: string, dataset: BehaviorReportDataset): BehaviorResearch | null {
+  try {
+    const research = JSON.parse(rawJson) as BehaviorResearch;
+    if (!research || typeof research.profileThesis !== 'string'
+      || !Array.isArray(research.behavioralFindings)
+      || !Array.isArray(research.dimensions)
+      || !Array.isArray(research.contradictions)
+      || !Array.isArray(research.selectedEpisodeRefs)
+      || research.selectedEpisodeRefs.length < 1
+      || research.selectedEpisodeRefs.length > 20
+      || research.selectedEpisodeRefs.some((ref) =>
+        !dataset.representativeEpisodes.some((episode) => episode.sessionRef === ref))) {
+      return null;
+    }
+    return research;
+  } catch {
+    return null;
+  }
+}
+
+function reusableBehaviorResearch(
+  db: Database.Database,
+  dataset: BehaviorReportDataset,
+): { runId: string; research: BehaviorResearch; result: RunAnalysisResult } | null {
+  const candidate = listAnalysisRuns({ analysisType: 'behavior_research', limit: 20 }, db)
+    .find((run) => {
+      const basis = run.inputSummary.basis as { latestSessionAt?: unknown } | undefined;
+      return run.status === 'completed'
+        && run.promptVersion === BEHAVIOR_RESEARCH_PROMPT_VERSION
+        && run.outputJson
+        && basis?.latestSessionAt === dataset.basis.latestSessionAt;
+    });
+  if (!candidate?.outputJson) return null;
+  const research = validBehaviorResearch(candidate.outputJson, dataset);
+  if (!research) return null;
+  return {
+    runId: candidate.id,
+    research,
+    result: {
+      rawJson: candidate.outputJson,
+      durationMs: candidate.durationMs ?? 0,
+      inputTokens: candidate.inputTokens ?? 0,
+      outputTokens: candidate.outputTokens ?? 0,
+      model: candidate.model ?? 'unknown',
+      provider: candidate.provider ?? 'unknown',
+    },
+  };
+}
+
+function currentKnowledgeBasis(db: Database.Database): {
+  snapshotId: string;
+  createdAt: string;
+  practices: Array<Record<string, unknown>>;
+} | null {
+  const snapshot = db.prepare(`SELECT id, created_at AS createdAt
+    FROM knowledge_snapshots WHERE status = 'completed'
+    ORDER BY created_at DESC, id DESC LIMIT 1`).get() as {
+      id: string; createdAt: string;
+    } | undefined;
+  if (!snapshot) return null;
+  const practices = db.prepare(`SELECT title, summary, applicability,
+      source_trust AS sourceTrust, discussion_breadth AS discussionBreadth,
+      recency, local_relevance AS localRelevance,
+      local_effect_status AS localEffectStatus, rationale,
+      source_refs_json AS sourceRefsJson, conflicts_json AS conflictsJson
+    FROM knowledge_practices WHERE snapshot_id = ?
+    ORDER BY CASE source_trust
+      WHEN 'official' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+      title LIMIT 12`).all(snapshot.id) as Array<{
+        title: string; summary: string; applicability: string; sourceTrust: string;
+        discussionBreadth: string; recency: string; localRelevance: string;
+        localEffectStatus: string; rationale: string; sourceRefsJson: string; conflictsJson: string;
+      }>;
+  return {
+    snapshotId: snapshot.id,
+    createdAt: snapshot.createdAt,
+    practices: practices.map(({ sourceRefsJson, conflictsJson, ...practice }) => ({
+      ...practice,
+      sourceRefs: JSON.parse(sourceRefsJson) as unknown,
+      conflicts: JSON.parse(conflictsJson) as unknown,
+    })),
+  };
+}
+
+function storeImprovementPlans(
+  db: Database.Database,
+  report: BehaviorReport,
+  reportRunId: string,
+  knowledgeSnapshotId: string | null,
+): void {
+  const existing = db.prepare(`SELECT COUNT(*) AS count FROM improvement_plans
+    WHERE status IN ('queued', 'observing', 'review-ready')`).get() as { count: number };
+  if (existing.count > 0) return;
+  const plans = report.developmentPlan.improvementPlans.slice(0, 3);
+  const now = new Date().toISOString();
+  const insert = db.prepare(`INSERT INTO improvement_plans (
+    id, knowledge_snapshot_id, report_run_id, title, hypothesis, applicability,
+    review_plan_json, status, sequence, max_task_count, max_observation_days,
+    created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 30, 45, ?, ?)`);
+  db.transaction(() => {
+    plans.forEach((plan, index) => {
+      insert.run(
+        `improvement-plan:${randomUUID()}`,
+        knowledgeSnapshotId,
+        reportRunId,
+        plan.title,
+        plan.hypothesis,
+        plan.eligibleCohort,
+        JSON.stringify({
+          version: 'improvement-review-plan-v1',
+          llmDefined: {
+            eligibleTasks: plan.eligibleCohort,
+            observableOutcome: plan.observableOutcome,
+            guardrail: plan.guardrail,
+            reviewWhen: plan.reviewAfter,
+            relationshipToPrevious: plan.relationshipToPrevious,
+            sequencingReason: plan.sequencingReason,
+            evidenceRefs: plan.evidenceRefs,
+          },
+          systemLimit: {
+            maxEligibleTasks: 30,
+            maxObservationDays: 45,
+            stopAtFirstLimit: true,
+            explanation: '系统只限制观察上限；适用任务、信号和复盘条件由 LLM 根据证据定义。',
+          },
+        }),
+        index > 0 && plan.relationshipToPrevious === 'after-previous' ? 'queued' : 'observing',
+        index + 1,
+        now,
+        now,
+      );
+    });
+  })();
+}
+
 export async function generateBehaviorReport(options: {
   db?: Database.Database;
   runner?: AnalysisRunner;
@@ -1013,6 +1166,7 @@ export async function generateBehaviorReport(options: {
 } = {}): Promise<{ status: 'completed'; report: BehaviorReport } | { status: 'unavailable'; reason: string }> {
   const db = options.db ?? getDb();
   const dataset = buildBehaviorReportDataset(db, options.now);
+  const knowledgeBasis = currentKnowledgeBasis(db);
   const capabilities = loadConfig()?.dashboard?.capabilities;
   const analysisControls = {
     contextDocumentAnalysis: capabilities?.contextDocumentAnalysis !== false,
@@ -1022,7 +1176,7 @@ export async function generateBehaviorReport(options: {
   const unavailableReason = behaviorReportUnavailableReason(dataset);
   const summary = reportInputSummary(dataset, undefined, analysisControls);
   if (unavailableReason) {
-    recordAnalysisRun({
+    await recordAnalysisRunWithRetry({
       analysisType: 'behavior_report', status: 'unavailable', unavailableReason,
       promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION,
       inputSummary: summary,
@@ -1032,9 +1186,9 @@ export async function generateBehaviorReport(options: {
   const researchPrompt = `阶段一：检查最近 30 天的全量结构化使用记录，找出常见做法、原因、反例和值得继续观察的方面。\n\n确定性汇总覆盖全部可结构分析会话；代表性工程行为片段从全量窗口分层抽样，findings 只是可选的单会话语义增强。输入不含原始消息正文。Skill 数据中的 userInvocations 表示用户指定，automaticInvocations 表示 Agent 在用户未指定时读取并应用 Skill 指令，不要混为一类。runtimeUsage 和每个代表性片段的 runtime 记录实际模型与推理强度；只能结合任务特点和结果证据评价是否合适，不能把更强或更高自动当成更好。分析开关为 ${JSON.stringify(analysisControls)}；关闭的维度不得生成结论。\n\n${JSON.stringify(dataset, null, 2)}`;
   let runner: AnalysisRunner;
   try {
-    runner = options.runner ?? createAnalysisRunnerFromPolicy().runner;
+    runner = options.runner ?? createAnalysisRunnerFromPolicy({ codexTimeoutMs: 600_000 }).runner;
   } catch (error) {
-    recordAnalysisRun({
+    await recordAnalysisRunWithRetry({
       analysisType: 'behavior_report', status: 'failed', unavailableReason: 'runner-unavailable',
       promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION, systemPrompt: `${INVESTIGATOR_PROMPT}\n\n${COACH_PROMPT}`,
       inputPrompt: researchPrompt,
@@ -1042,35 +1196,67 @@ export async function generateBehaviorReport(options: {
     }, db);
     throw error;
   }
+  const reusableResearch = reusableBehaviorResearch(db, dataset);
   let researchResult: RunAnalysisResult;
-  try {
-    researchResult = await runner.runAnalysis({ systemPrompt: INVESTIGATOR_PROMPT, userPrompt: researchPrompt, jsonSchema: RESEARCH_SCHEMA });
-  } catch (error) {
-    recordAnalysisRun({
-      analysisType: 'behavior_report', status: 'failed', unavailableReason: runnerFailureReason(error),
-      promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION, systemPrompt: INVESTIGATOR_PROMPT,
-      inputPrompt: researchPrompt,
-      inputSummary: summary,
-    }, db);
-    throw error;
-  }
   let research: BehaviorResearch;
-  try {
-    research = JSON.parse(researchResult.rawJson) as BehaviorResearch;
-    if (!research || typeof research.profileThesis !== 'string' || !Array.isArray(research.behavioralFindings)
-      || !Array.isArray(research.dimensions) || !Array.isArray(research.contradictions)) {
+  let researchRunId: string;
+  if (reusableResearch) {
+    researchResult = reusableResearch.result;
+    research = reusableResearch.research;
+    researchRunId = reusableResearch.runId;
+  } else {
+    try {
+      researchResult = await runner.runAnalysis({ systemPrompt: INVESTIGATOR_PROMPT, userPrompt: researchPrompt, jsonSchema: RESEARCH_SCHEMA });
+    } catch (error) {
+      await recordAnalysisRunWithRetry({
+        analysisType: 'behavior_research', status: 'failed', unavailableReason: runnerFailureReason(error),
+        promptVersion: BEHAVIOR_RESEARCH_PROMPT_VERSION, systemPrompt: INVESTIGATOR_PROMPT,
+        inputPrompt: researchPrompt, inputSummary: summary,
+      }, db);
+      await recordAnalysisRunWithRetry({
+        analysisType: 'behavior_report', status: 'failed', unavailableReason: runnerFailureReason(error),
+        promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION, systemPrompt: INVESTIGATOR_PROMPT,
+        inputPrompt: researchPrompt,
+        inputSummary: summary,
+      }, db);
+      throw error;
+    }
+    const parsedResearch = validBehaviorResearch(researchResult.rawJson, dataset);
+    if (!parsedResearch) {
+      await recordAnalysisRunWithRetry({
+        analysisType: 'behavior_research', status: 'failed', unavailableReason: 'invalid-model-output',
+        provider: researchResult.provider, model: researchResult.model,
+        promptVersion: BEHAVIOR_RESEARCH_PROMPT_VERSION,
+        systemPrompt: INVESTIGATOR_PROMPT, inputPrompt: researchPrompt,
+        inputSummary: summary, outputJson: researchResult.rawJson,
+        inputTokens: researchResult.inputTokens, outputTokens: researchResult.outputTokens,
+        durationMs: researchResult.durationMs,
+      }, db);
+      await recordAnalysisRunWithRetry({
+        analysisType: 'behavior_report', status: 'failed', unavailableReason: 'invalid-model-output',
+        provider: researchResult.provider, model: researchResult.model, promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION,
+        systemPrompt: INVESTIGATOR_PROMPT, inputPrompt: researchPrompt,
+        inputSummary: summary,
+        outputJson: researchResult.rawJson, inputTokens: researchResult.inputTokens, outputTokens: researchResult.outputTokens,
+        durationMs: researchResult.durationMs,
+      }, db);
       throw new Error('invalid behavior research shape');
     }
-  } catch (error) {
-    recordAnalysisRun({
-      analysisType: 'behavior_report', status: 'failed', unavailableReason: 'invalid-model-output',
-      provider: researchResult.provider, model: researchResult.model, promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION,
-      systemPrompt: INVESTIGATOR_PROMPT, inputPrompt: researchPrompt,
+    research = parsedResearch;
+    researchRunId = await recordAnalysisRunWithRetry({
+      analysisType: 'behavior_research',
+      status: 'completed',
+      provider: researchResult.provider,
+      model: researchResult.model,
+      promptVersion: BEHAVIOR_RESEARCH_PROMPT_VERSION,
+      systemPrompt: INVESTIGATOR_PROMPT,
+      inputPrompt: researchPrompt,
       inputSummary: summary,
-      outputJson: researchResult.rawJson, inputTokens: researchResult.inputTokens, outputTokens: researchResult.outputTokens,
+      outputJson: researchResult.rawJson,
+      inputTokens: researchResult.inputTokens,
+      outputTokens: researchResult.outputTokens,
       durationMs: researchResult.durationMs,
     }, db);
-    throw error;
   }
   const coachInput = {
     facts: {
@@ -1079,16 +1265,33 @@ export async function generateBehaviorReport(options: {
       leverage: dataset.leverage,
       contextDocuments: dataset.contextDocuments, tokenEfficiency: dataset.tokenEfficiency,
     },
-    representativeEpisodes: dataset.representativeEpisodes,
+    representativeEpisodes: dataset.representativeEpisodes.filter((episode) =>
+      research.selectedEpisodeRefs.includes(episode.sessionRef)),
     investigatorResearch: research,
+    knowledgeBasis,
     analysisControls,
   };
-  const coachUserPrompt = `阶段二：把调查结果整理为“Agent 使用分析与改进建议”。分析方面来自调查结果，不得替换成统一固定量表。\n\n${JSON.stringify(coachInput, null, 2)}`;
+  const coachUserPrompt = `阶段二：把调查结果整理为“Agent 使用分析与改进建议”。分析方面来自调查结果，不得替换成统一固定量表。knowledgeBasis 是带来源链的当前公开实践快照；它可以支持候选做法，但不能证明对本人的效果，必须结合本地证据并进入改进追踪。\n\n${JSON.stringify(coachInput, null, 2)}`;
   let coachResult: RunAnalysisResult;
   try {
     coachResult = await runner.runAnalysis({ systemPrompt: COACH_PROMPT, userPrompt: coachUserPrompt, jsonSchema: REPORT_SCHEMA });
   } catch (error) {
-    recordAnalysisRun({
+    await recordAnalysisRunWithRetry({
+      analysisType: 'behavior_coach',
+      status: 'failed',
+      unavailableReason: runnerFailureReason(error),
+      provider: researchResult.provider,
+      model: researchResult.model,
+      promptVersion: BEHAVIOR_COACH_PROMPT_VERSION,
+      systemPrompt: COACH_PROMPT,
+      inputPrompt: coachUserPrompt,
+      inputSummary: { ...reportInputSummary(dataset, research, analysisControls), researchRunId },
+      outputJson: null,
+      inputTokens: null,
+      outputTokens: null,
+      durationMs: null,
+    }, db);
+    await recordAnalysisRunWithRetry({
       analysisType: 'behavior_report', status: 'failed', unavailableReason: runnerFailureReason(error),
       provider: researchResult.provider, model: researchResult.model, promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION,
       systemPrompt: `${INVESTIGATOR_PROMPT}\n\n${COACH_PROMPT}`,
@@ -1105,7 +1308,7 @@ export async function generateBehaviorReport(options: {
     if (!report || typeof report.headline !== 'string' || typeof report.identity?.title !== 'string'
       || !Array.isArray(report.portrait) || !Array.isArray(report.strengths)
       || !Array.isArray(report.bottlenecks) || !Array.isArray(report.dimensions)
-      || !Array.isArray(report.developmentPlan?.experiments)) {
+      || !Array.isArray(report.developmentPlan?.improvementPlans)) {
       throw new Error('invalid behavior report shape');
     }
     report.contextDocumentAssessments = Array.isArray(report.contextDocumentAssessments)
@@ -1120,7 +1323,22 @@ export async function generateBehaviorReport(options: {
     if (!analysisControls.tokenEfficiencyAnalysis) report.tokenEfficiencyFindings = [];
     if (!analysisControls.skillOpportunityAnalysis) report.skillOpportunities = [];
   } catch (error) {
-    recordAnalysisRun({
+    await recordAnalysisRunWithRetry({
+      analysisType: 'behavior_coach',
+      status: 'failed',
+      unavailableReason: 'invalid-model-output',
+      provider: coachResult.provider,
+      model: coachResult.model,
+      promptVersion: BEHAVIOR_COACH_PROMPT_VERSION,
+      systemPrompt: COACH_PROMPT,
+      inputPrompt: coachUserPrompt,
+      inputSummary: { ...reportInputSummary(dataset, research, analysisControls), researchRunId },
+      outputJson: coachResult.rawJson,
+      inputTokens: coachResult.inputTokens,
+      outputTokens: coachResult.outputTokens,
+      durationMs: coachResult.durationMs,
+    }, db);
+    await recordAnalysisRunWithRetry({
       analysisType: 'behavior_report', status: 'failed', unavailableReason: 'invalid-model-output',
       provider: coachResult.provider, model: coachResult.model, promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION,
       systemPrompt: `${INVESTIGATOR_PROMPT}\n\n${COACH_PROMPT}`,
@@ -1133,15 +1351,34 @@ export async function generateBehaviorReport(options: {
     }, db);
     throw error;
   }
-  recordAnalysisRun({
+  const coachRunId = await recordAnalysisRunWithRetry({
+    analysisType: 'behavior_coach',
+    status: 'completed',
+    provider: coachResult.provider,
+    model: coachResult.model,
+    promptVersion: BEHAVIOR_COACH_PROMPT_VERSION,
+    systemPrompt: COACH_PROMPT,
+    inputPrompt: coachUserPrompt,
+    inputSummary: { ...reportInputSummary(dataset, research, analysisControls), researchRunId },
+    outputJson: coachResult.rawJson,
+    inputTokens: coachResult.inputTokens,
+    outputTokens: coachResult.outputTokens,
+    durationMs: coachResult.durationMs,
+  }, db);
+  const reportRunId = await recordAnalysisRunWithRetry({
     analysisType: 'behavior_report', status: 'completed', provider: coachResult.provider, model: coachResult.model,
     promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION, systemPrompt: `${INVESTIGATOR_PROMPT}\n\n${COACH_PROMPT}`,
     inputPrompt: `${researchPrompt}\n\n${coachUserPrompt}`,
-    inputSummary: reportInputSummary(dataset, research, analysisControls),
+    inputSummary: {
+      ...reportInputSummary(dataset, research, analysisControls),
+      stageRuns: { researchRunId, coachRunId },
+      knowledgeSnapshotId: knowledgeBasis?.snapshotId ?? null,
+    },
     outputJson: coachResult.rawJson,
     inputTokens: sumUsage(researchResult.inputTokens, coachResult.inputTokens),
     outputTokens: sumUsage(researchResult.outputTokens, coachResult.outputTokens),
     durationMs: researchResult.durationMs + coachResult.durationMs,
   }, db);
+  storeImprovementPlans(db, report, reportRunId, knowledgeBasis?.snapshotId ?? null);
   return { status: 'completed', report };
 }

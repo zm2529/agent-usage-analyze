@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CODEX_HOOK_MARKER } from '../utils/codex-hooks.js';
-import { MAX_CODEX_HOOK_INPUT_BYTES, handleCodexStopInput } from './codex-stop.js';
+import {
+  ACTIVE_TURN_SETTLE_SECONDS,
+  MAX_CODEX_HOOK_INPUT_BYTES,
+  buildPersistedHookStatus,
+  handleCodexStopInput,
+} from './codex-stop.js';
 
 const validInput = JSON.stringify({
   session_id: '019f878f-f1d4-74f2-ab39-2c2832b809a5',
@@ -46,8 +51,18 @@ describe('Codex Stop hook entry point', () => {
     );
 
     expect(result).toEqual({ status: 'recorded', reason: 'frontier-recorded' });
-    expect(deps.record).toHaveBeenCalledOnce();
+    expect(deps.record).toHaveBeenCalledWith(expect.anything(), deps.now, ACTIVE_TURN_SETTLE_SECONDS);
     expect(deps.spawnScheduler).toHaveBeenCalledOnce();
+  });
+
+  it('does not shorten a deliberately longer configured settle window', () => {
+    const deps = dependencies({ idleSeconds: 180 });
+    handleCodexStopInput(
+      validInput.replace('"Stop"', '"UserPromptSubmit"'),
+      { managedHook: CODEX_HOOK_MARKER },
+      deps,
+    );
+    expect(deps.record).toHaveBeenCalledWith(expect.anything(), deps.now, 180);
   });
 
   it.each([
@@ -72,6 +87,49 @@ describe('Codex Stop hook entry point', () => {
     const failing = dependencies({ record: vi.fn(() => { throw new Error('disk unavailable'); }) });
     expect(() => handleCodexStopInput(validInput, { managedHook: CODEX_HOOK_MARKER }, failing)).not.toThrow();
     expect(failing.spawnScheduler).not.toHaveBeenCalled();
+  });
+
+  it('retries transient database locks before reporting success', () => {
+    const record = vi.fn()
+      .mockImplementationOnce(() => { throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' }); })
+      .mockImplementationOnce(() => { throw Object.assign(new Error('database is locked'), { code: 'SQLITE_LOCKED' }); })
+      .mockReturnValue(undefined);
+    const deps = dependencies({ record });
+
+    expect(handleCodexStopInput(validInput, { managedHook: CODEX_HOOK_MARKER }, deps))
+      .toEqual({ status: 'recorded', reason: 'frontier-recorded' });
+    expect(record).toHaveBeenCalledTimes(3);
+    expect(deps.spawnScheduler).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a database lock classified when retry attempts are exhausted', () => {
+    const record = vi.fn(() => {
+      throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+    });
+    const deps = dependencies({ record });
+
+    expect(handleCodexStopInput(validInput, { managedHook: CODEX_HOOK_MARKER }, deps))
+      .toEqual({ status: 'failed', reason: 'database-busy' });
+    expect(record).toHaveBeenCalledTimes(3);
+    expect(deps.spawnScheduler).not.toHaveBeenCalled();
+  });
+
+  it('retains the last transient failure when a later event recovers', () => {
+    const recovered = buildPersistedHookStatus(
+      { status: 'recorded', reason: 'frontier-recorded' },
+      '2026-07-27T12:04:21.625Z',
+      {
+        status: 'failed',
+        reason: 'database-busy',
+        observedAt: '2026-07-27T12:02:35.041Z',
+      },
+    );
+
+    expect(recovered).toMatchObject({
+      status: 'recorded',
+      recoveredFailureAt: '2026-07-27T12:02:35.041Z',
+      recoveredFailureReason: 'database-busy',
+    });
   });
 
   it('does not enqueue or start a worker when automatic analysis is off', () => {

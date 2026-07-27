@@ -19,6 +19,7 @@ import {
 } from './settled-analysis.js';
 import { spawnAutomaticBehaviorReport } from './behavior-report-scheduler.js';
 import { recordIngestionLog } from './ingestion-log.js';
+import { observeTaskAgainstImprovementPlans } from './improvement-tracking.js';
 
 const CLI_ENTRY = resolve(fileURLToPath(import.meta.url), '../../index.js');
 
@@ -106,6 +107,22 @@ function configuredIdleSeconds(): number {
     : 10;
 }
 
+async function observeSessionImprovementPlans(
+  db: Database.Database,
+  sessionId: string,
+): Promise<void> {
+  const task = db.prepare(`SELECT id FROM work_tasks
+    WHERE thread_id = ? AND id = root_task_id
+    ORDER BY started_at DESC, id DESC LIMIT 1`).get(sessionId) as { id: string } | undefined;
+  if (!task) return;
+  try {
+    await observeTaskAgainstImprovementPlans({ db, taskId: task.id });
+  } catch {
+    // Improvement observation is an independent optional LLM run. It must not
+    // turn a completed task analysis back into a queue failure.
+  }
+}
+
 /** Claim and import every frontier that is due at this instant. */
 export async function processDueFrontiers(
   db: Database.Database,
@@ -184,9 +201,12 @@ export async function processDueFrontiers(
   for (const { frontier, execution } of analysisReady) {
     if (deferAnalysis) continue;
     try {
-      await processSettledAnalysis(
+      const result = await processSettledAnalysis(
         db, frontier, execution, analysisDependencies(db, frontier),
       );
+      if (result.status === 'completed') {
+        await observeSessionImprovementPlans(db, frontier.sessionId);
+      }
     } catch (error) {
       const attempt = db.prepare(
         `SELECT attempt_count, max_attempts FROM analysis_queue
@@ -222,6 +242,51 @@ export async function processDueFrontiers(
  * Analyze imported projections under a separate lease so a multi-minute LLM
  * call can never block later sessions from becoming visible in the WebUI.
  */
+export function countCurrentRetryableSettledAnalyses(
+  db: Database.Database = getDb(),
+): number {
+  const row = db.prepare(`SELECT COUNT(*) AS count
+    FROM analysis_queue q
+    WHERE q.status = 'awaiting-capability'
+      AND q.runner_type = 'auto'
+      AND q.source_tool = 'codex-cli'
+      AND EXISTS (
+        SELECT 1 FROM messages m
+        WHERE m.session_id = 'codex:' || q.session_id
+      )
+      AND (
+        (SELECT MAX(completed_at) FROM analysis_queue
+          WHERE status = 'completed' AND completed_at IS NOT NULL) IS NULL
+        OR datetime(enqueued_at) > datetime((
+          SELECT MAX(completed_at) FROM analysis_queue
+          WHERE status = 'completed' AND completed_at IS NOT NULL
+        ))
+      )`).get() as { count: number };
+  return row.count;
+}
+
+function discardMissingAnalysisProjection(
+  db: Database.Database,
+  frontier: ClaimedFrontier,
+): boolean {
+  const available = db.prepare(`SELECT 1
+    FROM messages
+    WHERE session_id = ?
+    LIMIT 1`).get(`codex:${frontier.sessionId}`);
+  if (available) return false;
+
+  db.transaction(() => {
+    db.prepare(`DELETE FROM analysis_frontier_events
+      WHERE source_tool = ? AND session_id = ?`)
+      .run(frontier.sourceTool, frontier.sessionId);
+    db.prepare(`DELETE FROM analysis_queue
+      WHERE source_tool = ? AND session_id = ? AND generation = ?
+        AND status = 'awaiting-capability'`)
+      .run(frontier.sourceTool, frontier.sessionId, frontier.generation);
+  }).immediate();
+  return true;
+}
+
 export async function runSettledAnalysisWorker(): Promise<number> {
   const lease = acquireSettledWorkerLease(`${getDbPath()}.analysis`);
   if (!lease) return 0;
@@ -232,8 +297,17 @@ export async function runSettledAnalysisWorker(): Promise<number> {
         generation, transcript_locator AS locator, source_basis AS sourceBasis
       FROM analysis_queue
       WHERE status = 'awaiting-capability' AND runner_type = 'auto' AND source_tool = 'codex-cli'
+        AND (
+          (SELECT MAX(completed_at) FROM analysis_queue
+            WHERE status = 'completed' AND completed_at IS NOT NULL) IS NULL
+          OR datetime(enqueued_at) > datetime((
+            SELECT MAX(completed_at) FROM analysis_queue
+            WHERE status = 'completed' AND completed_at IS NOT NULL
+          ))
+        )
       ORDER BY enqueued_at, session_id`).all() as ClaimedFrontier[];
     for (const frontier of rows) {
+      if (discardMissingAnalysisProjection(db, frontier)) continue;
       const selection = defaultSettledImportDependencies(
         db, configuredIdleSeconds(), frontier.sessionId,
       ).execution;
@@ -242,17 +316,36 @@ export async function runSettledAnalysisWorker(): Promise<number> {
           db, frontier, selection, defaultSettledAnalysisDependencies(),
         );
         if (result.status === 'completed') processed += 1;
+        if (result.status === 'completed') {
+          await observeSessionImprovementPlans(db, frontier.sessionId);
+        }
       } catch {
-        db.prepare(`UPDATE analysis_queue
-          SET status = 'awaiting-capability', started_at = NULL,
-              diagnostic = 'settled-analysis-failed', error_message = 'settled-analysis-failed'
-          WHERE source_tool = ? AND session_id = ? AND generation = ? AND status = 'processing'`)
-          .run(frontier.sourceTool, frontier.sessionId, frontier.generation);
+        await retryQueueWrite(() => {
+          db.prepare(`UPDATE analysis_queue
+            SET status = 'awaiting-capability', started_at = NULL,
+                diagnostic = 'settled-analysis-failed', error_message = 'settled-analysis-failed'
+            WHERE source_tool = ? AND session_id = ? AND generation = ? AND status = 'processing'`)
+            .run(frontier.sourceTool, frontier.sessionId, frontier.generation);
+        });
       }
     }
     return processed;
   } finally {
     lease.release();
+  }
+}
+
+async function retryQueueWrite(write: () => void): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      write();
+      return;
+    } catch (error) {
+      const retryable = (error as { code?: unknown }).code === 'SQLITE_BUSY'
+        || /database is locked/i.test(error instanceof Error ? error.message : String(error));
+      if (!retryable || attempt === 4) throw error;
+      await wait(250 * (2 ** attempt));
+    }
   }
 }
 

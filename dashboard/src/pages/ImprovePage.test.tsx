@@ -45,7 +45,7 @@ const profileReport = {
   skillAssessments: [],
   developmentPlan: {
     northStar: '建立能自主闭环的个人工程系统', operatingRules: ['可逆动作一次授权'],
-    experiments: [{ title: '授权边界实验', hypothesis: '减少短跟进。', eligibleCohort: '多阶段任务', observableOutcome: '人工介入次数', guardrail: '高风险动作仍询问', reviewAfter: '10 个任务', evidenceRefs: [] }],
+    improvementPlans: [{ title: '授权边界改进', hypothesis: '减少短跟进。', eligibleCohort: '多阶段任务', observableOutcome: '人工介入次数', guardrail: '高风险动作仍询问', reviewAfter: '10 个任务', relationshipToPrevious: 'parallel', sequencingReason: '首个计划', evidenceRefs: [] }],
     taskTemplate: '目标：\n边界：\n完成定义：',
   },
   uncertainty: '样本仍有限。',
@@ -134,8 +134,8 @@ describe('ImprovePage', () => {
     expect(await screen.findByText('AI 工程编排者')).toBeInTheDocument();
     expect(screen.getAllByText('真实使用画像')).not.toHaveLength(0);
     expect(screen.getByText('值得关注的使用习惯')).toBeInTheDocument();
-    expect(screen.getByText('查看改进建议')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '前往建议页 →' })).toHaveAttribute('href', '/advice');
+    expect(screen.getByText('查看改进追踪')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前往改进追踪 →' })).toHaveAttribute('href', '/improvements');
     expect(screen.getByText('用户指定')).toBeInTheDocument();
     expect(screen.getByText('自动启用')).toBeInTheDocument();
     expect(screen.queryByText('根据本次分析生成，不是固定内容。')).not.toBeInTheDocument();

@@ -153,7 +153,7 @@ describe('V8 migration — session_message_count column', () => {
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;
 
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
     db.close();
   });
 
@@ -722,19 +722,27 @@ describe('syncSingleFile', () => {
       INSERT INTO analysis_usage (session_id, analysis_type, provider, model)
       VALUES ('codex:session', 'session', 'old', 'old');
       INSERT INTO session_facets (session_id, outcome_satisfaction, had_course_correction, iteration_count)
-      VALUES ('codex:session', 'unknown', 0, 0);`);
+      VALUES ('codex:session', 'unknown', 0, 0);
+      INSERT INTO analysis_runs (
+        id, analysis_type, session_id, status, prompt_version, input_summary_json
+      ) VALUES (
+        'historical-run', 'session', 'codex:session', 'unavailable', 'test-v1', '{}'
+      );`);
 
     const { syncSingleFile } = await import('../sync.js');
     await expect(syncSingleFile({
       filePath: '/path/to/unavailable.jsonl', sourceTool: 'codex-cli', replace: true,
       replaceSessionId: 'codex:session', requireParsed: true,
     })).rejects.toThrow('could not be parsed');
-    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM sessions WHERE id = 'codex:session'`).get())
-      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT message_count AS messageCount, usage_source AS usageSource
+      FROM sessions WHERE id = 'codex:session'`).get())
+      .toEqual({ messageCount: 0, usageSource: 'pending-import' });
     expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM analysis_usage WHERE session_id = 'codex:session'`).get())
       .toEqual({ count: 0 });
     expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM session_facets WHERE session_id = 'codex:session'`).get())
       .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM analysis_runs WHERE session_id = 'codex:session'`).get())
+      .toEqual({ count: 1 });
   });
 
   it('atomically replaces the compatibility projection for a rewritten rollout', async () => {
@@ -805,8 +813,9 @@ describe('syncSingleFile', () => {
       filePath: '/path/to/mismatch.jsonl', sourceTool: 'codex-cli', replace: true,
       replaceSessionId: 'codex:expected', requireParsed: true,
     })).rejects.toThrow('could not be parsed');
-    expect(mockDb.prepare(`SELECT COUNT(*) AS count FROM sessions WHERE id = 'codex:expected'`).get())
-      .toEqual({ count: 0 });
+    expect(mockDb.prepare(`SELECT message_count AS messageCount, usage_source AS usageSource
+      FROM sessions WHERE id = 'codex:expected'`).get())
+      .toEqual({ messageCount: 0, usageSource: 'pending-import' });
     expect(mockInsertSession).not.toHaveBeenCalled();
   });
 });

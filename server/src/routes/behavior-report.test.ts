@@ -1,10 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb } from 'agent-usage-analyze/db/client';
 import { recordAnalysisRun } from 'agent-usage-analyze/analysis/analysis-run-db';
 import { createApp } from '../index.js';
+
+vi.mock('agent-usage-analyze/analysis/behavior-report-scheduler', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('agent-usage-analyze/analysis/behavior-report-scheduler')>();
+  return { ...actual, spawnManualBehaviorReport: actual.runManualBehaviorReport };
+});
 
 let dataDir: string;
 
@@ -39,7 +44,7 @@ describe('behavior report and analysis run APIs', () => {
     });
   });
 
-  it('keeps the latest compatible report visible when a newer generation attempt fails', async () => {
+  it('does not display an old-format report when a current generation attempt fails', async () => {
     const insert = getDb().prepare(`INSERT INTO analysis_runs (
       id, analysis_type, status, unavailable_reason, provider, model,
       prompt_version, input_summary_json, output_json, created_at
@@ -53,7 +58,7 @@ describe('behavior report and analysis run APIs', () => {
     );
     insert.run(
       'analysis-run:failed-v9', 'failed', 'runner-authentication-failed', null, null,
-      'behavior-report-v9',
+      'behavior-report-v10',
       JSON.stringify({ leverage: { skills: { items: [] }, tools: { families: [] } } }),
       null,
       '2026-07-26 09:01:00',
@@ -62,12 +67,12 @@ describe('behavior report and analysis run APIs', () => {
     const response = await createApp().request('/api/behavior-report');
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      report: { headline: 'Last successful report' },
+      report: null,
       needsRegeneration: true,
-      run: { status: 'completed', promptVersion: 'behavior-report-v8' },
+      run: { status: 'failed', promptVersion: 'behavior-report-v10' },
       latestAttempt: {
         status: 'failed',
-        promptVersion: 'behavior-report-v9',
+        promptVersion: 'behavior-report-v10',
         unavailableReason: 'runner-authentication-failed',
       },
     });
@@ -82,7 +87,7 @@ describe('behavior report and analysis run APIs', () => {
     const run = await app.request('/api/behavior-report/run', { method: 'POST' });
     expect(run.status).toBe(200);
     expect(await run.json()).toMatchObject({
-      report: null,
+      accepted: true,
       generation: { running: true },
     });
 

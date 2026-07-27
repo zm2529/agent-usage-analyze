@@ -34,7 +34,7 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
+    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
     db.close();
   });
 });
@@ -219,7 +219,7 @@ describe('runMigrations — V25 ingestion progress', () => {
     runMigrations(db);
     const columns = db.prepare('PRAGMA table_info(ingestion_runs)').all() as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toContain('processed_source_count');
-    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 28 });
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 30 });
     db.close();
   });
 });
@@ -230,7 +230,7 @@ describe('runMigrations — V26 transparent analysis runs', () => {
     runMigrations(db);
     expect(db.prepare(`SELECT name FROM sqlite_master
       WHERE type = 'table' AND name = 'analysis_runs'`).get()).toEqual({ name: 'analysis_runs' });
-    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 28 });
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 30 });
     db.close();
   });
 });
@@ -371,7 +371,7 @@ describe('runMigrations — V27 settled frontier repair', () => {
     const db = freshDb();
     runMigrations(db);
     db.exec(`DROP TABLE analysis_frontier_events;
-      DELETE FROM schema_version WHERE version IN (27, 28);`);
+      DELETE FROM schema_version WHERE version IN (27, 28, 29, 30);`);
 
     runMigrations(db);
 
@@ -379,7 +379,57 @@ describe('runMigrations — V27 settled frontier repair', () => {
       WHERE type = 'table' AND name = 'analysis_frontier_events'`).get())
       .toEqual({ name: 'analysis_frontier_events' });
     expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get())
-      .toEqual({ version: 28 });
+      .toEqual({ version: 30 });
+    db.close();
+  });
+});
+
+describe('runMigrations — V30 durable improvement task references', () => {
+  it('keeps observations when the rebuildable task projection is cleared', () => {
+    const db = freshDb();
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    db.prepare(`INSERT INTO improvement_plans (
+      id, title, hypothesis, applicability, review_plan_json, status, sequence
+    ) VALUES ('plan:v30', 'Plan', 'Hypothesis', 'Tasks', '{}', 'observing', 1)`).run();
+    db.prepare(`INSERT INTO improvement_observations (
+      id, plan_id, task_id, signal, rationale, evidence_refs_json
+    ) VALUES ('observation:v30', 'plan:v30', 'task:projection', 'eligible', 'Relevant', '[]')`).run();
+
+    db.prepare('DELETE FROM work_tasks').run();
+
+    expect(db.prepare(`SELECT task_id AS taskId FROM improvement_observations
+      WHERE id = 'observation:v30'`).get()).toEqual({ taskId: 'task:projection' });
+    const foreignKeys = db.prepare(`PRAGMA foreign_key_list(improvement_observations)`)
+      .all() as Array<{ table: string }>;
+    expect(foreignKeys.map((foreignKey) => foreignKey.table)).not.toContain('work_tasks');
+    db.close();
+  });
+});
+
+describe('runMigrations — V29 knowledge and improvement tracking', () => {
+  it('creates the new versioned knowledge and review tables without deleting raw sessions', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.prepare(`INSERT INTO projects (id, name, path, last_activity)
+      VALUES ('project:v29', 'V29', '/v29', datetime('now'))`).run();
+    db.prepare(`INSERT INTO sessions (
+      id, project_id, project_name, project_path, started_at, ended_at
+    ) VALUES ('session:v29', 'project:v29', 'V29', '/v29', datetime('now'), datetime('now'))`).run();
+
+    for (const table of [
+      'knowledge_snapshots',
+      'knowledge_practices',
+      'improvement_plans',
+      'improvement_observations',
+      'improvement_reviews',
+      'improvement_feedback',
+    ]) {
+      expect(db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+        .get(table)).toEqual({ name: table });
+    }
+    expect(db.prepare(`SELECT id FROM sessions WHERE id = 'session:v29'`).get())
+      .toEqual({ id: 'session:v29' });
     db.close();
   });
 });

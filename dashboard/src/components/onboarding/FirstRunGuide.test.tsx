@@ -13,7 +13,7 @@ function renderGuide(onClose = vi.fn()) {
 }
 
 describe('FirstRunGuide', () => {
-  it('explains the automatic import-to-LLM pipeline and supports the full tour', () => {
+  it('explains the product and asks for optional public research consent', () => {
     const onClose = renderGuide();
 
     expect(screen.getByText('Reading your session history')).toBeInTheDocument();
@@ -24,6 +24,10 @@ describe('FirstRunGuide', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(screen.getByText('What each page shows')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('Allow public best-practice research')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Allow public practice research' })).not.toBeChecked();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start using' }));

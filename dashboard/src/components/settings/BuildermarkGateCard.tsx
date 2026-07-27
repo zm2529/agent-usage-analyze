@@ -16,7 +16,7 @@ const STATUS_COPY: Record<BuildermarkGateState['status'], { label: string; detai
   },
   passed: {
     label: 'Passed',
-    detail: 'The latest gate passed. Experimental use still preserves evidence tiers and uncertainty.',
+    detail: 'The latest gate passed. Candidate use still preserves evidence tiers and uncertainty.',
   },
   failed: {
     label: 'Failed',
@@ -42,15 +42,15 @@ export function BuildermarkGateStatusCard({ state }: { state: BuildermarkGateSta
       <CardContent className="space-y-3 text-sm">
         <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-3">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <p>Buildermark candidates are experimental evidence, never certain ownership.</p>
+          <p>Buildermark candidates are provisional evidence, never certain ownership.</p>
         </div>
         <div className="grid gap-2 text-xs sm:grid-cols-3">
           <p>Synthetic gate: <strong>{state.syntheticGatePassed ? 'passed' : 'not passed'}</strong></p>
           <p>Real-history gate: <strong>{state.realGatePassed ? 'passed' : 'not passed'}</strong></p>
-          <p>Experiment: <strong>{state.experimentalEnabled ? 'enabled' : 'disabled'}</strong></p>
+          <p>Candidate use: <strong>{state.candidateEnabled ? 'enabled' : 'disabled'}</strong></p>
         </div>
         {state.stateError === 'corrupt-report' && (
-          <p className="text-xs text-destructive">Stored gate report failed integrity validation. The experiment is disabled.</p>
+          <p className="text-xs text-destructive">Stored gate report failed integrity validation. Candidate use is disabled.</p>
         )}
         {report && (
           <div className="space-y-1 text-xs text-muted-foreground">

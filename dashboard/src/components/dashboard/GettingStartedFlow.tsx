@@ -21,7 +21,7 @@ const steps = [
   {
     titleKey: 'flow.improve', title: 'Improve',
     descriptionKey: 'flow.improveDesc', description: 'Choose one evidence-backed suggestion for the next task.',
-    href: '/improve',
+    href: '/analysis',
     actionKey: 'flow.improveAction', action: 'See analysis and advice',
     icon: TrendingUp,
   },
@@ -30,7 +30,7 @@ const steps = [
 export function GettingStartedFlow({ hasData, isLoading = false }: { hasData: boolean; isLoading?: boolean }) {
   const { language, t } = useLanguage();
   return (
-    <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/[0.07] via-card to-card">
+    <Card className="overflow-hidden border-primary/20 bg-primary/[0.035]">
       <CardHeader className="pb-3">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">{t('flow.start', 'Start here')}</p>
         <CardTitle className="text-xl">{t('flow.title', 'Understand your agent usage in three steps')}</CardTitle>

@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, AnalysisRunRecord, BehaviorReportState, DashboardStats, OverviewAnalytics, OverviewRange, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, HistorySyncResult, PatternOverview, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, AdviceState, CodexAccountUsage } from '@/lib/types';
+import type { Project, Session, Message, Insight, AnalysisRunRecord, BehaviorReportState, DashboardStats, OverviewAnalytics, OverviewRange, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, HistorySyncResult, PatternOverview, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, CodexAccountUsage } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -116,7 +116,7 @@ export function fetchBehaviorReport() {
 }
 
 export function runBehaviorReport() {
-  return request<BehaviorReportState & { status: 'completed' | 'unavailable'; reason?: string }>('/behavior-report/run', {
+  return request<{ accepted: true; generation: { running: boolean; startedAt: string | null } }>('/behavior-report/run', {
     method: 'POST',
   });
 }
@@ -228,31 +228,6 @@ export function recordAdvisoryOverhead(input: {
   return request<{ recorded: boolean; degraded: boolean }>('/observer-overhead/advisory', {
     method: 'POST', body: JSON.stringify(input),
   });
-}
-
-export function fetchAdvice(taskId?: string) {
-  const query = taskId ? `?${new URLSearchParams({ taskId }).toString()}` : '';
-  return request<AdviceState>(`/advice${query}`);
-}
-
-export function recordAdviceEvent(input:
-  | { taskId: string; issueKey: string; action: 'shown' }
-  | { taskId: string; issueKey: string; action: 'adopted' | 'ignored' | 'dismissed'; interventionId: string }
-  | { taskId: string; issueKey: string; action: 'outcome'; interventionId: string;
-      outcome: 'improved' | 'not-improved' | 'unknown' }) {
-  return request<{ recorded: boolean; degraded: boolean; id?: string; interventionId?: string }>('/advice/events', {
-    method: 'POST', body: JSON.stringify(input),
-  });
-}
-
-export function setAdviceMute(input: {
-  scopeKind: 'issue' | 'category'; scopeKey: string; mutedUntil: string | null;
-}) {
-  return request<void>('/advice/mutes', { method: 'POST', body: JSON.stringify(input) });
-}
-
-export function clearAdviceMute(input: { scopeKind: 'issue' | 'category'; scopeKey: string }) {
-  return request<void>('/advice/mutes', { method: 'DELETE', body: JSON.stringify(input) });
 }
 
 export function fetchPatternTrends(currentStart: string, currentEnd: string) {
@@ -738,4 +713,287 @@ export interface AnalysisQueueStatus {
 
 export function fetchAnalysisQueue() {
   return request<AnalysisQueueStatus>('/analysis/queue');
+}
+
+export function retryPendingAnalysis() {
+  return request<{ accepted: boolean; retrying: number }>('/analysis/queue/retry', {
+    method: 'POST',
+  });
+}
+
+export type RuntimeStageState = 'healthy' | 'running' | 'waiting' | 'stale' | 'failed' | 'not-configured';
+export interface RuntimeStage {
+  state: RuntimeStageState;
+  label: string;
+  lastSuccessAt: string | null;
+  backlog: number;
+  failures: number;
+  action: { label: string; href: string } | null;
+  detail: string;
+}
+export interface RuntimeStatus {
+  generatedAt: string;
+  stages: {
+    hook: RuntimeStage;
+    ingestion: RuntimeStage;
+    semanticAnalysis: RuntimeStage;
+    behaviorReport: RuntimeStage;
+    knowledgeResearch: RuntimeStage;
+  };
+}
+
+export function fetchRuntimeStatus() {
+  return request<RuntimeStatus>('/runtime-status');
+}
+
+export interface BehaviorReportSummary {
+  promptVersion: string;
+  report: {
+    headline: string | null;
+    generatedAt: string;
+    evidenceCutoff: string | null;
+    promptVersion: string;
+  } | null;
+  latestAttempt: {
+    status: 'completed' | 'unavailable' | 'failed' | 'rejected';
+    createdAt: string;
+    promptVersion: string;
+    unavailableReason: string | null;
+  } | null;
+  generation: { running: boolean; startedAt: string | null };
+}
+
+export function fetchBehaviorReportSummary() {
+  return request<BehaviorReportSummary>('/behavior-report/summary');
+}
+
+export interface KnowledgeSourceRef {
+  url: string;
+  title: string;
+  sourceType: 'official' | 'community';
+  publishedAt: string;
+  fetchedAt: string;
+  author: string;
+  independentEvidence: string;
+  discussionEvidence: string;
+}
+
+export interface KnowledgePractice {
+  id: string;
+  snapshotId: string;
+  title: string;
+  summary: string;
+  applicability: string;
+  sourceTrust: 'official' | 'high' | 'medium' | 'limited';
+  discussionBreadth: 'high' | 'medium' | 'low' | 'unknown';
+  recency: string;
+  localRelevance: 'high' | 'medium' | 'low' | 'unknown';
+  localEffectStatus: 'supported' | 'not-reviewed' | 'insufficient' | 'negative';
+  rationale: string;
+  tags: string[];
+  sourceRefs: KnowledgeSourceRef[];
+  conflicts: string[];
+  createdAt: string;
+  scope: 'weekly' | 'topic';
+  snapshotCreatedAt: string;
+}
+
+export interface KnowledgeStatus {
+  authorization: { enabled: boolean; authorizedAt: string | null };
+  topicSource: 'general-bootstrap' | 'local-analysis';
+  due: boolean;
+  generation: {
+    running: boolean;
+    scope: 'weekly' | 'topic' | null;
+    startedAt: string | null;
+    lastCompletedAt: string | null;
+    lastError: string | null;
+  };
+  latestSnapshot: null | {
+    id: string;
+    scope: 'weekly' | 'topic';
+    topic: string | null;
+    snapshotVersion: string;
+    promptVersion: string;
+    status: 'completed' | 'failed';
+    researchRunId: string | null;
+    sourceCount: number;
+    practiceCount: number;
+    querySummary: { labels?: string[] };
+    createdAt: string;
+  };
+  boundary: {
+    externalPayload: string;
+    excluded: string[];
+    localEffect: string;
+  };
+}
+
+export function fetchKnowledgeStatus() {
+  return request<KnowledgeStatus>('/practices/status');
+}
+
+export function authorizeKnowledgeResearch() {
+  return request<{ enabled: true; authorizedAt: string }>('/practices/authorization', {
+    method: 'POST',
+    body: JSON.stringify({ acknowledgedExternalResearch: true }),
+  });
+}
+
+export function setKnowledgeResearchAuthorization(enabled: boolean) {
+  return request<{ enabled: boolean; authorizedAt: string | null }>('/practices/authorization', {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function refreshKnowledgeResearch(topic?: string) {
+  return request<{ accepted: true; scope: 'weekly' | 'topic'; message: string }>('/practices/refresh', {
+    method: 'POST',
+    body: JSON.stringify(topic ? { topic } : {}),
+  });
+}
+
+export function fetchKnowledgePractices(filters?: {
+  snapshotId?: string;
+  trust?: KnowledgePractice['sourceTrust'];
+  relevance?: KnowledgePractice['localRelevance'];
+  tag?: string;
+}) {
+  const query = new URLSearchParams();
+  if (filters?.snapshotId) query.set('snapshotId', filters.snapshotId);
+  if (filters?.trust) query.set('trust', filters.trust);
+  if (filters?.relevance) query.set('relevance', filters.relevance);
+  if (filters?.tag) query.set('tag', filters.tag);
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
+  return request<{ practices: KnowledgePractice[] }>(`/practices${suffix}`);
+}
+
+export interface ImprovementObservation {
+  id: string;
+  taskId: string;
+  signal: 'eligible' | 'adoption-observed' | 'adoption-not-observed' | 'counter-evidence' | 'negative-impact';
+  rationale: string;
+  evidenceRefs: string[];
+  analysisRunId: string | null;
+  createdAt: string;
+}
+
+export interface ImprovementReview {
+  id: string;
+  outcome: 'improved' | 'no-clear-improvement' | 'insufficient-evidence' | 'negative-impact';
+  rationale: string;
+  supportingRefs: string[];
+  opposingRefs: string[];
+  limitations: string[];
+  analysisRunId: string | null;
+  createdAt: string;
+}
+
+export interface ImprovementPlan {
+  id: string;
+  sourcePracticeId: string | null;
+  sourcePracticeTitle: string | null;
+  knowledgeSnapshotId: string | null;
+  knowledgeSnapshotCreatedAt: string | null;
+  basisChanged: boolean;
+  latestKnowledgeSnapshotId: string | null;
+  earlyReviewRecommended: boolean;
+  reportRunId: string | null;
+  title: string;
+  hypothesis: string;
+  applicability: string;
+  reviewPlan: {
+    version?: string;
+    llmDefined?: {
+      eligibleTasks?: string;
+      observableOutcome?: string;
+      guardrail?: string;
+      reviewWhen?: string;
+      sequencingReason?: string;
+    };
+    systemLimit?: {
+      maxEligibleTasks?: number;
+      maxObservationDays?: number;
+      stopAtFirstLimit?: boolean;
+      explanation?: string;
+    };
+  };
+  status: 'queued' | 'observing' | 'review-ready' | 'reviewed' | 'paused' | 'ended';
+  sequence: number;
+  matchedTaskCount: number;
+  adoptionSignalCount: number;
+  maxTaskCount: number;
+  maxObservationDays: number;
+  evidenceCutoff: string | null;
+  createdAt: string;
+  updatedAt: string;
+  observations: ImprovementObservation[];
+  reviews: ImprovementReview[];
+  feedback: Array<{
+    id: string;
+    kind: 'judgment-wrong' | 'not-applicable' | 'continue-observing' | 'end-tracking';
+    note: string | null;
+    createdAt: string;
+  }>;
+}
+
+export interface ImprovementsState {
+  creationAvailability?: {
+    analysis: 'available' | 'requires-refresh' | 'requires-first-run';
+    practices: 'available' | 'empty';
+  };
+  generation: {
+    running: boolean;
+    action: 'create-plan' | 'review' | null;
+    subjectId: string | null;
+    startedAt: string | null;
+    lastError: string | null;
+  };
+  limits: {
+    maxActivePlans: number;
+    maxEligibleTasksPerPlan: number;
+    maxObservationDays: number;
+    explanation: string;
+  };
+  plans: ImprovementPlan[];
+}
+
+export function fetchImprovements() {
+  return request<ImprovementsState>('/improvements');
+}
+
+export function trackKnowledgePractice(practiceId: string) {
+  return request<{ accepted: true; message: string }>(`/improvements/from-practice/${encodeURIComponent(practiceId)}`, {
+    method: 'POST',
+  });
+}
+
+export function reviewImprovement(planId: string) {
+  return request<{ accepted: true; message: string }>(`/improvements/${encodeURIComponent(planId)}/review`, {
+    method: 'POST',
+  });
+}
+
+export function updateImprovementStatus(
+  planId: string,
+  status: 'observing' | 'paused' | 'ended',
+) {
+  return request<{ updated: true; status: 'observing' | 'paused' | 'ended' }>(
+    `/improvements/${encodeURIComponent(planId)}/status`,
+    { method: 'PATCH', body: JSON.stringify({ status }) },
+  );
+}
+
+export function sendImprovementFeedback(
+  planId: string,
+  body: {
+    kind: 'judgment-wrong' | 'not-applicable' | 'continue-observing' | 'end-tracking';
+    note?: string;
+  },
+) {
+  return request<{ id: string; storedLocally: true; message: string }>(
+    `/improvements/${encodeURIComponent(planId)}/feedback`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
 }

@@ -5,8 +5,13 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Layout } from '@/components/layout/Layout';
 import { useLanguage } from '@/i18n/LanguageProvider';
 
-const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
-const SessionsPage = lazy(() => import('@/pages/SessionsPage'));
+const loadDashboardPage = () => import('@/pages/DashboardPage');
+const loadSessionsPage = () => import('@/pages/SessionsPage');
+const loadAnalysisPage = () => import('@/pages/ImprovePage');
+const loadImprovementTrackingPage = () => import('@/pages/ImprovementTrackingPage');
+const loadPracticeLibraryPage = () => import('@/pages/PracticeLibraryPage');
+const DashboardPage = lazy(loadDashboardPage);
+const SessionsPage = lazy(loadSessionsPage);
 const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
@@ -19,8 +24,30 @@ const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
 const DeliveriesPage = lazy(() => import('@/pages/DeliveriesPage'));
 const DeliveryDetailPage = lazy(() => import('@/pages/DeliveryDetailPage'));
 const ScorecardsPage = lazy(() => import('@/pages/ScorecardsPage'));
-const AdvicePage = lazy(() => import('@/pages/AdvicePage'));
-const ImprovePage = lazy(() => import('@/pages/ImprovePage'));
+const AnalysisPage = lazy(loadAnalysisPage);
+const ImprovementTrackingPage = lazy(loadImprovementTrackingPage);
+const PracticeLibraryPage = lazy(loadPracticeLibraryPage);
+
+function RoutePrefetch() {
+  useEffect(() => {
+    const preload = () => {
+      void Promise.allSettled([
+        loadDashboardPage(),
+        loadSessionsPage(),
+        loadAnalysisPage(),
+        loadImprovementTrackingPage(),
+        loadPracticeLibraryPage(),
+      ]);
+    };
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(preload, { timeout: 2_500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = globalThis.setTimeout(preload, 1_000);
+    return () => globalThis.clearTimeout(id);
+  }, []);
+  return null;
+}
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard': 'Overview',
@@ -31,15 +58,16 @@ const ROUTE_TITLES: Record<string, string> = {
   '/analytics': 'Analytics',
   '/patterns': 'Patterns',
   '/scorecards': 'Scorecards',
-  '/advice': 'Advice',
-  '/improve': 'Improve',
+  '/analysis': 'Analysis',
+  '/improvements': 'Improvement Tracking',
+  '/practices': 'Practice Library',
   '/export': 'Export',
   '/journal': 'Journal',
   '/settings': 'Settings',
 };
 
 function RouteEffects() {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   const [searchParams] = useSearchParams();
   const insightParam = searchParams.get('insight');
   const navStartRef = useRef<number>(Date.now());
@@ -47,11 +75,15 @@ function RouteEffects() {
 
   // Scroll to top on route change, unless deep-linking to a specific insight
   useEffect(() => {
+    if (hash) {
+      requestAnimationFrame(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      return;
+    }
     const isInsightDeepLink = pathname === '/insights' && insightParam;
     if (!isInsightDeepLink) {
       window.scrollTo(0, 0);
     }
-  }, [pathname, insightParam]);
+  }, [pathname, hash, insightParam]);
 
   // Update document.title per route, track page views, and capture dashboard_loaded
   useEffect(() => {
@@ -60,7 +92,8 @@ function RouteEffects() {
     const localizedPage = language === 'zh-CN' ? ({
       Overview: '总览', Sessions: '活动记录', Tasks: '任务与交付', Deliveries: '交付证据',
       Insights: '洞察', Analytics: '统计', Patterns: '行为模式', Scorecards: '评分卡',
-      Advice: '行动计划', Improve: '能力分析', Export: '导出', Journal: '日志', Settings: '设置',
+      Analysis: '分析', Export: '导出', Journal: '日志', Settings: '设置',
+      'Improvement Tracking': '改进追踪', 'Practice Library': '实践库',
     } as Record<string, string>)[page] ?? page : page;
     const product = language === 'zh-CN' ? 'Agent 使用分析' : 'Agent Usage Analytics';
     document.title = localizedPage ? `${localizedPage} — ${product}` : product;
@@ -85,7 +118,13 @@ export default function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <RouteEffects />
-      <Suspense fallback={null}>
+      <RoutePrefetch />
+      <Suspense fallback={<div className="vibe-page" role="status" aria-label="正在打开页面">
+        <div className="h-9 animate-pulse border-y bg-muted/20" />
+        <div className="mt-10 h-14 max-w-2xl animate-pulse bg-muted/30" />
+        <div className="mt-5 h-5 max-w-3xl animate-pulse bg-muted/20" />
+        <div className="mt-10 h-48 animate-pulse border-y bg-muted/15" />
+      </div>}>
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -100,8 +139,9 @@ export default function App() {
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/patterns" element={<PatternsPage />} />
           <Route path="/scorecards" element={<ScorecardsPage />} />
-          <Route path="/advice" element={<AdvicePage />} />
-          <Route path="/improve" element={<ImprovePage />} />
+          <Route path="/analysis" element={<AnalysisPage />} />
+          <Route path="/improvements" element={<ImprovementTrackingPage />} />
+          <Route path="/practices" element={<PracticeLibraryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/export" element={<ExportPage />} />
           <Route path="/journal" element={<JournalPage />} />

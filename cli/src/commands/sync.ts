@@ -391,7 +391,16 @@ export function invalidateCompatibilityProjection(sessionId: string): void {
     database.prepare('DELETE FROM insights WHERE session_id = ?').run(sessionId);
     database.prepare('DELETE FROM session_facets WHERE session_id = ?').run(sessionId);
     database.prepare('DELETE FROM analysis_usage WHERE session_id = ?').run(sessionId);
-    database.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    // Analysis runs are immutable audit records and reference the session row.
+    // Keep that identity while clearing only rebuildable compatibility data.
+    database.prepare(`UPDATE sessions
+      SET message_count = 0,
+          user_message_count = 0,
+          assistant_message_count = 0,
+          tool_call_count = 0,
+          usage_source = 'pending-import',
+          synced_at = datetime('now')
+      WHERE id = ?`).run(sessionId);
     recalculateUsageStats();
   }).immediate();
 }
@@ -406,14 +415,17 @@ function projectionWriter(session: ParsedSession, replace: boolean): () => void 
         getDb().prepare('DELETE FROM analysis_usage WHERE session_id = ?').run(session.id);
       }
       insertSessionWithProjectAndReturnIsNew(session, replace);
-      if (session.messageCount > 2) insertMessages(session, replace);
+      // The settled-session path may analyze a single complete user/assistant
+      // turn. Keep its messages even though the broad history sync continues
+      // to omit trivial sessions.
+      if (session.messages.length > 0) insertMessages(session, replace);
     };
     if (replace) {
       getDb().transaction(() => {
         writeProjection();
         recalculateUsageStats();
       }).immediate();
-    } else if (session.messageCount > 2) {
+    } else if (session.messages.length > 0) {
       writeProjection();
     }
   };

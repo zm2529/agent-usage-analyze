@@ -16,8 +16,16 @@ vi.mock('../utils/config.js', () => ({
   getClaudeDir: () => path.join(os.tmpdir(), 'claude'),
 }));
 
+const projectionDb = vi.hoisted(() => ({
+  prepare: vi.fn(() => ({ run: vi.fn() })),
+  transaction: vi.fn((callback: () => void) => {
+    const transaction = () => callback();
+    return Object.assign(transaction, { immediate: transaction });
+  }),
+}));
+
 vi.mock('../db/client.js', () => ({
-  getDb: () => ({}),
+  getDb: () => projectionDb,
   getMigrationResult: () => ({ v6Applied: false }),
 }));
 
@@ -31,9 +39,10 @@ vi.mock('../db/write.js', () => ({
 }));
 
 const getAllProviders = vi.fn();
+const getProvider = vi.fn();
 vi.mock('../providers/registry.js', () => ({
   getAllProviders,
-  getProvider: vi.fn(),
+  getProvider,
 }));
 
 vi.mock('../providers/context.js', () => ({
@@ -44,7 +53,7 @@ vi.mock('../utils/telemetry.js', () => ({
   trackEvent: () => {},
 }));
 
-const { runSync } = await import('./sync.js');
+const { prepareSingleFileProjection, runSync } = await import('./sync.js');
 
 describe('runSync', () => {
   let tempDir: string;
@@ -57,6 +66,9 @@ describe('runSync', () => {
     insertMessages.mockReset();
     recalculateUsageStats.mockClear();
     getAllProviders.mockReset();
+    getProvider.mockReset();
+    projectionDb.prepare.mockClear();
+    projectionDb.transaction.mockClear();
   });
 
   afterEach(() => {
@@ -244,6 +256,38 @@ describe('runSync', () => {
     expect(insertSessionWithProjectAndReturnIsNew).not.toHaveBeenCalled();
     expect(insertMessages).not.toHaveBeenCalled();
     expect(result.syncedCount).toBe(0);
+  });
+
+  it('keeps messages for a single complete turn in a prepared projection', async () => {
+    const filePath = path.join(tempDir, 'single-turn.jsonl');
+    fs.writeFileSync(filePath, '{}');
+    const session = makeParsedSession({
+      id: 'codex:single-turn',
+      messageCount: 2,
+      userMessageCount: 1,
+      assistantMessageCount: 1,
+      messages: [
+        makeParsedMessage({ id: 'msg-single-user', sessionId: 'codex:single-turn' }),
+        makeParsedMessage({
+          id: 'msg-single-assistant',
+          sessionId: 'codex:single-turn',
+          type: 'assistant',
+        }),
+      ],
+    });
+    getProvider.mockReturnValue({ parse: async () => session });
+
+    const prepared = await prepareSingleFileProjection({
+      filePath,
+      sourceTool: 'codex-cli',
+      replace: true,
+      replaceSessionId: session.id,
+    });
+    prepared.commit();
+
+    expect(prepared.complete).toBe(true);
+    expect(insertSessionWithProjectAndReturnIsNew).toHaveBeenCalledWith(session, true);
+    expect(insertMessages).toHaveBeenCalledWith(session, true);
   });
 
   it('syncs sessions with 3 or more messages', async () => {

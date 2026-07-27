@@ -78,7 +78,12 @@ describe('Analytics routes', () => {
       const body = await res.json();
       expect(body.range).toBe('today');
       expect(body.timeline).toHaveLength(24);
-      expect(body.totals).toMatchObject({ sessions: 0, subagents: 0, inputTokens: 0 });
+      expect(body.totals).toMatchObject({
+        sessions: 0,
+        subagents: 0,
+        uncachedInputTokens: 0,
+        totalProcessedTokens: 0,
+      });
       expect(body.skills).toEqual([]);
       expect(body.skillSeries).toEqual([]);
       expect(body.skillTimeline).toHaveLength(24);
@@ -116,15 +121,19 @@ describe('Analytics routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.totals).toMatchObject({
-        inputTokens: 1000,
+        rawInputTokens: 1000,
+        uncachedInputTokens: 280,
         outputTokens: 100,
         cacheCreationTokens: 20,
         cacheReadTokens: 700,
+        totalProcessedTokens: 1100,
       });
       expect(body.timeline[now.getHours()]).toMatchObject({
-        inputTokens: 280,
+        uncachedInputTokens: 280,
+        cacheCreationTokens: 20,
+        cacheReadTokens: 700,
         outputTokens: 100,
-        cacheTokens: 720,
+        totalProcessedTokens: 1100,
       });
     });
 

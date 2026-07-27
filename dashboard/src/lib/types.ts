@@ -157,7 +157,7 @@ export interface BuildermarkGateReport {
 }
 export interface BuildermarkGateState {
   status: BuildermarkGateStatus;
-  experimentalEnabled: boolean;
+  candidateEnabled: boolean;
   latestRun: BuildermarkGateReport | null;
   realGatePassed: boolean;
   syntheticGatePassed: boolean;
@@ -299,53 +299,6 @@ export interface ObserverOverhead {
     sidecarMs?: number; advisoryAction?: 'shown' | 'adopted' | 'ignored' | 'dismissed';
     evidenceRefs: string[]; occurredAt: string;
   }>;
-}
-
-export interface AdvisorySuggestion {
-  taskId: string;
-  issueKey: string;
-  sourceCategory: 'deterministic' | 'llm-semantic';
-  triggerFact: string;
-  expectedBenefit: string;
-  confidence: number;
-  coverage: number;
-  evidenceRefs: string[];
-  verification: string;
-  muted: boolean;
-}
-
-export interface AdviceState {
-  status: 'ok';
-  active: AdvisorySuggestion[];
-  muted: AdvisorySuggestion[];
-  history: {
-    events: Array<{
-      id: string; interventionId: string; issueKey: string; taskId: string;
-      action: 'shown' | 'adopted' | 'ignored' | 'dismissed' | 'outcome';
-      outcome: 'improved' | 'not-improved' | 'unknown' | null;
-      observationEraId: string; coverage: number; evidenceRefs: string[]; occurredAt: string;
-    }>;
-    comparisons: Array<{
-      interventionId: string; issueKey: string; kind: 'observational-before-after'; causal: false;
-      baseline: { observationEraId: string; coverage: number; occurredAt: string };
-      followup: {
-        observationEraId: string; coverage: number;
-        outcome: 'improved' | 'not-improved' | 'unknown'; occurredAt: string;
-      };
-    }>;
-  };
-  attention: { shown: number; adopted: number; ignored: number; dismissed: number };
-  strategic: null | {
-    generatedAt: string; headline: string; northStar: string;
-    actions: Array<{
-      category: 'overall' | 'skill' | 'model' | 'reasoning';
-      title: string;
-      rationale: string;
-      recommendation?: string;
-      applicability?: string;
-    }>;
-  };
-  diagnostics: string[];
 }
 
 export type TrendState = 'new' | 'persistent' | 'improving' | 'regressed' | 'resolved' | 'incomparable';
@@ -563,13 +516,15 @@ export interface BehaviorReport {
   developmentPlan: {
     northStar: string;
     operatingRules: string[];
-    experiments: Array<{
+    improvementPlans: Array<{
       title: string;
       hypothesis: string;
       eligibleCohort: string;
       observableOutcome: string;
       guardrail: string;
       reviewAfter: string;
+      relationshipToPrevious: 'parallel' | 'after-previous';
+      sequencingReason: string;
       evidenceRefs: string[];
     }>;
     taskTemplate: string;
@@ -765,12 +720,14 @@ export interface OverviewAnalytics {
   totals: {
     sessions: number; projects: number; rootTasks: number; subagents: number;
     messages: number; toolCalls: number; skillInvocations: number; durationMinutes: number;
-    inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number;
-    promptScore: number | null;
+    uncachedInputTokens: number; cacheCreationTokens: number; cacheReadTokens: number;
+    outputTokens: number; totalProcessedTokens: number; rawInputTokens: number;
+    promptScore: number | null; promptScoreAnalyzedSessions: number; promptScoreEligibleSessions: number;
   };
   timeline: Array<{
     key: string; label: string; sessions: number; messages: number; toolCalls: number;
-    durationMinutes: number; inputTokens: number; outputTokens: number; cacheTokens: number;
+    durationMinutes: number; uncachedInputTokens: number; cacheCreationTokens: number;
+    cacheReadTokens: number; outputTokens: number; totalProcessedTokens: number;
     subagents: number; skillInvocations: number; promptScore: number | null;
   }>;
   skills: Array<{ name: string; invocations: number; sessions: number }>;

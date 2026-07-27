@@ -77,6 +77,8 @@ export function saveConfig(config: ClaudeInsightConfig): void {
         ? { analysis: config.dashboard.analysis } : {}),
       ...(config.dashboard.capabilities !== undefined
         ? { capabilities: config.dashboard.capabilities } : {}),
+      ...(config.dashboard.knowledgeResearch !== undefined
+        ? { knowledgeResearch: config.dashboard.knowledgeResearch } : {}),
     };
   }
   if (config.telemetry !== undefined) {

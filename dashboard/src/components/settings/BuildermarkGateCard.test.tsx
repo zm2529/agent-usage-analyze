@@ -9,10 +9,10 @@ vi.mock('@/lib/api', () => api);
 
 afterEach(cleanup);
 
-function state(status: BuildermarkGateState['status'], experimentalEnabled = false): BuildermarkGateState {
+function state(status: BuildermarkGateState['status'], candidateEnabled = false): BuildermarkGateState {
   return {
-    status, experimentalEnabled, latestRun: null,
-    realGatePassed: experimentalEnabled, syntheticGatePassed: experimentalEnabled,
+    status, candidateEnabled, latestRun: null,
+    realGatePassed: candidateEnabled, syntheticGatePassed: candidateEnabled,
     stateError: null,
   };
 }
@@ -28,7 +28,7 @@ describe('Buildermark gate status card', () => {
     for (const [gate, label] of cases) {
       const view = render(<BuildermarkGateStatusCard state={gate} />);
       expect(screen.getByText(label)).toBeInTheDocument();
-      expect(screen.getByText(/candidates are experimental evidence, never certain ownership/i)).toBeInTheDocument();
+      expect(screen.getByText(/candidates are provisional evidence, never certain ownership/i)).toBeInTheDocument();
       view.unmount();
     }
   });
@@ -48,6 +48,6 @@ describe('Buildermark gate status card', () => {
       ...state('failed'), stateError: 'corrupt-report',
     }} />);
     expect(screen.getByText(/stored gate report failed integrity validation/i)).toBeInTheDocument();
-    expect(screen.getByText(/experiment is disabled/i)).toBeInTheDocument();
+    expect(screen.getByText(/candidate use is disabled/i)).toBeInTheDocument();
   });
 });

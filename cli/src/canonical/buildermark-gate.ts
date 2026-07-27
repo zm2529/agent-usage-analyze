@@ -45,7 +45,7 @@ export interface BuildermarkGateReport {
 
 export interface BuildermarkGateState {
   status: BuildermarkGateStatus;
-  experimentalEnabled: boolean;
+  candidateEnabled: boolean;
   latestRun: BuildermarkGateReport | null;
   realGatePassed: boolean;
   syntheticGatePassed: boolean;
@@ -336,7 +336,7 @@ export function readBuildermarkGateState(db: Database.Database): BuildermarkGate
       && (report === null || report.mode !== row.mode || report.status !== row.status));
   if (corruptReport) {
     return {
-      status: 'failed', experimentalEnabled: false, latestRun: null,
+      status: 'failed', candidateEnabled: false, latestRun: null,
       realGatePassed: false, syntheticGatePassed: false, stateError: 'corrupt-report',
     };
   }
@@ -345,7 +345,7 @@ export function readBuildermarkGateState(db: Database.Database): BuildermarkGate
   const syntheticGatePassed = modeStatus.get('synthetic') === 'passed';
   return {
     status: latest?.status ?? 'disabled',
-    experimentalEnabled: realGatePassed && syntheticGatePassed && latest?.status === 'passed',
+    candidateEnabled: realGatePassed && syntheticGatePassed && latest?.status === 'passed',
     latestRun: latestReport,
     realGatePassed,
     syntheticGatePassed,

@@ -26,5 +26,7 @@ export function useOverviewAnalytics(range: OverviewRange) {
     queryKey: ['analytics', 'overview', range],
     queryFn: () => fetchOverviewAnalytics(range),
     refetchInterval: 30_000,
+    staleTime: 5 * 60_000,
+    gcTime: 60 * 60_000,
   });
 }

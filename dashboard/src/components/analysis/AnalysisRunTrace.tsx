@@ -18,19 +18,27 @@ function parseStoredDate(value: string): Date {
   return new Date(sqliteUtc ? `${value.replace(' ', 'T')}Z` : value);
 }
 
-function RunDetails({ run }: { run: AnalysisRunRecord }) {
+function RunDetails({ run, hasCurrentConversationEvidence = false }: {
+  run: AnalysisRunRecord;
+  hasCurrentConversationEvidence?: boolean;
+}) {
   const { language, t } = useLanguage();
   const summary = useMemo(() => JSON.stringify(run.inputSummary, null, 2), [run.inputSummary]);
   const statusLabel = t(`analysisRun.status.${run.status}`, run.status);
   const statusVariant = run.status === 'completed' ? 'secondary' : 'outline';
+  const staleUnavailable = hasCurrentConversationEvidence
+    && run.status === 'unavailable'
+    && run.unavailableReason === 'no-human-messages';
 
   return (
     <details className="rounded-md border bg-background px-3 py-2">
       <summary className="cursor-pointer list-none">
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Badge variant={statusVariant}>{statusLabel}</Badge>
+          <Badge variant={statusVariant}>{staleUnavailable ? '历史结果' : statusLabel}</Badge>
           <span className="font-medium">{t(`analysisRun.type.${run.analysisType}`, run.analysisType)}</span>
-          <span className="text-muted-foreground">{run.provider ?? t('analysisRun.noProvider', 'No provider')}</span>
+          {!staleUnavailable && (
+            <span className="text-muted-foreground">{run.provider ?? t('analysisRun.noProvider', 'No provider')}</span>
+          )}
           {run.model && <span className="text-muted-foreground">· {run.model}</span>}
           <span className="ml-auto text-muted-foreground">
             {new Intl.DateTimeFormat(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
@@ -38,7 +46,11 @@ function RunDetails({ run }: { run: AnalysisRunRecord }) {
             }).format(parseStoredDate(run.createdAt))}
           </span>
         </div>
-        {run.unavailableReason && (
+        {staleUnavailable ? (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+            这次记录生成后已导入新的对话内容，需要重新分析；它不代表当前会话仍然证据不足。
+          </p>
+        ) : run.unavailableReason && (
           <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
             {t('analysisRun.unavailableReason', 'Unavailable reason')}: {t(`analysisRun.reason.${run.unavailableReason}`, run.unavailableReason)}
           </p>
@@ -74,9 +86,13 @@ function RunDetails({ run }: { run: AnalysisRunRecord }) {
   );
 }
 
-export function AnalysisRunTrace({ sessionId, analysisType }: { sessionId?: string; analysisType?: string }) {
+export function AnalysisRunTrace({ sessionId, analysisType, hasCurrentConversationEvidence = false }: {
+  sessionId?: string;
+  analysisType?: string;
+  hasCurrentConversationEvidence?: boolean;
+}) {
   const { t } = useLanguage();
-  const query = useAnalysisRuns({ sessionId, analysisType, limit: 20 });
+  const query = useAnalysisRuns({ sessionId, analysisType, limit: 5 });
 
   return (
     <section className="rounded-lg border border-dashed bg-muted/20 p-4">
@@ -90,7 +106,13 @@ export function AnalysisRunTrace({ sessionId, analysisType }: { sessionId?: stri
         {!query.isLoading && !query.isError && query.data?.length === 0 && (
           <p className="text-xs text-muted-foreground">{t('analysisRun.empty', 'No LLM analysis has run yet.')}</p>
         )}
-        {query.data?.map((run) => <RunDetails key={run.id} run={run} />)}
+        {query.data?.map((run) => (
+          <RunDetails
+            key={run.id}
+            run={run}
+            hasCurrentConversationEvidence={hasCurrentConversationEvidence}
+          />
+        ))}
       </div>
     </section>
   );

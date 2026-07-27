@@ -59,6 +59,31 @@ export function recordAnalysisRun(
   return id;
 }
 
+/**
+ * A session worker can briefly hold SQLite's single-writer slot while it
+ * commits a large analysis packet. Keep an already-computed LLM result in
+ * memory and retry only the immutable ledger insert instead of rerunning the
+ * model or failing the whole report.
+ */
+export async function recordAnalysisRunWithRetry(
+  input: RecordAnalysisRunInput,
+  db: Database.Database = getDb(),
+  options: { attempts?: number; delayMs?: number } = {},
+): Promise<string> {
+  const attempts = Math.max(1, options.attempts ?? 4);
+  const delayMs = Math.max(1, options.delayMs ?? 250);
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return recordAnalysisRun(input, db);
+    } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      if ((code !== 'SQLITE_BUSY' && code !== 'SQLITE_LOCKED') || attempt === attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+  throw new Error('unreachable analysis-run retry state');
+}
+
 export function listAnalysisRuns(
   filter: { sessionId?: string; analysisType?: string; limit?: number } = {},
   db: Database.Database = getDb(),

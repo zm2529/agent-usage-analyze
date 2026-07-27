@@ -237,8 +237,8 @@ describe('isolated local product smoke', () => {
     const deliveryTask = await (await app.request(
       `/api/tasks/${encodeURIComponent(deliveryFact.taskId)}`,
     )).json() as { task: { events: Array<{ id: string }> } };
-    const advice = await (await app.request('/api/advice?taskId=task%3Acurrent-one')).json() as {
-      active: Array<{ issueKey: string; evidenceRefs: string[] }>;
+    const improvements = await (await app.request('/api/improvements')).json() as {
+      plans: unknown[];
     };
     const scorecards = await (await app.request('/api/scorecards?taskId=task%3Acurrent-two')).json() as {
       results: Array<{ indexValue: number | null; unavailableReason: string | null }>;
@@ -274,10 +274,7 @@ describe('isolated local product smoke', () => {
       })]),
     }));
     expect(deliveryTask.task.events.map((item) => item.id)).toContain('task:current-two:result');
-    expect(advice.active).toContainEqual(expect.objectContaining({
-      issueKey: 'pattern:validation-missing',
-      evidenceRefs: expect.arrayContaining(['task:current-one:done']),
-    }));
+    expect(improvements.plans).toEqual([]);
     expect(scorecards.results).toEqual(expect.arrayContaining([
       expect.objectContaining({ indexValue: null, unavailableReason: 'scorecard-not-active' }),
       expect.objectContaining({ indexValue: 85, unavailableReason: null }),

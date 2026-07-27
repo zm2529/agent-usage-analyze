@@ -26,9 +26,7 @@ export function LocalRuntimeCard() {
           </div>
           <dl className="border-t text-xs">
             <div className="grid grid-cols-[140px_1fr] border-b py-3"><dt className="text-muted-foreground">{t('runtime.sources', 'Sources')}</dt><dd>{runtime.data.sources.length === 0 ? t('runtime.none', 'none') : runtime.data.sources.map((source) => `${source.kind} (${source.count})`).join(', ')}</dd></div>
-            <div className="grid grid-cols-[140px_1fr] border-b py-3"><dt className="text-muted-foreground">导入诊断日志</dt><dd><code className="break-all">{runtime.data.dataDirectory}/session-ingestion.log</code></dd></div>
             <div className="grid grid-cols-[140px_1fr] border-b py-3"><dt className="text-muted-foreground">{t('runtime.defaultLlm', 'Default session LLM analysis')}</dt><dd>{automaticLlmEnabled ? `${runtime.data.analysis.effectiveRunner} · ${runtime.data.analysis.authentication} · ${t('runtime.enabled', 'enabled')}` : `${runtime.data.analysis.effectiveRunner} · ${t('runtime.disabled', 'disabled')}`}</dd></div>
-            <div className="grid grid-cols-[140px_1fr] border-b py-3"><dt className="text-muted-foreground">{t('runtime.migration', 'Migration')}</dt><dd>schema V{runtime.data.migration.databaseSchema} · {runtime.data.migration.status}</dd></div>
           </dl>
           <div className="border-t pt-3">
             <Button asChild size="sm"><a href={runtime.data.dataActions.exportPath} download><Download className="mr-2 h-4 w-4" />{t('runtime.export', 'Download sanitized export')}</a></Button>

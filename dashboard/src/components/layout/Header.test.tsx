@@ -1,41 +1,36 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '@/i18n/LanguageProvider';
 import { Header, NAV_ITEMS } from './Header';
 
-vi.mock('@/hooks/useIngestionHealth', () => ({
-  useIngestionHealth: () => ({
+vi.mock('@/hooks/useRuntimeStatus', () => ({
+  useRuntimeStatus: () => ({
     data: {
-      status: 'running',
-      diagnostics: [],
-      coverage: { discovered: 8, parsed: 4, skipped: 0, failed: 0, unknown: 0 },
-      eventCount: 10,
-      sourceCount: 8,
-      processedSources: 4,
-      startedAt: '2026-07-26T00:00:00.000Z',
-      completedAt: null,
-      eras: [],
+      generatedAt: '2026-07-26T00:00:00.000Z',
+      stages: {
+        hook: { state: 'healthy', label: '最近事件已收到', lastSuccessAt: '2026-07-26T00:00:00.000Z', backlog: 0, failures: 0, action: { label: '查看记录', href: '/sessions' }, detail: '' },
+        ingestion: { state: 'running', label: '正在导入', lastSuccessAt: null, backlog: 4, failures: 0, action: { label: '查看导入', href: '/settings' }, detail: '已处理 4/8 个来源' },
+        semanticAnalysis: { state: 'waiting', label: '等待分析能力', lastSuccessAt: null, backlog: 1, failures: 0, action: { label: '查看队列', href: '/settings' }, detail: '' },
+        behaviorReport: { state: 'healthy', label: '当前报告可用', lastSuccessAt: '2026-07-26T00:00:00.000Z', backlog: 0, failures: 0, action: { label: '查看分析', href: '/analysis' }, detail: '' },
+        knowledgeResearch: { state: 'healthy', label: '实践快照已更新', lastSuccessAt: '2026-07-26T00:00:00.000Z', backlog: 0, failures: 0, action: { label: '查看实践库', href: '/practices' }, detail: '' },
+      },
     },
   }),
-}));
-
-vi.mock('@/hooks/useBehaviorReport', () => ({
-  useBehaviorReport: () => ({ data: { generation: { running: false }, report: null } }),
 }));
 
 vi.mock('./ThemeToggle', () => ({ ThemeToggle: () => null }));
 vi.mock('./LanguageToggle', () => ({ LanguageToggle: () => null }));
 
 describe('primary navigation', () => {
-  it('keeps the primary navigation focused on the four user decisions', () => {
+  it('keeps the primary navigation focused on the five product areas', () => {
     expect(NAV_ITEMS.map(({ href, label }) => [href, label])).toEqual([
-      ['/dashboard', '总览'], ['/improve', '分析'], ['/advice', '建议'],
-      ['/sessions', '记录'],
+      ['/dashboard', '总览'], ['/analysis', '分析'], ['/improvements', '改进追踪'],
+      ['/practices', '实践库'], ['/sessions', '活动记录'],
     ]);
   });
 
-  it('shows real file progress in the running import stage', () => {
+  it('shows each real pipeline stage independently', () => {
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
         <LanguageProvider>
@@ -44,8 +39,9 @@ describe('primary navigation', () => {
       </MemoryRouter>,
     );
 
-    const status = screen.getByRole('status', { name: /导入进度 50%/ });
-    expect(within(status).getByText('50% · 4/8')).toBeInTheDocument();
-    expect(status.querySelector('.vibe-stage-progress > span')).toHaveStyle({ width: '50%' });
+    expect(screen.getByText('最近事件已收到')).toBeInTheDocument();
+    expect(screen.getByText('正在导入')).toBeInTheDocument();
+    expect(screen.getByText('等待分析能力')).toBeInTheDocument();
+    expect(screen.getByText('当前报告可用')).toBeInTheDocument();
   });
 });

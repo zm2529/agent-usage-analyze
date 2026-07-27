@@ -9,8 +9,9 @@ import {
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useOverviewAnalytics } from '@/hooks/useAnalytics';
-import { useBehaviorReport } from '@/hooks/useBehaviorReport';
+import { useBehaviorReportSummary } from '@/hooks/useBehaviorReport';
 import { useIngestionHealth } from '@/hooks/useIngestionHealth';
+import { useImprovements } from '@/hooks/useImprovements';
 import { useSessions } from '@/hooks/useSessions';
 import { HistorySyncButton } from '@/components/dashboard/HistorySyncButton';
 import { IngestionProgressCard } from '@/components/dashboard/IngestionProgressCard';
@@ -58,6 +59,57 @@ function SectionTitle({ title, description, aside }: { title: string; descriptio
   </div>;
 }
 
+function DashboardSkeleton({ className = '' }: { className?: string }) {
+  return <span className={`dashboard-skeleton ${className}`} aria-hidden="true" />;
+}
+
+export function PriorityDecision({ headline, plans, healthState, reportState, headlineLoading = false, plansLoading = false, healthLoading = false }: {
+  headline: string | null;
+  plans: Array<{ id: string; title: string; status: string; matchedTaskCount: number; maxTaskCount: number; basisChanged: boolean }>;
+  healthState: string | undefined;
+  reportState: string | undefined;
+  headlineLoading?: boolean;
+  plansLoading?: boolean;
+  healthLoading?: boolean;
+}) {
+  const showHeadlineLoading = headlineLoading && !headline;
+  const showPlansLoading = plansLoading && plans.length === 0;
+
+  return <>
+    <header className="flex flex-col justify-between gap-6 border-b border-foreground py-10 lg:flex-row lg:items-end">
+      <div><p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">DAILY DECISION BRIEF</p><h1 className="vibe-serif mt-3 text-4xl sm:text-5xl">总览</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">先看最近最大的变化、成因与正在观察的改进，再看使用统计。</p></div>
+      <div className="flex gap-2"><Link to="/analysis" className="flex h-11 items-center border px-4 text-xs font-semibold">进入分析证据</Link><Link to="/improvements" className="flex h-11 items-center border border-foreground bg-foreground px-4 text-xs font-semibold text-background">查看改进追踪</Link></div>
+    </header>
+    <section className="grid border-b border-foreground bg-card lg:grid-cols-[minmax(0,1.45fr)_minmax(330px,.72fr)]">
+      <div className="flex min-h-[390px] flex-col border-b p-6 lg:border-b-0 lg:border-r">
+        <p className="vibe-mono text-[10px] text-muted-foreground">最近最大的变化</p>
+        {showHeadlineLoading ? <>
+          <div className="mt-8 grid max-w-3xl gap-3" role="status" aria-label="正在整理最近记录">
+            <DashboardSkeleton className="h-10 w-[88%] sm:h-12" />
+            <DashboardSkeleton className="h-10 w-[64%] sm:h-12" />
+          </div>
+          <div className="mt-6 grid max-w-2xl gap-2.5">
+            <DashboardSkeleton className="h-2.5 w-full" />
+            <DashboardSkeleton className="h-2.5 w-3/4" />
+          </div>
+          <p className="mt-5 text-xs text-muted-foreground">正在整理最近记录</p>
+        </> : <>
+          <h2 className="vibe-serif mt-8 max-w-3xl text-3xl leading-tight sm:text-5xl">{headline ?? '最近还没有可展示的分析'}</h2>
+          <p className="mt-5 max-w-3xl text-sm leading-7 text-muted-foreground">{headline ? '这是最近 30 天最值得关注的使用变化。' : '完成一次分析后，最值得关注的变化会显示在这里。'}</p>
+        </>}
+        <div className="mt-auto flex justify-end border-t pt-4 text-xs">
+          {showHeadlineLoading ? <DashboardSkeleton className="h-3 w-20" /> : <Link to="/analysis" className="font-semibold underline underline-offset-4">查看完整分析</Link>}
+        </div>
+      </div>
+      <div>
+        <div className="border-b p-5"><h2 className="vibe-serif text-2xl">数据 / 分析健康</h2><div className="mt-4 grid grid-cols-2 border-l border-t text-xs"><div className="border-b border-r p-3"><span className="text-[10px] text-muted-foreground">数据导入</span>{healthLoading ? <DashboardSkeleton className="mt-2 h-3 w-16" /> : <strong className="mt-2 block">{healthState === 'completed' ? '最近完成' : healthState === 'running' ? '进行中' : '需要检查'}</strong>}</div><div className="border-b border-r p-3"><span className="text-[10px] text-muted-foreground">跨任务报告</span>{headlineLoading ? <DashboardSkeleton className="mt-2 h-3 w-16" /> : <strong className="mt-2 block">{reportState ?? '等待首次运行'}</strong>}</div><div className="border-b border-r p-3"><span className="text-[10px] text-muted-foreground">当前计划</span>{plansLoading ? <DashboardSkeleton className="mt-2 h-3 w-10" /> : <strong className="vibe-mono mt-2 block">{plans.length} / 3</strong>}</div><div className="border-b border-r p-3"><span className="text-[10px] text-muted-foreground">依据变化</span>{plansLoading ? <DashboardSkeleton className="mt-2 h-3 w-8" /> : <strong className="vibe-mono mt-2 block">{plans.filter((plan) => plan.basisChanged).length}</strong>}</div></div></div>
+        <div className="p-5"><h2 className="vibe-serif text-2xl">接下来可以做什么</h2>{showHeadlineLoading ? <div className="mt-3 space-y-0" aria-hidden>{Array.from({ length: 3 }, (_, index) => <div key={index} className="flex items-center gap-3 border-b py-4 last:border-b-0"><span className="vibe-mono text-[10px] text-muted-foreground">0{index + 1}</span><DashboardSkeleton className={`h-2.5 ${index === 1 ? 'w-3/4' : 'w-5/6'}`} /></div>)}</div> : <ol className="mt-3"><li className="border-b py-3 text-xs"><b className="vibe-mono mr-3">01</b>查看完整分析，了解这项变化出现在哪些任务中。</li><li className="border-b py-3 text-xs"><b className="vibe-mono mr-3">02</b>跟踪正在进行的改进，观察后续任务是否发生变化。</li><li className="py-3 text-xs"><b className="vibe-mono mr-3">03</b>需要更多做法时，到实践库查看相关资料。</li></ol>}</div>
+      </div>
+    </section>
+    <section className="mt-6 border-y border-foreground bg-card"><div className="flex items-end justify-between gap-4 border-b p-4"><div><h2 className="vibe-serif text-2xl">当前改进计划</h2><p className="mt-1 text-xs text-muted-foreground">{showPlansLoading ? '正在整理最近记录' : '查看正在观察的改进及当前进度。'}</p></div><Link to="/improvements" className="text-xs font-semibold underline underline-offset-4">管理全部计划</Link></div><div className="grid lg:grid-cols-3">{showPlansLoading ? Array.from({ length: 3 }, (_, index) => <article key={index} className="flex min-h-36 flex-col border-b p-5 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0" aria-hidden><DashboardSkeleton className="h-2.5 w-16" /><DashboardSkeleton className="mt-4 h-6 w-4/5" /><DashboardSkeleton className="mt-auto h-1.5 w-full" /><DashboardSkeleton className="mt-3 h-2.5 w-2/3" /></article>) : plans.length === 0 ? <div className="p-5 text-xs text-muted-foreground"><p>{reportState === '已完成' ? '当前没有适合追踪的计划，可以从实践库选择一项开始。' : '完成分析后会在这里显示适合追踪的改进。'}</p><div className="mt-3 flex gap-4"><Link to="/analysis" className="font-semibold text-foreground underline underline-offset-4">{reportState === '需要重新分析' ? '重新分析' : '前往分析'}</Link><Link to="/practices" className="font-semibold text-foreground underline underline-offset-4">打开实践库</Link></div></div> : plans.slice(0, 3).map((plan) => <article key={plan.id} className="border-b p-5 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0"><p className="vibe-mono text-[10px] text-muted-foreground">{plan.status === 'queued' ? '排队' : '自动观察'}{plan.basisChanged ? ' · 建议提前复盘' : ''}</p><h3 className="vibe-serif mt-2 text-xl">{plan.title}</h3><div className="mt-5 h-1.5 bg-muted"><i className="block h-full bg-[#28666E]" style={{ width: `${Math.min(100, plan.matchedTaskCount / Math.max(1, plan.maxTaskCount) * 100)}%` }} /></div><div className="mt-2 flex justify-between text-[10px] text-muted-foreground"><span>已观察 {plan.matchedTaskCount} / {plan.maxTaskCount} 项任务</span><span>{plan.basisChanged ? '建议提前复盘' : '持续观察'}</span></div></article>)}</div></section>
+  </>;
+}
+
 const tooltipStyle = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 2, fontSize: 11, boxShadow: '0 10px 30px rgb(0 0 0 / .18)' };
 const chartCursor = { fill: 'rgba(40, 102, 110, 0.08)' };
 
@@ -89,17 +141,18 @@ function SkillTrendTooltip({ active, label, payload }: {
 export default function DashboardPage() {
   const [range, setRange] = useState<OverviewRange>('7d');
   const overview = useOverviewAnalytics(range);
-  const behavior = useBehaviorReport();
-  const { data: health } = useIngestionHealth();
+  const behavior = useBehaviorReportSummary();
+  const improvements = useImprovements();
+  const { data: health, isLoading: healthLoading } = useIngestionHealth();
   const { data: sessions = [] } = useSessions({ limit: 8 });
   const data = overview.data;
   const report = behavior.data?.report;
-  const generatedAt = behavior.data?.run?.createdAt ?? null;
+  const generatedAt = behavior.data?.report?.generatedAt ?? null;
   const tokenComposition = useMemo(() => data ? [
-    { name: '输入', value: data.totals.inputTokens },
-    { name: '输出', value: data.totals.outputTokens },
+    { name: '未缓存输入', value: data.totals.uncachedInputTokens },
     { name: '缓存写入', value: data.totals.cacheCreationTokens },
     { name: '缓存读取', value: data.totals.cacheReadTokens },
+    { name: '输出', value: data.totals.outputTokens },
   ] : [], [data]);
   const skillTrend = useMemo(() => (data?.skillTimeline ?? []).map((point) => ({
     key: point.key,
@@ -110,20 +163,30 @@ export default function DashboardPage() {
       point.counts[series.name] ?? 0,
     ])),
   })), [data]);
+  const priority = <PriorityDecision
+    headline={report?.headline ?? null}
+    plans={(improvements.data?.plans ?? []).filter((plan) => ['observing', 'queued', 'review-ready'].includes(plan.status))}
+    healthState={health?.status}
+    reportState={behavior.data?.generation.running ? '分析中' : behavior.data?.report ? '已完成' : behavior.data?.latestAttempt?.status === 'completed' ? '需要重新分析' : behavior.data?.latestAttempt?.status}
+    headlineLoading={behavior.isLoading}
+    plansLoading={improvements.isLoading}
+    healthLoading={healthLoading}
+  />;
 
   if (overview.isLoading) {
-    return <div className="vibe-page pb-16"><header className="border-b border-foreground/80 pb-6 pt-8"><p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">ANALYTICS OVERVIEW</p><h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">Agent 使用总览</h1><p className="mt-3 text-sm text-muted-foreground">正在读取本地统计与趋势…</p></header><div className="overview-metrics mt-5" aria-hidden>{Array.from({ length: 8 }, (_, index) => <div key={index} className="overview-metric animate-pulse bg-muted/30" />)}</div></div>;
+    return <div className="vibe-page pb-16">{priority}<section className="mt-7" aria-busy="true"><h2 className="vibe-serif text-2xl">使用统计</h2><p className="mt-1 text-xs text-muted-foreground">已有记录先显示，其余内容正在整理。</p><div className="overview-metrics mt-4" aria-hidden>{Array.from({ length: 8 }, (_, index) => <div key={index} className="overview-metric flex flex-col"><DashboardSkeleton className="h-2.5 w-16" /><DashboardSkeleton className="mt-4 h-7 w-14" /><DashboardSkeleton className="mt-3 h-2.5 w-3/4" /></div>)}</div></section></div>;
   }
   if (overview.isError || !data) {
-    return <div className="vibe-page pb-16"><header className="border-b border-foreground/80 pb-6 pt-8"><p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">ANALYTICS OVERVIEW</p><h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">Agent 使用总览</h1><p className="mt-3 text-sm text-destructive">本地统计暂时不可用，请确认服务仍在运行后刷新。</p></header></div>;
+    return <div className="vibe-page pb-16">{priority}<p className="mt-7 border-y border-destructive py-5 text-sm text-destructive">详细统计暂时不可用；最近成功的分析摘要仍保留，请确认服务后刷新。</p></div>;
   }
 
   return <div className="vibe-page pb-16">
-    <header className="border-b border-foreground/80 pb-6 pt-8">
+    {priority}
+    <header className="mt-8 border-b border-foreground/80 pb-6 pt-8">
       <div className="flex flex-wrap items-start justify-between gap-5">
         <div>
-          <p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">ANALYTICS OVERVIEW</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">Agent 使用总览</h1>
+          <p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">LOCAL FACTS / SECOND SCREEN</p>
+          <h2 className="vibe-serif mt-3 text-3xl">使用统计</h2>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">查看使用规模、Agent 编排、Skill 与工具、Token 结构和提示词质量。所有数值来自本地已导入会话。</p>
         </div>
         <div className="flex items-center gap-2">
@@ -157,25 +220,29 @@ export default function DashboardPage() {
       <Metric label="工具调用" value={compact(data?.totals.toolCalls ?? 0)} detail="全部工具事件" icon={Wrench} />
       <Metric label="Skill" value={compact(data?.totals.skillInvocations ?? 0)} detail="用户指定与 Agent 自动启用" icon={Sparkles} />
       <Metric
-        label="Token"
-        value={compact((data?.totals.inputTokens ?? 0) + (data?.totals.outputTokens ?? 0))}
-        detail={`输入 ${compact(data?.totals.inputTokens ?? 0)}（其中缓存 ${compact((data?.totals.cacheCreationTokens ?? 0) + (data?.totals.cacheReadTokens ?? 0))}）· 输出 ${compact(data?.totals.outputTokens ?? 0)}`}
+        label="处理 Token"
+        value={compact(data?.totals.totalProcessedTokens ?? 0)}
+        detail={`未缓存输入 ${compact(data?.totals.uncachedInputTokens ?? 0)} · 缓存写入 ${compact(data?.totals.cacheCreationTokens ?? 0)} · 缓存读取 ${compact(data?.totals.cacheReadTokens ?? 0)} · 输出 ${compact(data?.totals.outputTokens ?? 0)}`}
         icon={Cpu}
       />
-      <Metric label="提示词质量" value={data?.totals.promptScore == null ? '—' : String(data.totals.promptScore)} detail="已分析会话均值" icon={Activity} />
+      <Metric
+        label="提示词质量"
+        value={data?.totals.promptScore == null ? '—' : String(data.totals.promptScore)}
+        detail={`已分析 ${data.totals.promptScoreAnalyzedSessions}/${data.totals.promptScoreEligibleSessions} 个会话`}
+        icon={Activity}
+      />
     </section>
 
     <section className="border-b py-7">
       <SectionTitle title="活动节奏" description={range === 'today' ? '今天按小时显示会话、工具调用与子 Agent 数量。' : `${range === '7d' ? '最近 7 天' : '最近 30 天'}按天显示，不用累计值掩盖波动。`} />
       <div className="h-[280px] w-full">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 900, height: 280 }}><AreaChart data={data?.timeline ?? []} margin={{ left: -20, right: 8 }}>
-          <defs><linearGradient id="sessionsArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#28666E" stopOpacity={0.3} /><stop offset="100%" stopColor="#28666E" stopOpacity={0} /></linearGradient></defs>
           <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
           <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={range === 'today' ? 2 : range === '30d' ? 4 : 0} />
           <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
           <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} />
           <Legend iconType="line" wrapperStyle={{ fontSize: 11 }} />
-          <Area name="会话" type="monotone" dataKey="sessions" stroke="#28666E" fill="url(#sessionsArea)" strokeWidth={2} />
+          <Area name="会话" type="monotone" dataKey="sessions" stroke="#28666E" fill="#28666E" fillOpacity={0.12} strokeWidth={2} />
           <Line name="工具调用" type="monotone" dataKey="toolCalls" stroke="#3B6EA8" dot={false} strokeWidth={1.5} />
           <Line name="子 Agent" type="monotone" dataKey="subagents" stroke="#BF7A45" dot={false} strokeWidth={1.5} />
         </AreaChart></ResponsiveContainer>
@@ -184,16 +251,17 @@ export default function DashboardPage() {
 
     <section className="grid gap-8 border-b py-7 lg:grid-cols-[1.35fr_.9fr]">
       <div>
-        <SectionTitle title="Token 消耗趋势" description="输入、输出与缓存 Token 分开统计；缓存读取不与输入重复合并。" />
+        <SectionTitle title="Token 消耗趋势" description="未缓存输入、缓存写入、缓存读取与输出使用同一契约，总和等于处理 Token。" />
         <div className="h-[250px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 650, height: 250 }}><BarChart data={data?.timeline ?? []} margin={{ left: -12 }}>
           <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
           <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={range === '30d' ? 4 : range === 'today' ? 2 : 0} />
           <YAxis tickFormatter={compact} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
           <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} formatter={(value) => compact(Number(value))} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Bar name="输入" dataKey="inputTokens" stackId="tokens" fill="#28666E" />
+          <Bar name="未缓存输入" dataKey="uncachedInputTokens" stackId="tokens" fill="#28666E" />
+          <Bar name="缓存写入" dataKey="cacheCreationTokens" stackId="tokens" fill="#8BA79B" />
+          <Bar name="缓存读取" dataKey="cacheReadTokens" stackId="tokens" fill="#A7B9AE" />
           <Bar name="输出" dataKey="outputTokens" stackId="tokens" fill="#3B6EA8" />
-          <Bar name="缓存" dataKey="cacheTokens" stackId="tokens" fill="#A7B9AE" />
         </BarChart></ResponsiveContainer></div>
       </div>
       <div>
@@ -305,7 +373,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between gap-3"><div><p className="vibe-mono text-[10px] tracking-[.14em] text-[#28666E]">CROSS-SESSION REPORT</p><h2 className="mt-2 text-lg font-semibold">跨会话行为报告</h2></div><Database className="h-5 w-5 text-muted-foreground" /></div>
         <p className="mt-4 text-sm font-medium leading-6">{report?.headline ?? '等待第一份跨会话报告'}</p>
         <dl className="mt-5 border-t pt-4 text-xs"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">最近生成</dt><dd className="text-right">{generatedAt ? parseStoredDate(generatedAt).toLocaleString('zh-CN') : '尚未生成'}</dd></div></dl>
-        <Link to="/improve" className="mt-5 block border border-foreground px-3 py-2 text-center text-xs font-semibold hover:bg-foreground hover:text-background">查看完整报告</Link>
+        <Link to="/analysis" className="mt-5 block border border-foreground px-3 py-2 text-center text-xs font-semibold hover:bg-foreground hover:text-background">查看完整报告</Link>
       </aside>
     </section>
 

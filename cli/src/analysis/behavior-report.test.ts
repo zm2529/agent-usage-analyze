@@ -151,6 +151,8 @@ describe('cross-session behavior report', () => {
         return {
           rawJson: JSON.stringify({
             profileThesis: 'AI 工程编排者',
+            selectedEpisodeRefs: ['session-0'],
+            detailSelectionRationale: '选择包含主要模式与反例的任务。',
             behavioralFindings: [{ title: '多代理编排', observation: '稳定使用多个执行通道。', mechanism: '任务拆分。', applicability: ['复杂任务'], counterEvidence: [], evidenceRefs: ['session-0'] }],
             dimensions: [{
               id: 'orchestration-boundary', label: '编排边界设计', status: 'candidate',
@@ -172,7 +174,7 @@ describe('cross-session behavior report', () => {
           portrait: [{ title: '多项目高强度使用', finding: '形成稳定编排习惯。', evidenceRefs: ['session-0'] }],
           strengths: [], bottlenecks: [], dimensions: [{
             id: 'orchestration-boundary', label: '编排边界设计', status: 'candidate',
-            observation: '能组织复杂任务，但仍承担部分事件循环。', benefitHypothesis: '待实验。',
+            observation: '能组织复杂任务，但仍承担部分事件循环。', benefitHypothesis: '待追踪。',
             applicability: ['多阶段实现'], limitations: ['缺少结果对照'], confidence: 'medium', evidenceRefs: ['session-0'],
           }],
           skillAssessments: [],
@@ -185,7 +187,7 @@ describe('cross-session behavior report', () => {
           developmentPlan: {
             northStar: '建立可自主闭环的个人工程系统',
             operatingRules: ['可逆动作一次授权'],
-            experiments: [{ title: '授权边界实验', hypothesis: '减少人工介入。', eligibleCohort: '多阶段实现', observableOutcome: '用户介入次数', guardrail: '高风险动作仍询问', reviewAfter: '10 个任务', evidenceRefs: ['session-0'] }],
+            improvementPlans: [{ title: '授权边界改进', hypothesis: '减少人工介入。', eligibleCohort: '多阶段实现', observableOutcome: '用户介入次数', guardrail: '高风险动作仍询问', reviewAfter: '10 个任务', relationshipToPrevious: 'parallel', sequencingReason: '首个计划', evidenceRefs: ['session-0'] }],
             taskTemplate: '目标：\n边界：\n完成定义：',
           },
           uncertainty: '有限证据',
@@ -196,8 +198,18 @@ describe('cross-session behavior report', () => {
     const runner = { name: 'test', runAnalysis } as AnalysisRunner;
     await expect(generateBehaviorReport({ db, runner, now })).resolves.toMatchObject({ status: 'completed' });
     expect(runAnalysis).toHaveBeenCalledTimes(2);
+    await expect(generateBehaviorReport({ db, runner, now })).resolves.toMatchObject({ status: 'completed' });
+    expect(runAnalysis).toHaveBeenCalledTimes(3);
     expect(db.prepare(`SELECT status, prompt_version AS promptVersion FROM analysis_runs
-      WHERE analysis_type = 'behavior_report'`).get()).toEqual({ status: 'completed', promptVersion: 'behavior-report-v9' });
+      WHERE analysis_type = 'behavior_report' ORDER BY created_at DESC LIMIT 1`).get())
+      .toEqual({ status: 'completed', promptVersion: 'behavior-report-v10' });
+    expect(db.prepare(`SELECT analysis_type AS analysisType, status FROM analysis_runs
+      WHERE analysis_type IN ('behavior_research', 'behavior_coach')
+      ORDER BY analysis_type`).all()).toEqual([
+      { analysisType: 'behavior_coach', status: 'completed' },
+      { analysisType: 'behavior_coach', status: 'completed' },
+      { analysisType: 'behavior_research', status: 'completed' },
+    ]);
     db.close();
   });
 

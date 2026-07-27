@@ -39,7 +39,7 @@ export default function PatternsPage() {
   return (
     <main className="mx-auto max-w-6xl space-y-5 p-4 lg:p-6">
       <div>
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">{t('nav.improve', 'Analysis')}</p>
+        <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">{t('nav.analysis', 'Analysis')}</p>
         <h1 className="mt-1 text-2xl font-bold">{t('patterns.title', 'Observed behavior patterns')}</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
           {t('patterns.subtitle', 'Generated directly from imported local task evidence. No model configuration is required, and message bodies remain hidden.')}
@@ -50,7 +50,7 @@ export default function PatternsPage() {
         <CardContent className="flex flex-wrap items-center gap-3 p-4 text-sm">
           <CheckCircle2 className="h-5 w-5 text-emerald-600" />
           <span>{t('patterns.analyzed', 'Analyzed')} <strong>{query.data.analyzedTaskCount}</strong> {t('patterns.tasks', 'imported Codex tasks')}</span>
-          <Link className="ml-auto inline-flex items-center gap-1 font-medium text-primary" to="/advice">
+          <Link className="ml-auto inline-flex items-center gap-1 font-medium text-primary" to="/improvements">
             {t('patterns.openAdvice', 'Open improvement advice')} <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </CardContent>

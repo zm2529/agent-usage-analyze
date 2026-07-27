@@ -63,20 +63,30 @@ function EvidenceLinks({ refs }: { refs: string[] }) {
   </details>;
 }
 
-function AnalysisItem({ title, meta, children }: {
+function AnalysisItem({ title, meta, children, collapsible = true }: {
   title: string;
   meta?: string;
   children: React.ReactNode;
+  collapsible?: boolean;
 }) {
-  return <details className="group border-b">
-    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4">
+  if (collapsible) {
+    return <details className="group border-b">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 py-4">
+        <span className="text-sm font-semibold">{title}</span>
+        <span className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground">
+          {meta}<ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="pb-4 text-sm leading-6 text-muted-foreground">{children}</div>
+    </details>;
+  }
+  return <article className="border-b py-4">
+    <div className="flex items-start justify-between gap-4">
       <span className="text-sm font-semibold">{title}</span>
-      <span className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground">
-        {meta}<ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
-      </span>
-    </summary>
-    <div className="pb-5 text-sm leading-6 text-muted-foreground">{children}</div>
-  </details>;
+      {meta && <span className="shrink-0 text-[10px] text-muted-foreground">{meta}</span>}
+    </div>
+    <div className="mt-2 text-sm leading-6 text-muted-foreground">{children}</div>
+  </article>;
 }
 
 const statusLabel = { established: '多项证据支持', candidate: '需要继续观察', qualitative: '当前观察' } as const;
@@ -109,10 +119,26 @@ export default function ImprovePage() {
   const evidenceCutoff = inputBasis?.latestSessionAt ?? reportRun?.createdAt ?? null;
   const hasNewEvidence = Boolean(dataset?.basis.latestSessionAt && evidenceCutoff
     && parseDate(dataset.basis.latestSessionAt) > parseDate(evidenceCutoff));
-  const automation = state.data?.automation;
   const contextAssessments = report?.contextDocumentAssessments ?? [];
   const contextAttention = contextAssessments.filter((item) => item.assessment === 'mixed' || item.assessment === 'costly');
   const contextHelpful = contextAssessments.filter((item) => item.assessment === 'helpful');
+
+  if (state.isLoading) {
+    return <div className="vibe-page" aria-busy="true" aria-label="正在读取跨任务分析">
+      <div className="h-9 animate-pulse border-y bg-muted/20" />
+      <header className="border-b border-foreground py-10">
+        <div className="h-3 w-44 animate-pulse bg-muted/40" />
+        <div className="mt-5 h-14 max-w-2xl animate-pulse bg-muted/30" />
+        <div className="mt-4 h-5 max-w-3xl animate-pulse bg-muted/20" />
+      </header>
+      <section className="grid border-b md:grid-cols-5">
+        {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-24 animate-pulse border-r bg-muted/15" />)}
+      </section>
+      <section className="grid gap-6 py-10 lg:grid-cols-3">
+        {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-48 animate-pulse border-y bg-muted/15" />)}
+      </section>
+    </div>;
+  }
 
   return <div className="vibe-page">
     <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 border-y py-2 text-[10px] text-muted-foreground vibe-mono">
@@ -132,7 +158,7 @@ export default function ImprovePage() {
       <div>
         <p className="vibe-mono flex items-center gap-3 text-[11px] tracking-[.15em] text-muted-foreground"><span className="w-6 border-t-2 border-[#4F775F]" />AGENT USAGE REVIEW</p>
         <h1 className="vibe-serif mt-5 text-4xl leading-tight sm:text-6xl">你的 Agent 使用方式</h1>
-        <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">从最近 30 天的会话中总结常见做法、值得保留的地方和可以改进之处。自动创建的 worker 会话会由模型结合上下文判断，不会直接当成用户主动开启的任务。</p>
+        <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">从最近 30 天的会话中总结常见做法、值得保留的地方和可以改进之处。</p>
       </div>
       <button type="button" onClick={() => run.mutate()} disabled={isGenerating || state.isLoading || Boolean(state.data?.eligibilityReason)} className="flex items-center justify-center gap-2 border border-foreground px-4 py-2.5 text-sm font-semibold hover:bg-foreground hover:text-background disabled:cursor-not-allowed disabled:opacity-50">
         <RefreshCw className={`h-4 w-4 ${isGenerating ? 'animate-spin' : ''}`} />{isGenerating ? t('analysis.generating', 'Generating…') : report ? t('analysis.regenerate', 'Regenerate report') : t('analysis.generateReport', 'Generate LLM report')}
@@ -146,11 +172,6 @@ export default function ImprovePage() {
       <div className="border-b py-5 md:border-b-0 md:border-r md:px-5"><p className="vibe-mono text-[10px] text-muted-foreground">可选语义增强</p><p className="mt-2 text-sm font-semibold">{reportCoverage ? `${reportCoverage.semanticEnrichedSessions ?? 0} 个会话带语义增强` : '—'}</p></div>
       <div className="py-5 md:pl-5"><p className="vibe-mono text-[10px] text-muted-foreground">代表性片段</p><p className="mt-2 text-sm font-semibold">{representativeSample?.count ?? dataset?.representativeEpisodes.length ?? 0} 个分层样本</p></div>
     </section>
-    <p className="border-b py-3 text-xs leading-5 text-muted-foreground">
-      <strong className="text-foreground">自动生成时机：</strong>Codex 的首次提示与停止事件会登记会话；本地服务同时监听会话文件变化作为补偿，等待写入稳定后完成导入。只有出现新稳定证据、报告样本满足条件且距上次尝试已满 24 小时，才在后台自动生成，24 小时内最多尝试一次。当前状态：
-      <span className="ml-1 text-foreground">{automation?.reason === 'up-to-date' ? '已覆盖最新证据' : automation?.reason === 'cooldown' ? `冷却中${automation.nextEligibleAt ? `，最早 ${parseDate(automation.nextEligibleAt).toLocaleString(locale)}` : ''}` : automation?.reason === 'due' ? '下一次 Hook 稳定后可生成' : automation?.reason === 'disabled' ? '已关闭' : '样本尚不足'}</span>。
-    </p>
-
     {state.isError && <p className="border-b py-5 text-sm text-destructive">无法加载 Agent 使用分析。</p>}
     {run.isError && <p className="border-b py-5 text-sm text-destructive">分析失败，请在页面底部查看运行记录。</p>}
     {!report && <section className="border-b py-12 text-center"><h2 className="vibe-serif text-2xl">{isGenerating ? t('analysis.generatingReport', 'Generating the cross-session LLM report…') : state.data?.needsRegeneration ? '分析方法已更新' : '尚未生成使用分析'}</h2><p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">{isGenerating ? `任务已在后台持续运行${state.data?.generation?.startedAt ? `，开始于 ${parseDate(state.data.generation.startedAt).toLocaleString(locale)}` : ''}；离开本页不会中断。` : state.data?.needsRegeneration ? '现有结果使用旧版分析方法。你可以现在重新生成，或等待下一次自动分析。' : (state.data?.eligibilityReason ?? '最近 30 天具备至少 10 个可结构分析会话后即可生成。')}</p></section>}
@@ -158,10 +179,10 @@ export default function ImprovePage() {
     {report && <>
       <section className="grid border-b py-10 lg:grid-cols-[280px_1fr] lg:gap-12">
         <div><p className="vibe-mono text-[10px] tracking-[.14em] text-[#365D8D]">CURRENT IDENTITY</p><p className="vibe-serif mt-3 text-3xl">{report.identity.title}</p><p className="mt-2 text-xs font-semibold text-[#4F775F]">{report.identity.stage}</p></div>
-        <div><h2 className="vibe-serif text-3xl leading-snug">{report.headline}</h2><details className="group mt-5 border-t"><summary className="flex cursor-pointer list-none items-center justify-between py-4 text-sm font-semibold">查看完整说明<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary><div className="pb-4"><p className="text-sm leading-7 text-muted-foreground">{report.identity.rationale}</p><p className="mt-3 text-sm leading-7 text-muted-foreground">{report.summary}</p><EvidenceLinks refs={report.identity.evidenceRefs} /></div></details></div>
+        <div><h2 className="vibe-serif text-3xl leading-snug">{report.headline}</h2><details className="mt-5 border-t"><summary className="cursor-pointer py-4 text-sm font-semibold">查看完整说明</summary><div className="pb-4"><p className="text-sm leading-7 text-muted-foreground">{report.identity.rationale}</p><p className="mt-3 text-sm leading-7 text-muted-foreground">{report.summary}</p><EvidenceLinks refs={report.identity.evidenceRefs} /></div></details></div>
       </section>
 
-      <section className="border-b py-9"><div className="mb-5"><p className="vibe-mono text-[10px] tracking-[.14em] text-muted-foreground">USAGE SUMMARY</p><h2 className="vibe-serif mt-2 text-2xl">主要使用特点</h2></div><div className="border-t">{report.portrait.map((item, index) => <AnalysisItem key={`${item.title}-${index}`} title={item.title} meta={String(index + 1).padStart(2, '0')}><p>{item.finding}</p><EvidenceLinks refs={item.evidenceRefs} /></AnalysisItem>)}</div></section>
+      <section className="border-b py-9"><div className="mb-5"><p className="vibe-mono text-[10px] tracking-[.14em] text-muted-foreground">USAGE SUMMARY</p><h2 className="vibe-serif mt-2 text-2xl">主要使用特点</h2></div><div className="border-t">{report.portrait.map((item, index) => <AnalysisItem key={`${item.title}-${index}`} title={item.title} meta={String(index + 1).padStart(2, '0')} collapsible={false}><p>{item.finding}</p><EvidenceLinks refs={item.evidenceRefs} /></AnalysisItem>)}</div></section>
 
       <section className="grid border-b lg:grid-cols-2">
         <div className="py-9 lg:border-r lg:pr-9"><h2 className="vibe-serif text-2xl">做得好的地方</h2><div className="mt-4 border-t">{report.strengths.map((item, index) => <AnalysisItem key={`${item.title}-${index}`} title={item.title} meta={String(index + 1).padStart(2, '0')}><p>{item.explanation}</p><p className="mt-3 border-l-2 border-[#4F775F] pl-3 text-xs leading-5"><strong>为什么有效：</strong>{item.mechanism}</p><EvidenceLinks refs={item.evidenceRefs} /></AnalysisItem>)}</div></div>
@@ -171,7 +192,7 @@ export default function ImprovePage() {
       <section className="border-b py-9"><div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end"><div><p className="vibe-mono text-[10px] tracking-[.14em] text-muted-foreground">USAGE PATTERNS</p><h2 className="vibe-serif mt-2 text-2xl">值得关注的使用习惯</h2><p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">这些内容由模型从代表性会话中总结，不是固定评分。证据不足时只作为待观察事项。</p></div><span className="vibe-mono text-[10px] text-muted-foreground">{report.dimensions.length} 项</span></div><div className="border-t">{report.dimensions.map((item, index) => <AnalysisItem key={item.id} title={item.label} meta={`${String(index + 1).padStart(2, '0')} · ${statusLabel[item.status]}`}><p>{item.observation}</p><div className="mt-4 grid gap-3 border-t pt-4 text-xs leading-5"><p><strong>可能的帮助：</strong>{item.benefitHypothesis}</p><p><strong>适用场景：</strong>{item.applicability.join('；') || '未限定'}</p><p><strong>目前的局限：</strong>{item.limitations.join('；') || '未记录'} · 可信程度{confidenceLabel[item.confidence]}</p></div><EvidenceLinks refs={item.evidenceRefs} /></AnalysisItem>)}</div></section>
     </>}
 
-    {dataset?.leverage && <section className="border-b py-9"><div className="mb-5"><h2 className="vibe-serif text-2xl">Skill 与工具使用</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">用户消息中直接出现的 $Skill 记为“用户指定”；Agent 读取 Skill 指令、且本会话中用户未指定时记为“Agent 自动启用”。普通工具调用不会被推断为 Skill。</p></div><div className="grid gap-9 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,.9fr)]">
+    {dataset?.leverage && <section className="border-b py-9"><div className="mb-5"><h2 className="vibe-serif text-2xl">Skill 与工具使用</h2></div><div className="grid gap-9 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,.9fr)]">
       <div><div className="mb-3 flex flex-wrap gap-4 text-xs"><span>用户指定 <strong>{dataset.leverage.skills.explicitInvocations ?? 0}</strong> 次</span><span>Agent 自动启用 <strong>{dataset.leverage.skills.automaticInvocations ?? 0}</strong> 次</span><span className="text-muted-foreground">覆盖 {dataset.leverage.skills.coveredSessions} 个会话</span></div><div className="grid grid-cols-[minmax(130px,1fr)_80px_90px_64px] border-y py-2 text-[10px] text-muted-foreground vibe-mono"><span>SKILL</span><span className="text-right">用户指定</span><span className="text-right">自动启用</span><span className="text-right">会话</span></div>{dataset.leverage.skills.items.filter((item) => !/^\d+$/.test(item.name)).slice(0, 10).map((item) => <div key={item.name} className="grid grid-cols-[minmax(130px,1fr)_80px_90px_64px] items-center border-b py-3 text-xs"><div><strong>${item.name}</strong>{item.coUsedWith?.length ? <p className="mt-1 truncate text-[10px] text-muted-foreground">常与 {item.coUsedWith.map((co) => `$${co.name}`).join('、')} 共用</p> : null}</div><span className="text-right vibe-mono">{item.userInvocations ?? item.invocations}</span><span className="text-right vibe-mono">{item.automaticInvocations ?? 0}</span><span className="text-right vibe-mono">{item.sessions}</span></div>)}</div>
       <div><h3 className="vibe-serif text-lg">Skill 适用性</h3><div className="mt-3 border-t">{report?.skillAssessments.length ? report.skillAssessments.slice(0, 6).map((item) => <AnalysisItem key={item.name} title={`$${item.name}`} meta={item.fit === 'appropriate' ? '适合' : item.fit === 'mixed' ? '需要调整' : '证据不足'}><p>{item.observation}</p>{item.issue && <p className="mt-2 text-xs"><strong>需要关注：</strong>{item.issue}</p>}<p className="mt-2 text-xs text-[#365D8D]"><strong>建议：</strong>{item.recommendation}</p><EvidenceLinks refs={item.evidenceRefs} /></AnalysisItem>) : <p className="border-b py-5 text-xs leading-5 text-muted-foreground">生成分析后，这里会结合任务评价 Skill 是否用得合适。</p>}</div><h3 className="vibe-serif mt-7 text-lg">工具类型</h3><div className="mt-3 border-t">{dataset.leverage.tools.families.slice(0, 6).map((item) => <div key={item.family} className="grid grid-cols-[1fr_70px_70px] border-b py-3 text-xs"><strong>{item.family}</strong><span className="text-right vibe-mono">{item.calls} 次</span><span className="text-right text-muted-foreground vibe-mono">{item.tasks} 任务</span></div>)}</div></div>
     </div></section>}
@@ -182,7 +203,7 @@ export default function ImprovePage() {
     </div></section>}
 
     {report && <section className="grid border-b lg:grid-cols-2">
-      <div className="py-9 lg:border-r lg:pr-9"><h2 className="vibe-serif text-2xl">上下文文档效能</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">扫描 AGENTS.md、CLAUDE.md、CODEX.md 与工程级指令文件；模型只接收体量、指令密度、覆盖范围和行为统计，不接收正文，也不把相关性当因果。</p>
+      <div className="py-9 lg:border-r lg:pr-9"><h2 className="vibe-serif text-2xl">上下文文档效能</h2>
         <div className="mt-4 border-y bg-primary/[.025] p-4">
           <p className="text-[10px] font-semibold tracking-wide text-muted-foreground">重点结论</p>
           <p className="mt-2 text-sm font-semibold">{contextAttention.length > 0 ? `${contextAttention.length} 类文档需要关注` : contextAssessments.length > 0 ? '暂未发现明确的文档负担' : '当前证据不足'}</p>
@@ -200,10 +221,18 @@ export default function ImprovePage() {
     {report && (report.skillOpportunities ?? []).length > 0 && <section className="border-b py-9"><div className="grid gap-8 lg:grid-cols-[250px_1fr]"><div><p className="vibe-mono text-[10px] tracking-[.14em] text-muted-foreground">ONLY WHEN NECESSARY</p><h2 className="vibe-serif mt-2 text-2xl">可以考虑的 Skill</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">只有多次出现的情况表明 Skill 可能减少返工时才会显示。</p></div><div className="border-t">{(report.skillOpportunities ?? []).map((item) => <AnalysisItem key={`${item.type}-${item.name}`} title={item.name} meta={item.type === 'existing-skill' ? '现有 Skill' : '可创建 Skill'}><p className="text-xs"><strong>适用情况：</strong>{item.trigger}</p><p className="mt-2 text-xs">{item.evidence}</p><p className="mt-2 text-xs text-[#365D8D]"><strong>可能的帮助：</strong>{item.expectedBenefit}</p><EvidenceLinks refs={item.evidenceRefs} /></AnalysisItem>)}</div></div></section>}
 
     {report && <section className="flex flex-col justify-between gap-5 border-b py-9 md:flex-row md:items-center">
-      <div className="max-w-2xl"><Target className="h-5 w-5 text-[#D86F4B]" /><h2 className="vibe-serif mt-3 text-2xl">查看改进建议</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">集中查看值得优先尝试的做法，并回到相关会话核对依据。</p></div>
-      <Link to="/advice" className="shrink-0 border border-foreground px-4 py-2.5 text-sm font-semibold hover:bg-foreground hover:text-background">前往建议页 →</Link>
+      <div className="max-w-2xl"><Target className="h-5 w-5 text-[#D86F4B]" /><h2 className="vibe-serif mt-3 text-2xl">查看改进追踪</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">集中查看当前计划、自动观察进度和独立复盘结果。</p></div>
+      <Link to="/improvements" className="shrink-0 border border-foreground px-4 py-2.5 text-sm font-semibold hover:bg-foreground hover:text-background">前往改进追踪 →</Link>
     </section>}
 
-    <details className="mt-8 border-y"><summary className="cursor-pointer py-4 text-sm font-semibold">证据与模型运行记录</summary><div className="border-t py-5"><AnalysisRunTrace analysisType="behavior_report" /></div></details>
+    <details className="mt-8 border-y">
+      <summary className="cursor-pointer py-4 text-sm font-semibold">证据与模型运行记录</summary>
+      <div className="grid gap-6 border-t py-6">
+        <div><p className="mb-2 text-xs font-semibold text-[#365D8D]">01 · 研究：跨任务发现模式、反例与待补证据</p><AnalysisRunTrace analysisType="behavior_research" /></div>
+        <div><p className="mb-2 text-xs font-semibold text-[#365D8D]">02 · 分析：主任务语义与结果证据</p><AnalysisRunTrace analysisType="session" /></div>
+        <div><p className="mb-2 text-xs font-semibold text-[#365D8D]">03 · 教练建议：结合事实与实践快照形成建议</p><AnalysisRunTrace analysisType="behavior_coach" /></div>
+        <div><p className="mb-2 text-xs font-semibold text-[#365D8D]">04 · 最终报告：汇总两阶段运行与输入快照</p><AnalysisRunTrace analysisType="behavior_report" /></div>
+      </div>
+    </details>
   </div>;
 }

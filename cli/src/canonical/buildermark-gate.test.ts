@@ -78,13 +78,13 @@ describe('Buildermark historical helper gate', () => {
       evidenceCounts: { exact: 2, formatting: 1, fallback: 10, deletion: 1 },
       diagnosticCodes: ['ambiguous-common-line'],
     });
-    expect(readBuildermarkGateState(db)).toMatchObject({ status: 'passed', experimentalEnabled: false });
+    expect(readBuildermarkGateState(db)).toMatchObject({ status: 'passed', candidateEnabled: false });
     expect(JSON.stringify(report)).not.toContain(repository.path);
     expect(JSON.stringify(report)).not.toContain('export const result');
     db.close();
   });
 
-  it('enables the experiment only after a reviewed real gate and disables it after an obvious misattribution', () => {
+  it('enables candidate use only after a reviewed real gate and disables it after an obvious misattribution', () => {
     const repository = disposableRepository();
     const db = new Database(':memory:');
     runMigrations(db);
@@ -125,7 +125,7 @@ describe('Buildermark historical helper gate', () => {
 
     expect(passed).toMatchObject({ status: 'passed', reviewedCandidates: 1, obviousMisattributions: 0 });
     expect(readBuildermarkGateState(db)).toMatchObject({
-      status: 'passed', experimentalEnabled: true, realGatePassed: true, syntheticGatePassed: true,
+      status: 'passed', candidateEnabled: true, realGatePassed: true, syntheticGatePassed: true,
     });
 
     const failed = runBuildermarkGate(db, {
@@ -134,7 +134,7 @@ describe('Buildermark historical helper gate', () => {
     });
     expect(failed).toMatchObject({ status: 'failed', failureCodes: ['obvious-misattribution'] });
     expect(readBuildermarkGateState(db)).toMatchObject({
-      status: 'failed', experimentalEnabled: false, realGatePassed: false,
+      status: 'failed', candidateEnabled: false, realGatePassed: false,
     });
     expect(db.prepare('SELECT COUNT(*) AS count FROM buildermark_gate_runs').get()).toEqual({ count: 3 });
     db.close();
@@ -194,7 +194,7 @@ describe('Buildermark historical helper gate', () => {
     db.close();
   });
 
-  it('never enables the experiment when every explainable record abstains', () => {
+  it('never enables candidate use when every explainable record abstains', () => {
     const repository = disposableRepository();
     const db = new Database(':memory:');
     runMigrations(db);
@@ -230,7 +230,7 @@ describe('Buildermark historical helper gate', () => {
     expect(synthetic.failureCodes).toContain('no-explainable-candidate');
     expect(real).toMatchObject({ status: 'failed' });
     expect(real.failureCodes).toContain('no-explainable-candidate');
-    expect(readBuildermarkGateState(db)).toMatchObject({ experimentalEnabled: false });
+    expect(readBuildermarkGateState(db)).toMatchObject({ candidateEnabled: false });
     db.close();
   });
 
@@ -305,7 +305,7 @@ describe('Buildermark historical helper gate', () => {
     expect(report).toMatchObject({ status: 'failed', importedCommits: 0 });
     expect(report.failureCodes).toContain('commit-import-failed');
     expect(readBuildermarkGateState(db)).toMatchObject({
-      status: 'failed', experimentalEnabled: false,
+      status: 'failed', candidateEnabled: false,
       latestRun: { status: 'failed' },
     });
     expect(JSON.stringify(report)).not.toContain(repository.path);
@@ -326,7 +326,7 @@ describe('Buildermark historical helper gate', () => {
     )`).run();
 
     expect(readBuildermarkGateState(db)).toEqual({
-      status: 'failed', experimentalEnabled: false, latestRun: null,
+      status: 'failed', candidateEnabled: false, latestRun: null,
       realGatePassed: false, syntheticGatePassed: false, stateError: 'corrupt-report',
     });
     db.close();
@@ -365,7 +365,7 @@ describe('Buildermark historical helper gate', () => {
     db.prepare("UPDATE buildermark_gate_runs SET report_json = '{broken' WHERE mode = 'real'").run();
 
     expect(readBuildermarkGateState(db)).toEqual({
-      status: 'failed', experimentalEnabled: false, latestRun: null,
+      status: 'failed', candidateEnabled: false, latestRun: null,
       realGatePassed: false, syntheticGatePassed: false, stateError: 'corrupt-report',
     });
     db.close();
@@ -407,7 +407,7 @@ describe('Buildermark historical helper gate', () => {
     const rerun = runBuildermarkGate(db, { repositoryPath: repository.path, evidence });
     expect(rerun).toMatchObject({ status: 'failed', importedCommits: 0 });
     expect(rerun.failureCodes).toContain('commit-import-incomplete');
-    expect(readBuildermarkGateState(db)).toMatchObject({ experimentalEnabled: false });
+    expect(readBuildermarkGateState(db)).toMatchObject({ candidateEnabled: false });
     db.close();
   });
 });

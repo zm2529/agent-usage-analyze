@@ -11,6 +11,7 @@ import {
   behaviorReportUnavailableReason,
   buildBehaviorReportDataset,
   generateBehaviorReport,
+  type BehaviorReportDataset,
 } from './behavior-report.js';
 
 const CLI_ENTRY = resolve(fileURLToPath(import.meta.url), '../../index.js');
@@ -38,12 +39,13 @@ function reportEvidenceCutoff(run: ReturnType<typeof listAnalysisRuns>[number] |
 export function getAutomaticBehaviorReportState(
   db: Database.Database = getDb(),
   now = new Date(),
+  datasetOverride?: BehaviorReportDataset,
 ): AutomaticBehaviorReportState {
   const enabled = loadConfig()?.dashboard?.capabilities?.automaticBehaviorReport !== false;
   const runs = listAnalysisRuns({ analysisType: 'behavior_report', limit: 100 }, db);
   const latestAttempt = runs[0];
   const latestSuccessful = runs.find((run) => run.status === 'completed');
-  const dataset = buildBehaviorReportDataset(db, now, { includeLeverage: false });
+  const dataset = datasetOverride ?? buildBehaviorReportDataset(db, now, { includeLeverage: false });
   const latestEvidenceAt = dataset.basis.latestSessionAt;
   const latestAttemptAt = latestAttempt?.createdAt ?? null;
   const latestSuccessfulAt = latestSuccessful?.createdAt ?? null;
@@ -120,6 +122,38 @@ export async function runAutomaticBehaviorReport(): Promise<AutomaticBehaviorRep
   });
   if (job) await job;
   return getAutomaticBehaviorReportState();
+}
+
+/** Run one user-requested report regardless of the automatic cooldown. */
+export async function runManualBehaviorReport(): Promise<void> {
+  const job = startBehaviorReportWithLease(() => generateBehaviorReport({ db: getDb() }));
+  if (job) await job;
+}
+
+/**
+ * Keep the dashboard responsive while dataset construction and model calls run
+ * in a dedicated local process.
+ */
+export function spawnManualBehaviorReport(): Promise<void> {
+  const configDir = getConfigDir();
+  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  const logFd = openSync(join(configDir, 'behavior-report.log'), 'a', 0o600);
+  try {
+    const child = spawn(process.execPath, [CLI_ENTRY, 'behavior-report-run'], {
+      detached: false,
+      stdio: ['ignore', logFd, logFd],
+      env: { ...process.env, AGENT_ANALYTICS_HOOK_ACTIVE: '1' },
+    });
+    return new Promise((resolveJob, rejectJob) => {
+      child.once('error', rejectJob);
+      child.once('exit', (code, signal) => {
+        if (code === 0) resolveJob();
+        else rejectJob(new Error(`Behavior report worker exited with ${code ?? signal ?? 'unknown status'}`));
+      });
+    });
+  } finally {
+    closeSync(logFd);
+  }
 }
 
 /** Spawned only after a Hook frontier was settled; it never scans source directories. */

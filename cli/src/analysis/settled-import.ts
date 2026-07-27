@@ -136,6 +136,29 @@ function resettleGrowth(
     : stale();
 }
 
+function resettleActiveLargeSource(
+  db: Database.Database,
+  claimed: ClaimedSettledImport,
+  deps: SettledImportDependencies,
+  sourceBasis: string,
+): SettledImportResult {
+  const quietSeconds = Math.max(90, deps.idleSeconds);
+  const notBefore = new Date(deps.now().getTime() + quietSeconds * 1_000).toISOString();
+  const changed = db.prepare(
+    `UPDATE analysis_queue
+     SET status = 'settling', generation = generation + 1, not_before = ?,
+         diagnostic = 'large-source-still-active', started_at = NULL,
+         attempt_count = 0, error_message = NULL
+     WHERE source_tool = ? AND session_id = ? AND generation = ?
+       AND status = 'processing' AND source_basis = ?`,
+  ).run(
+    notBefore, claimed.sourceTool, claimed.sessionId, claimed.generation, sourceBasis,
+  ).changes === 1;
+  return changed
+    ? { status: 'settling', diagnostic: 'large-source-still-active' }
+    : stale();
+}
+
 function invalidateForNewerFrontier(
   db: Database.Database,
   claimed: ClaimedSettledImport,
@@ -174,6 +197,16 @@ export async function processSettledImport(
 
   const basisBefore = deps.contentBasis(sourcePath);
   if (!guardedUpdate(db, claimed, 'source_basis = ?, diagnostic = NULL', [basisBefore])) return stale();
+  try {
+    const source = statSync(sourcePath);
+    const quietSeconds = Math.max(90, deps.idleSeconds);
+    if (source.size > LIVE_PROJECTION_MAX_BYTES
+      && deps.now().getTime() - source.mtimeMs < quietSeconds * 1_000) {
+      return resettleActiveLargeSource(db, claimed, deps, basisBefore);
+    }
+  } catch {
+    // The locator and canonical importer provide the authoritative missing-file diagnostic.
+  }
 
   const imported = await deps.ingest(sourcePath);
   const current = db.prepare(

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, ChevronDown, Cpu, Loader2 } from 'lucide-react';
+import { CheckCircle, ChevronDown, Cpu, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLlmConfig, useSaveLlmConfig } from '@/hooks/useConfig';
 import { testLlmConfig } from '@/lib/api';
@@ -8,6 +8,10 @@ import { Input } from '@/components/ui/input';
 import { LocalRuntimeCard } from '@/components/settings/LocalRuntimeCard';
 import { Switch } from '@/components/ui/switch';
 import type { AnalysisCapabilities } from '@/lib/types';
+import { useKnowledgeStatus, useSetKnowledgeResearchAuthorization } from '@/hooks/usePractices';
+import { useRuntimeStatus, useRetryPendingAnalysis } from '@/hooks/useRuntimeStatus';
+import { useAnalysisQueue } from '@/hooks/useAnalysisQueue';
+import { HistorySyncButton } from '@/components/dashboard/HistorySyncButton';
 
 type Provider = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'llamacpp';
 const PROVIDERS: Array<{ id: Provider; label: string; needsKey: boolean; baseUrl?: string }> = [
@@ -18,6 +22,48 @@ const PROVIDERS: Array<{ id: Provider; label: string; needsKey: boolean; baseUrl
   { id: 'llamacpp', label: 'llama.cpp（本地）', needsKey: false, baseUrl: 'http://localhost:8080' },
 ];
 
+function PipelineStatusPanel() {
+  const runtime = useRuntimeStatus();
+  const queue = useAnalysisQueue();
+  const retryAnalysis = useRetryPendingAnalysis();
+  const stages = runtime.data?.stages;
+  const items = [
+    ['会话记录', stages?.hook],
+    ['本地导入', stages?.ingestion],
+    ['任务分析', stages?.semanticAnalysis],
+  ] as const;
+
+  return <section id="pipeline-status" className="scroll-mt-24 border-t border-foreground bg-card">
+    <div className="border-b p-5">
+      <h2 className="text-lg font-semibold">自动处理状态</h2>
+      <p className="mt-1 text-xs text-muted-foreground">查看当前是否正常；需要操作时，可直接在这里处理。</p>
+    </div>
+    {runtime.isLoading ? <div className="p-5 text-xs text-muted-foreground">正在读取状态…</div> : <div className="grid md:grid-cols-3">
+      {items.map(([label, stage]) => <article key={label} className="border-b p-5 last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0">
+        <span className="text-[10px] text-muted-foreground">{label}</span>
+        <strong className="mt-2 block text-sm">{stage?.label ?? '状态暂不可用'}</strong>
+        <p className="mt-2 min-h-10 text-xs leading-5 text-muted-foreground">{stage?.detail}</p>
+        {label === '本地导入' && <div className="mt-4"><HistorySyncButton /></div>}
+        {label === '任务分析' && (queue.data?.awaitingCapability ?? 0) > 0 && <div className="mt-4">
+          <p className="mb-2 text-[10px] text-muted-foreground">{queue.data?.awaitingCapability} 条较早记录尚未补充分析，不影响新会话。</p>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={retryAnalysis.isPending}
+            onClick={() => retryAnalysis.mutate(undefined, {
+              onSuccess: (result) => toast.success(result.accepted ? `已开始补充 ${result.retrying} 条分析` : '没有需要重试的分析'),
+              onError: () => toast.error('任务分析重试失败'),
+            })}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${retryAnalysis.isPending ? 'animate-spin' : ''}`} />
+            补充历史分析
+          </Button>
+        </div>}
+      </article>)}
+    </div>}
+  </section>;
+}
+
 export default function SettingsPage() {
   const config = useLlmConfig();
   const save = useSaveLlmConfig();
@@ -26,6 +72,8 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [testing, setTesting] = useState(false);
+  const knowledge = useKnowledgeStatus();
+  const setKnowledgeAuthorization = useSetKnowledgeResearchAuthorization();
 
   useEffect(() => {
     if (!config.data) return;
@@ -115,10 +163,25 @@ export default function SettingsPage() {
             <span><strong className="block text-sm">分析改进机会</strong><small className="mt-1 block leading-4 text-muted-foreground">关注上下文文档、Token 使用和 Skill 机会。</small></span>
             <Switch checked={improvementAnalysisEnabled} onCheckedChange={(checked) => { void saveCapabilities({ contextDocumentAnalysis: checked, tokenEfficiencyAnalysis: checked, skillOpportunityAnalysis: checked }); }} aria-label="分析改进机会" />
           </label>
+          <label className="flex items-start justify-between gap-4 border-t py-4">
+            <span><strong className="block text-sm">允许公开实践研究</strong><small className="mt-1 block leading-4 text-muted-foreground">定期更新实践库；关闭后不会发起新的公开资料检索。</small></span>
+            <Switch
+              checked={knowledge.data?.authorization.enabled ?? false}
+              disabled={knowledge.isLoading || setKnowledgeAuthorization.isPending}
+              onCheckedChange={(checked) => {
+                setKnowledgeAuthorization.mutate(checked, {
+                  onSuccess: () => toast.success(checked ? '公开实践研究已开启' : '公开实践研究已关闭'),
+                  onError: () => toast.error('设置保存失败'),
+                });
+              }}
+              aria-label="允许公开实践研究"
+            />
+          </label>
         </div>
       </aside>
     </div>
 
+    <PipelineStatusPanel />
     <LocalRuntimeCard />
   </div>;
 }

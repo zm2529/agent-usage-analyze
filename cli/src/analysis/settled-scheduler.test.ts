@@ -10,6 +10,7 @@ import type { SettledAnalysisDependencies } from './settled-analysis.js';
 import {
   acquireSettledWorkerLease,
   claimDueFrontiers,
+  countCurrentRetryableSettledAnalyses,
   processDueFrontiers,
 } from './settled-scheduler.js';
 
@@ -19,6 +20,28 @@ afterEach(() => {
 });
 
 describe('settled analysis scheduler', () => {
+  it('retries only analyses newer than the latest completed result', () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const insert = db.prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, generation, enqueued_at, completed_at)
+      VALUES ('codex-cli', ?, ?, 'auto', 1, ?, ?)`);
+    insert.run('old-waiting', 'awaiting-capability', '2026-07-22T02:00:00.000Z', null);
+    insert.run('latest-success', 'completed', '2026-07-22T03:00:00.000Z', '2026-07-22T03:05:00.000Z');
+    insert.run('current-waiting', 'awaiting-capability', '2026-07-22T03:06:00.000Z', null);
+    db.prepare(`INSERT INTO projects (id, name, path, last_activity)
+      VALUES ('project', 'Project', '/project', datetime('now'))`).run();
+    db.prepare(`INSERT INTO sessions
+      (id, project_id, project_name, project_path, started_at, ended_at)
+      VALUES ('codex:current-waiting', 'project', 'Project', '/project', datetime('now'), datetime('now'))`).run();
+    db.prepare(`INSERT INTO messages
+      (id, session_id, type, content, timestamp)
+      VALUES ('message', 'codex:current-waiting', 'user', 'hello', datetime('now'))`).run();
+
+    expect(countCurrentRetryableSettledAnalyses(db)).toBe(1);
+    db.close();
+  });
+
   it('holds one recoverable worker lease', () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-analytics-settler-'));
     tempDirs.push(dir);

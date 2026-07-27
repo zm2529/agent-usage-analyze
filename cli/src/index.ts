@@ -32,7 +32,7 @@ import {
 import { advisoryCommand } from './commands/advisory.js';
 import { codexStopCommand } from './commands/codex-stop.js';
 import { startCommand } from './commands/start.js';
-import { runAutomaticBehaviorReport } from './analysis/behavior-report-scheduler.js';
+import { runAutomaticBehaviorReport, runManualBehaviorReport } from './analysis/behavior-report-scheduler.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
@@ -208,6 +208,10 @@ program.command('codex-stop', { hidden: true })
 program.command('behavior-report-auto', { hidden: true })
   .description('Internal Hook-triggered cross-session report scheduler')
   .action(async () => { await runAutomaticBehaviorReport(); });
+
+program.command('behavior-report-run', { hidden: true })
+  .description('Internal user-triggered cross-session report worker')
+  .action(async () => { await runManualBehaviorReport(); });
 
 program
   .command('doctor')

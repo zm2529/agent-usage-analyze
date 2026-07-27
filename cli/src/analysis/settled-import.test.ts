@@ -1,4 +1,7 @@
 import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../db/schema.js';
 import { processSettledImport, type SettledImportDependencies } from './settled-import.js';
@@ -31,6 +34,33 @@ function dependencies(overrides: Partial<SettledImportDependencies> = {}): Settl
 }
 
 describe('processSettledImport', () => {
+  it('waits for a large active rollout to become quiet before importing it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'settled-large-active-'));
+    const sourcePath = join(root, 'session.jsonl');
+    writeFileSync(sourcePath, Buffer.alloc(8 * 1024 * 1024 + 1));
+    const db = database();
+    const deps = dependencies({
+      idleSeconds: 10,
+      locate: () => ({ path: sourcePath, locatorAccepted: true, diagnostic: null }),
+    });
+
+    await expect(processSettledImport(db, {
+      sourceTool: 'codex-cli', sessionId: 'session', generation: 1,
+      locator: sourcePath, sourceBasis: 'hook-basis',
+    }, deps)).resolves.toEqual({ status: 'settling', diagnostic: 'large-source-still-active' });
+    expect(deps.ingest).not.toHaveBeenCalled();
+    expect(deps.prepareProjection).not.toHaveBeenCalled();
+    expect(db.prepare(`SELECT status, generation, not_before AS notBefore, diagnostic
+      FROM analysis_queue`).get()).toEqual({
+      status: 'settling',
+      generation: 2,
+      notBefore: '2026-07-22T03:02:30.000Z',
+      diagnostic: 'large-source-still-active',
+    });
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it('keeps local capture active when LLM analysis is explicitly off', async () => {
     const db = database();
     const deps = dependencies({ execution: { effectiveRunner: 'off', reason: 'explicit-off' } });
