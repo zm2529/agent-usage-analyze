@@ -9,6 +9,7 @@ import {
   startAutomaticHistoryAnalysis,
   type HistoryBackfillResult,
 } from '../analysis/history-backfill.js';
+import { spawnAutomaticBehaviorReport } from '../analysis/behavior-report-scheduler.js';
 
 export interface StartOptions {
   port: string;
@@ -26,6 +27,7 @@ interface StartDependencies {
   startBackgroundImport: typeof spawnCodexHistoryImport;
   launchDashboard: typeof dashboardCommand;
   startHistoryAnalysis?: () => HistoryBackfillResult;
+  startBehaviorReport?: () => void;
 }
 
 const defaultDependencies: StartDependencies = {
@@ -36,6 +38,7 @@ const defaultDependencies: StartDependencies = {
   startBackgroundImport: spawnCodexHistoryImport,
   launchDashboard: dashboardCommand,
   startHistoryAnalysis: startAutomaticHistoryAnalysis,
+  startBehaviorReport: spawnAutomaticBehaviorReport,
 };
 
 function formatDuration(milliseconds: number): string {
@@ -93,6 +96,7 @@ export async function runStart(
 
   const setup = dependencies.ensureSetup();
   console.log(chalk.green(`  ✓ Local data ${setup.configCreated ? 'initialized' : 'ready'}`));
+  const deferAnalysisUntilImport = setup.configCreated && options.importHistory;
 
   try {
     const sync = await dependencies.syncHistory({ quiet: true });
@@ -111,22 +115,36 @@ export async function runStart(
     console.log(chalk.dim('    In Codex, review /hooks once if this handler is not trusted yet.'));
   }
 
-  try {
-    const analysis = dependencies.startHistoryAnalysis?.();
-    if (analysis?.enabled) {
-      console.log(chalk.green(`  ✓ LLM behavior analysis enabled (${analysis.effectiveRunner})`));
-      if (analysis.queued > 0) {
-        console.log(chalk.dim(`    Analyzing ${analysis.queued} recent Codex sessions asynchronously; progress appears in the WebUI.`));
-        if (analysis.logPath) console.log(chalk.dim(`    Log: ${analysis.logPath}`));
-      } else {
-        console.log(chalk.dim('    Recent Codex sessions are already analyzed; future completed sessions are automatic.'));
+  const startAnalysis = (afterImport = false) => {
+    let analysis: HistoryBackfillResult | undefined;
+    try {
+      analysis = dependencies.startHistoryAnalysis?.();
+      if (analysis?.enabled) {
+        console.log(chalk.green(`  ✓ LLM behavior analysis enabled (${analysis.effectiveRunner})`));
+        if (analysis.queued > 0) {
+          console.log(chalk.dim(`    Analyzing ${analysis.queued} recent Codex sessions asynchronously; progress appears in the WebUI.`));
+          if (analysis.logPath) console.log(chalk.dim(`    Log: ${analysis.logPath}`));
+        } else {
+          console.log(chalk.dim('    Recent Codex sessions are already analyzed; future completed sessions are automatic.'));
+        }
+      } else if (analysis) {
+        console.warn(chalk.yellow(`  ! LLM analysis unavailable (${analysis.reason}); deterministic analysis remains active.`));
       }
-    } else if (analysis) {
-      console.warn(chalk.yellow(`  ! LLM analysis unavailable (${analysis.reason}); deterministic analysis remains active.`));
+    } catch (error) {
+      console.warn(chalk.yellow(`  ! LLM history analysis could not start: ${error instanceof Error ? error.message : String(error)}`));
+      console.warn(chalk.dim('    The dashboard will still open; use Settings to inspect the analysis runner.'));
     }
-  } catch (error) {
-    console.warn(chalk.yellow(`  ! LLM history analysis could not start: ${error instanceof Error ? error.message : String(error)}`));
-    console.warn(chalk.dim('    The dashboard will still open; use Settings to inspect the analysis runner.'));
+    if (afterImport) {
+      try {
+        dependencies.startBehaviorReport?.();
+      } catch (error) {
+        console.warn(chalk.yellow(`  ! Initial behavior report could not start: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    }
+  };
+
+  if (!deferAnalysisUntilImport) {
+    startAnalysis();
   }
 
   if (options.importHistory) {
@@ -137,16 +155,22 @@ export async function runStart(
           onProgress: foregroundProgressReporter(startedAt),
         });
         console.log(chalk.green(`  ✓ Codex history imported (${summary.insertedEvents} new events)`));
+        if (deferAnalysisUntilImport) startAnalysis(true);
       } catch (error) {
         console.warn(chalk.yellow(`  ! History import skipped: ${error instanceof Error ? error.message : String(error)}`));
         console.warn(chalk.dim('    The dashboard will still open; run `agent-usage-analyze import-codex` to retry.'));
       }
     } else {
       try {
-        const background = dependencies.startBackgroundImport();
+        const background = dependencies.startBackgroundImport({
+          analyzeAfterImport: deferAnalysisUntilImport,
+        });
         console.log(chalk.green('  ✓ Codex history import started in the background'));
         console.log(chalk.dim('    What: scanning local Codex sessions and building task/evidence records.'));
         console.log(chalk.dim('    Progress and live ETA appear at the top of the WebUI; the dashboard opens now.'));
+        if (deferAnalysisUntilImport) {
+          console.log(chalk.dim('    LLM session analysis and the first behavior report start automatically when import completes.'));
+        }
         console.log(chalk.dim(`    Log: ${background.logPath}`));
       } catch (error) {
         console.warn(chalk.yellow(`  ! Background history import could not start: ${error instanceof Error ? error.message : String(error)}`));

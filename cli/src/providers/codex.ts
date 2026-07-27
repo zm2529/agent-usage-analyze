@@ -19,7 +19,7 @@ export class CodexProvider implements SessionProvider {
   }
 
   getParserVersion(): string {
-    return 'codex-session-v7-compaction-events';
+    return 'codex-session-v9-mirrored-envelope-dedup';
   }
 
   async discover(options?: { projectFilter?: string }): Promise<string[]> {
@@ -262,6 +262,17 @@ function parseFormatA(content: string): ParsedSession | null {
     turnUsage = null;
   }
 
+  const appendEnvelopeText = (existing: string, incoming: string): string => {
+    const normalizedIncoming = incoming.trim();
+    if (!normalizedIncoming) return existing;
+    const normalizedExisting = existing.trimEnd();
+    if (normalizedExisting === normalizedIncoming
+        || normalizedExisting.endsWith(`\n${normalizedIncoming}`)) {
+      return existing;
+    }
+    return `${existing}${incoming}\n`;
+  };
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     let event: CodexRolloutLine;
@@ -292,7 +303,7 @@ function parseFormatA(content: string): ParsedSession | null {
           // response_item assistant message: content has output_text items
           const assistantContent = extractContent(payload);
           if (assistantContent) {
-            currentAssistantText += assistantContent + '\n';
+            currentAssistantText = appendEnvelopeText(currentAssistantText, assistantContent);
           }
           lastTimestamp = parseEnvelopeTimestamp(event) || lastTimestamp;
         } else if (role === 'user') {
@@ -354,9 +365,7 @@ function parseFormatA(content: string): ParsedSession | null {
         // Desktop-originated rollouts may contain only this envelope. Use it as
         // a fallback without duplicating the normal response_item path.
         const assistantContent = (payload.message as string) || (payload.text as string) || '';
-        if (assistantContent && currentAssistantText.trim().length === 0) {
-          currentAssistantText = `${assistantContent}\n`;
-        }
+        if (assistantContent) currentAssistantText = appendEnvelopeText(currentAssistantText, assistantContent);
         lastTimestamp = parseEnvelopeTimestamp(event) || lastTimestamp;
         break;
       }
@@ -436,7 +445,7 @@ function parseFormatA(content: string): ParsedSession | null {
             .filter(s => s.type === 'summary_text')
             .map(s => s.text)
             .join('\n');
-          if (reasoningText) currentThinking = (currentThinking || '') + reasoningText + '\n';
+          if (reasoningText) currentThinking = appendEnvelopeText(currentThinking || '', reasoningText);
         }
         break;
       }
@@ -444,7 +453,7 @@ function parseFormatA(content: string): ParsedSession | null {
       case 'agent_reasoning': {
         // event_msg/agent_reasoning: streaming thinking text
         const reasoningText = (payload.text as string) || '';
-        if (reasoningText) currentThinking = (currentThinking || '') + reasoningText + '\n';
+        if (reasoningText) currentThinking = appendEnvelopeText(currentThinking || '', reasoningText);
         break;
       }
 

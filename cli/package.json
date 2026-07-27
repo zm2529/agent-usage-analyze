@@ -51,6 +51,7 @@
     "./analysis/analysis-run-db": "./dist/analysis/analysis-run-db.js",
     "./analysis/behavior-report": "./dist/analysis/behavior-report.js",
     "./analysis/behavior-report-scheduler": "./dist/analysis/behavior-report-scheduler.js",
+    "./analysis/skill-usage": "./dist/analysis/skill-usage.js",
     "./analysis/provider-runner": "./dist/analysis/provider-runner.js",
     "./analysis/execution-policy": "./dist/analysis/execution-policy.js",
     "./analysis/automatic-status": "./dist/analysis/automatic-status.js",

@@ -1,5 +1,9 @@
 import { Hono } from 'hono';
 import { getDb } from 'agent-usage-analyze/db/client';
+import {
+  agentAppliedSkillNames,
+  userInvokedSkillNames,
+} from 'agent-usage-analyze/analysis/skill-usage';
 
 const app = new Hono();
 
@@ -15,6 +19,11 @@ interface SessionAnalyticsRow {
   projectId: string;
 }
 
+interface TurnContextRow {
+  threadId: string | null;
+  payloadJson: string;
+}
+
 interface TimelinePoint {
   key: string;
   label: string;
@@ -27,6 +36,7 @@ interface TimelinePoint {
   cacheTokens: number;
   subagents: number;
   skillInvocations: number;
+  skillBreakdown: Record<string, number>;
   promptScore: number | null;
 }
 
@@ -34,7 +44,7 @@ function rangeStart(range: Range, now: Date): Date | null {
   if (range === 'all') return null;
   if (range === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
-  return new Date(now.getTime() - days * 86_400_000);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
 }
 
 function localDay(date: Date): string {
@@ -59,6 +69,7 @@ function emptyTimeline(range: Range, now: Date, start: Date | null): TimelinePoi
       sessions: 0, messages: 0, toolCalls: 0, durationMinutes: 0,
       inputTokens: 0, outputTokens: 0, cacheTokens: 0, subagents: 0,
       skillInvocations: 0, promptScore: null,
+      skillBreakdown: {},
     }));
   }
   const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
@@ -71,19 +82,9 @@ function emptyTimeline(range: Range, now: Date, start: Date | null): TimelinePoi
       sessions: 0, messages: 0, toolCalls: 0, durationMinutes: 0,
       inputTokens: 0, outputTokens: 0, cacheTokens: 0, subagents: 0,
       skillInvocations: 0, promptScore: null,
+      skillBreakdown: {},
     };
   });
-}
-
-function skillNames(content: string): string[] {
-  const names = new Set<string>();
-  for (const match of content.matchAll(/\[\$?([a-z][a-z0-9:-]*)\]\([^)]*\/SKILL\.md(?:\?[^)]*)?\)/gi)) {
-    names.add(match[1]!.toLowerCase());
-  }
-  for (const match of content.matchAll(/(?:^|\s)\$([a-z][a-z0-9:-]*)\b/gi)) {
-    names.add(match[1]!.toLowerCase());
-  }
-  return [...names];
 }
 
 function toolFamily(name: string): string {
@@ -153,6 +154,10 @@ app.get('/overview', (c) => {
       project_id AS projectId
     FROM sessions WHERE deleted_at IS NULL AND started_at >= ? ORDER BY started_at`).all(start.toISOString()) as SessionAnalyticsRow[];
   const sessionIds = new Set(sessions.map((row) => row.id));
+  const nativeSessionIds = new Set(sessions.flatMap((row) => {
+    const nativeId = row.id.startsWith('codex:') ? row.id.slice('codex:'.length) : row.id;
+    return [row.id, nativeId];
+  }));
   const timeline = emptyTimeline(range, now, start);
   const byKey = new Map(timeline.map((point) => [point.key, point]));
   for (const session of sessions) {
@@ -198,13 +203,24 @@ app.get('/overview', (c) => {
   const skillCounts = new Map<string, number>();
   const skillSessions = new Map<string, Set<string>>();
   const toolCounts = new Map<string, number>();
+  const userSkillsBySession = new Map<string, Set<string>>();
+  for (const message of messages) {
+    if (!sessionIds.has(message.sessionId) || message.type !== 'user') continue;
+    const names = userSkillsBySession.get(message.sessionId) ?? new Set<string>();
+    for (const skill of userInvokedSkillNames(message.content)) names.add(skill);
+    userSkillsBySession.set(message.sessionId, names);
+  }
   for (const message of messages) {
     if (!sessionIds.has(message.sessionId)) continue;
-    if (message.type === 'user') {
-      const skills = skillNames(message.content);
+    const skills = message.type === 'user'
+      ? userInvokedSkillNames(message.content)
+      : agentAppliedSkillNames(message.toolCalls)
+        .filter((name) => !(userSkillsBySession.get(message.sessionId)?.has(name) ?? false));
+    if (skills.length > 0) {
       const point = byKey.get(bucketKey(message.timestamp, range));
       if (point) point.skillInvocations += skills.length;
       for (const skill of skills) {
+        if (point) point.skillBreakdown[skill] = (point.skillBreakdown[skill] ?? 0) + 1;
         skillCounts.set(skill, (skillCounts.get(skill) ?? 0) + 1);
         const covered = skillSessions.get(skill) ?? new Set<string>();
         covered.add(message.sessionId);
@@ -240,6 +256,36 @@ app.get('/overview', (c) => {
     point.promptScore = scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null;
   }
 
+  const turnContexts = db.prepare(`SELECT thread_id AS threadId, payload_json AS payloadJson
+    FROM canonical_events
+    WHERE kind = 'turn-context' AND occurred_at >= ?
+    ORDER BY occurred_at, sequence`).all(start.toISOString()) as TurnContextRow[];
+  const modelStats = new Map<string, { turns: number; sessions: Set<string> }>();
+  const effortStats = new Map<string, { turns: number; sessions: Set<string> }>();
+  for (const context of turnContexts) {
+    if (!context.threadId || !nativeSessionIds.has(context.threadId)) continue;
+    let payload: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(context.payloadJson) as unknown;
+      payload = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown> : {};
+    } catch { continue; }
+    const model = typeof payload.model === 'string' ? payload.model.trim() : '';
+    const effort = typeof payload.effort === 'string' ? payload.effort.trim().toLowerCase() : '';
+    if (model) {
+      const stat = modelStats.get(model) ?? { turns: 0, sessions: new Set<string>() };
+      stat.turns += 1;
+      stat.sessions.add(context.threadId);
+      modelStats.set(model, stat);
+    }
+    if (effort) {
+      const stat = effortStats.get(effort) ?? { turns: 0, sessions: new Set<string>() };
+      stat.turns += 1;
+      stat.sessions.add(context.threadId);
+      effortStats.set(effort, stat);
+    }
+  }
+
   const durationValues = sessions.map((session) => Math.max(0, (Date.parse(session.endedAt) - Date.parse(session.startedAt)) / 60_000));
   const durationBands = [
     { label: '< 5 分钟', count: durationValues.filter((value) => value < 5).length },
@@ -264,11 +310,38 @@ app.get('/overview', (c) => {
       ? Math.round(allPromptScores.reduce((sum, score) => sum + score, 0) / allPromptScores.length)
       : null,
   };
+  const sortedSkills = [...skillCounts.entries()].sort((left, right) => right[1] - left[1]);
+  const primarySkillNames = sortedSkills.slice(0, 7).map(([name]) => name);
+  const secondarySkillNames = new Set(sortedSkills.slice(7).map(([name]) => name));
+  const skillSeries = primarySkillNames.map((name) => ({
+    name,
+    invocations: skillCounts.get(name) ?? 0,
+  }));
+  const otherInvocations = [...secondarySkillNames]
+    .reduce((sum, name) => sum + (skillCounts.get(name) ?? 0), 0);
+  if (otherInvocations > 0) skillSeries.push({ name: '其他', invocations: otherInvocations });
+  const skillTimeline = timeline.map((point) => {
+    const counts = Object.fromEntries(primarySkillNames.map((name) => [name, point.skillBreakdown[name] ?? 0]));
+    if (otherInvocations > 0) {
+      counts['其他'] = [...secondarySkillNames]
+        .reduce((sum, name) => sum + (point.skillBreakdown[name] ?? 0), 0);
+    }
+    return { key: point.key, label: point.label, total: point.skillInvocations, counts };
+  });
+  const publicTimeline = timeline.map(({ skillBreakdown: _skillBreakdown, ...point }) => point);
   return c.json({
-    range, generatedAt: now.toISOString(), startsAt: start.toISOString(), totals, timeline,
-    skills: [...skillCounts.entries()].map(([name, invocations]) => ({
+    range, generatedAt: now.toISOString(), startsAt: start.toISOString(), totals, timeline: publicTimeline,
+    skills: sortedSkills.map(([name, invocations]) => ({
       name, invocations, sessions: skillSessions.get(name)?.size ?? 0,
-    })).sort((a, b) => b.invocations - a.invocations).slice(0, 12),
+    })).slice(0, 12),
+    skillSeries,
+    skillTimeline,
+    modelUsage: [...modelStats.entries()]
+      .map(([name, stat]) => ({ name, turns: stat.turns, sessions: stat.sessions.size }))
+      .sort((left, right) => right.turns - left.turns || left.name.localeCompare(right.name)),
+    reasoningEffortUsage: [...effortStats.entries()]
+      .map(([name, stat]) => ({ name, turns: stat.turns, sessions: stat.sessions.size }))
+      .sort((left, right) => right.turns - left.turns || left.name.localeCompare(right.name)),
     toolFamilies: [...toolCounts.entries()].map(([family, calls]) => ({ family, calls }))
       .sort((a, b) => b.calls - a.calls),
     durationBands,

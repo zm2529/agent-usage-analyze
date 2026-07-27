@@ -43,6 +43,7 @@ import {
 import { calculateAnalysisCost } from './analysis-pricing.js';
 import { saveAnalysisUsage } from './analysis-usage-db.js';
 import { assessAnalysisEligibility, analysisUnavailableMessage } from 'agent-usage-analyze/analysis/analysis-eligibility';
+import { summarizeObservedSkills } from 'agent-usage-analyze/analysis/skill-usage';
 
 // Re-export from sub-modules so existing imports of these from analysis.ts keep working.
 export { analyzePromptQuality } from './prompt-quality-analysis.js';
@@ -89,6 +90,11 @@ export async function analyzeSession(
     const formattedMessages = formatMessagesForAnalysis(messages);
     const estimatedTokens = client.estimateTokens(formattedMessages);
     const sessionMeta = buildSessionMeta(session);
+    const observedSkills = summarizeObservedSkills(messages.map((message) => ({
+      type: message.type,
+      content: message.content,
+      toolCalls: message.tool_calls,
+    })));
 
     let analysisResponse: AnalysisResponse;
     let totalInputTokens = 0;
@@ -113,7 +119,7 @@ export async function analyzeSession(
           { role: 'system', content: SHARED_ANALYST_SYSTEM_PROMPT },
           { role: 'user', content: [
             buildCacheableConversationBlock(chunkFormatted),
-            { type: 'text' as const, text: buildSessionAnalysisInstructions(session.project_name, session.summary, sessionMeta) },
+            { type: 'text' as const, text: buildSessionAnalysisInstructions(session.project_name, session.summary, sessionMeta, observedSkills) },
           ] },
         ], { signal: options?.signal });
 
@@ -189,7 +195,7 @@ export async function analyzeSession(
         { role: 'system', content: SHARED_ANALYST_SYSTEM_PROMPT },
         { role: 'user', content: [
           buildCacheableConversationBlock(formattedMessages),
-          { type: 'text' as const, text: buildSessionAnalysisInstructions(session.project_name, session.summary, sessionMeta) },
+          { type: 'text' as const, text: buildSessionAnalysisInstructions(session.project_name, session.summary, sessionMeta, observedSkills) },
         ] },
       ], { signal: options?.signal });
 

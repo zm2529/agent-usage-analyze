@@ -38,10 +38,10 @@ beforeEach(() => {
     VALUES
       ('event:advice', 'source:advice', 'era:advice', 'native:advice', 1,
         '2026-07-21T00:01:00.000Z', 'task-completed', 'system', 'structural',
-        '{"status":"completed"}', 'task:advice', 'thread:advice', 'fixture-v1'),
+        '{"status":"completed","validationStatus":"not-run"}', 'task:advice', 'thread:advice', 'fixture-v1'),
       ('event:followup', 'source:followup', 'era:followup', 'native:followup', 1,
         '2026-07-28T00:01:00.000Z', 'task-completed', 'system', 'structural',
-        '{"status":"completed"}', 'task:followup', 'thread:followup', 'fixture-v2');
+        '{"status":"completed","validationStatus":"not-run"}', 'task:followup', 'thread:followup', 'fixture-v2');
     INSERT INTO evidence_records
       (id, evidence_type, subject_ref, position, source_category, algorithm_version,
        coverage, confidence, era_compatibility, era_ids_json, human_status, fact_refs_json)
@@ -103,6 +103,48 @@ describe('Advice API', () => {
       expect.objectContaining({ taskId: 'task:followup', issueKey: 'pattern:validation-missing' }),
     ]));
     expect(state.muted).toEqual([]);
+  });
+
+  it('combines overall, Skill, model, and reasoning-effort guidance from the latest report', async () => {
+    const report = {
+      headline: '按任务选择合适配置',
+      developmentPlan: {
+        northStar: '让配置与任务难度匹配',
+        experiments: [{ title: '为短任务设轻量起点', hypothesis: '减少不必要等待。', eligibleCohort: '简单查询' }],
+      },
+      skillAssessments: [{
+        name: 'diagnose', fit: 'mixed', observation: '部分简单任务也启用了诊断流程。',
+        issue: '简单查询的流程偏重。', recommendation: '只在需要排查原因时启用。',
+      }],
+      skillOpportunities: [],
+      runtimeAssessments: [
+        {
+          category: 'model', target: 'gpt-5.6-sol', fit: 'mixed',
+          observation: '简单查询和复杂实现使用同一模型。', issue: '简单任务可能等待更久。',
+          recommendation: '简单查询先尝试更轻模型。', applicability: '简单查询',
+        },
+        {
+          category: 'reasoning-effort', target: 'xhigh', fit: 'mixed',
+          observation: '多数任务使用很高推理强度。', issue: '短任务可能没有必要。',
+          recommendation: '短任务先用中等强度。', applicability: '短任务',
+        },
+      ],
+    };
+    getDb().prepare(`INSERT INTO analysis_runs
+      (id, analysis_type, status, prompt_version, input_summary_json, output_json, created_at)
+      VALUES ('report:guidance', 'behavior_report', 'completed', 'behavior-report-v9', '{}', ?, ?)`)
+      .run(JSON.stringify(report), '2026-07-26T00:00:00.000Z');
+
+    const state = await (await createApp().request('/api/advice')).json() as {
+      strategic: { actions: Array<{ category: string; title: string }> };
+    };
+
+    expect(state.strategic.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'overall', title: '为短任务设轻量起点' }),
+      expect.objectContaining({ category: 'skill', title: '$diagnose' }),
+      expect.objectContaining({ category: 'model', title: 'gpt-5.6-sol' }),
+      expect.objectContaining({ category: 'reasoning', title: 'xhigh' }),
+    ]));
   });
 
   it('fails open with an empty successful response when the advisory store is unavailable', async () => {

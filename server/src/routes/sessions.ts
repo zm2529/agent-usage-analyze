@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getDb } from 'agent-usage-analyze/db/client';
+import { summarizeObservedSkills } from 'agent-usage-analyze/analysis/skill-usage';
 import { parseIntParam } from '../utils.js';
 
 /** Escape SQLite LIKE wildcard characters so user input is treated as literal text. */
@@ -111,7 +112,17 @@ app.get('/:id', (c) => {
         WHERE message.session_id = sessions.id AND message.type = 'assistant')
   `).get(c.req.param('id'));
   if (!session) return c.json({ error: 'Not found' }, 404);
-  return c.json({ session });
+  const messages = db.prepare(`SELECT type, content, tool_calls AS toolCalls
+    FROM messages WHERE session_id = ? AND type IN ('user', 'assistant')
+    ORDER BY timestamp, id`).all(c.req.param('id')) as Array<{
+      type: string; content: string; toolCalls: string | null;
+    }>;
+  return c.json({
+    session: {
+      ...(session as Record<string, unknown>),
+      observed_skill_usage: summarizeObservedSkills(messages),
+    },
+  });
 });
 
 app.patch('/:id', async (c) => {

@@ -27,8 +27,9 @@ describe('runStart', () => {
         return { changed: true, file: '/tmp/hooks.json', backup: null };
       },
       importHistory,
-      startBackgroundImport: () => {
+      startBackgroundImport: (backgroundOptions) => {
         calls.push('background-import');
+        expect(backgroundOptions).toEqual({ analyzeAfterImport: true });
         return { pid: 123, logPath: '/tmp/config/codex-import.log' };
       },
       launchDashboard,
@@ -37,6 +38,37 @@ describe('runStart', () => {
     expect(calls).toEqual(['setup', 'sync', 'hook', 'background-import', 'dashboard']);
     expect(importHistory).not.toHaveBeenCalled();
     expect(launchDashboard).toHaveBeenCalledWith({ port: '7890', open: false, sync: false });
+  });
+
+  it('starts both LLM analysis paths only after the first foreground import completes', async () => {
+    const calls: string[] = [];
+    await runStart({ ...options, waitForImport: true }, {
+      ensureSetup: () => ({ configCreated: true, configDir: '/tmp/config' }),
+      syncHistory: async () => { calls.push('sync'); return syncResult; },
+      installHook: () => ({ changed: false, file: '/tmp/hooks.json', backup: null }),
+      importHistory: async () => {
+        calls.push('import');
+        return {
+          runId: 'run-1', adapter: 'codex-rollout', insertedEvents: 4, advancedSources: 1,
+          coverage: { discovered: 1, parsed: 1, skipped: 0, failed: 0, unknown: 0 },
+          status: 'completed' as const,
+        };
+      },
+      startBackgroundImport: () => { throw new Error('should not spawn'); },
+      startHistoryAnalysis: () => {
+        calls.push('session-analysis');
+        return {
+          enabled: true, effectiveRunner: 'codex-native', reason: 'codex-chatgpt-auth',
+          queued: 1, logPath: '/tmp/analysis.log',
+        };
+      },
+      startBehaviorReport: () => { calls.push('behavior-report'); },
+      launchDashboard: async () => { calls.push('dashboard'); },
+    });
+
+    expect(calls).toEqual([
+      'sync', 'import', 'session-analysis', 'behavior-report', 'dashboard',
+    ]);
   });
 
   it('waits and reports canonical import progress when explicitly requested', async () => {

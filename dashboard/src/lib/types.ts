@@ -337,7 +337,13 @@ export interface AdviceState {
   attention: { shown: number; adopted: number; ignored: number; dismissed: number };
   strategic: null | {
     generatedAt: string; headline: string; northStar: string;
-    actions: Array<{ title: string; rationale: string }>;
+    actions: Array<{
+      category: 'overall' | 'skill' | 'model' | 'reasoning';
+      title: string;
+      rationale: string;
+      recommendation?: string;
+      applicability?: string;
+    }>;
   };
   diagnostics: string[];
 }
@@ -438,6 +444,12 @@ export interface Session {
   compact_count: number;
   auto_compact_count: number;
   slash_commands: string | null; // JSON-encoded string[] — decode with parseJsonField<string[]>(x, [])
+  observed_skill_usage?: Array<{
+    name: string;
+    userInvocations: number;
+    agentInvocations: number;
+    automaticInvocations: number;
+  }>;
 }
 
 export type InsightType = 'summary' | 'decision' | 'learning' | 'technique' | 'prompt_quality';
@@ -513,6 +525,16 @@ export interface BehaviorReport {
     recommendation: string;
     evidenceRefs: string[];
   }>;
+  runtimeAssessments: Array<{
+    category: 'model' | 'reasoning-effort';
+    target: string;
+    fit: 'appropriate' | 'mixed' | 'uncertain';
+    observation: string;
+    issue: string | null;
+    recommendation: string;
+    applicability: string;
+    evidenceRefs: string[];
+  }>;
   contextDocumentAssessments: Array<{
     documentRef: string;
     name: string;
@@ -576,6 +598,7 @@ export interface BehaviorReportState {
       sessionRef: string;
       cohort: { projectRef: string; projectLabel: string; lengthBand: 'short' | 'medium' | 'long' };
       activity: { durationMinutes: number; userMessages: number; assistantMessages: number; toolCalls: number; compactCount: number };
+      runtime: { models: string[]; reasoningEfforts: string[] };
       behaviorSignals: {
         firstMessage: {
           hasPathContext: boolean;
@@ -583,6 +606,7 @@ export interface BehaviorReportState {
           hasValidationUpfront: boolean;
           hasSkillReference: boolean;
         };
+        openingMessageCluster: { ref: string; sessions: number };
         followups: { messages: number; shortMessages: number; shortRate: number };
         semanticEnriched: boolean;
       };
@@ -593,13 +617,23 @@ export interface BehaviorReportState {
         skillUsage: Array<Record<string, unknown>>;
       }>;
     }>;
+    runtimeUsage: {
+      models: Array<{ name: string; turns: number; sessions: number; sessionRefs: string[] }>;
+      reasoningEfforts: Array<{ name: string; turns: number; sessions: number; sessionRefs: string[] }>;
+      measurementNote: string;
+    };
     leverage: {
       skills: {
         explicitInvocations: number;
+        automaticInvocations: number;
+        agentReadEvents: number;
         coveredSessions: number;
         items: Array<{
           name: string;
           invocations: number;
+          userInvocations: number;
+          automaticInvocations: number;
+          agentReadEvents: number;
           sessions: number;
           sessionShare: number;
           weeklyInvocations: [number, number, number, number];
@@ -636,6 +670,7 @@ export interface BehaviorReportState {
   };
   eligibilityReason: string | null;
   run: AnalysisRunRecord | null;
+  latestAttempt: AnalysisRunRecord | null;
   report: BehaviorReport | null;
   needsRegeneration: boolean;
   automation: {
@@ -739,6 +774,12 @@ export interface OverviewAnalytics {
     subagents: number; skillInvocations: number; promptScore: number | null;
   }>;
   skills: Array<{ name: string; invocations: number; sessions: number }>;
+  skillSeries: Array<{ name: string; invocations: number }>;
+  skillTimeline: Array<{
+    key: string; label: string; total: number; counts: Record<string, number>;
+  }>;
+  modelUsage: Array<{ name: string; turns: number; sessions: number }>;
+  reasoningEffortUsage: Array<{ name: string; turns: number; sessions: number }>;
   toolFamilies: Array<{ family: string; calls: number }>;
   durationBands: Array<{ label: string; count: number }>;
 }

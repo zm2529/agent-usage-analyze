@@ -36,7 +36,7 @@ beforeEach(() => {
     VALUES
       ('event:missing-validation', 'source:one', 'era:one', 'event-native', 1,
        '2026-07-21T00:03:00.000Z', 'task-completed', 'system', 'structural',
-       '{"status":"completed"}', 'task:one', 'thread:one', 'fixture-v1');
+       '{"status":"completed","validationStatus":"not-run"}', 'task:one', 'thread:one', 'fixture-v1');
     INSERT INTO evidence_records
       (id, evidence_type, subject_ref, position, source_category, algorithm_version,
        coverage, confidence, era_compatibility, era_ids_json, human_status, fact_refs_json)
@@ -71,8 +71,8 @@ describe('queryAdvisories', () => {
       status: 'ok', taskId: 'task:one', suggestions: [{
         issueKey: 'pattern:validation-missing',
         sourceCategory: 'deterministic',
-        triggerFact: 'A completed task changed files without an observed validation tool call.',
-        expectedBenefit: 'Earlier validation may shorten the feedback loop and expose rework sooner.',
+        triggerFact: 'The task record explicitly states that validation was not performed.',
+        expectedBenefit: 'Adding the smallest relevant check may expose problems sooner.',
         confidence: 0.9,
         coverage: 1,
         evidenceRefs: ['event:missing-validation'],

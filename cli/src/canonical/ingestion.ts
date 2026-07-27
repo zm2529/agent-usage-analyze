@@ -82,7 +82,11 @@ export interface CanonicalEventPayloads {
   thinking: Record<string, never>;
   compaction: { trigger?: 'automatic' | 'manual' | 'unknown' };
   'task-started': { status?: 'started' | 'running' };
-  'task-completed': { status?: 'completed' | 'failed' | 'cancelled' | 'aborted'; reason?: 'normal' | 'user-cancelled' | 'tool-error' | 'turn-aborted' | 'unknown' };
+  'task-completed': {
+    status?: 'completed' | 'failed' | 'cancelled' | 'aborted';
+    reason?: 'normal' | 'user-cancelled' | 'tool-error' | 'turn-aborted' | 'unknown';
+    validationStatus?: 'performed' | 'not-run' | 'skipped' | 'unknown';
+  };
   'task-status': { status?: 'started' | 'running' | 'completed' | 'failed' | 'cancelled' | 'aborted' | 'unknown'; reason?: 'normal' | 'user-cancelled' | 'tool-error' | 'turn-aborted' | 'unknown' };
   'subagent-spawned': { agentRole?: 'subagent' | 'reviewer' | 'worker' | 'unknown'; status?: 'started' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown' };
   'token-snapshot': { inputTokens?: number; cachedInputTokens?: number; cacheCreationTokens?: number; outputTokens?: number; reasoningTokens?: number; compactionTokens?: number };
@@ -195,7 +199,7 @@ const EVENT_PAYLOAD_FIELDS: Record<CanonicalEventKind, Record<string, PayloadVal
   thinking: {},
   compaction: { trigger: 'string' },
   'task-started': { status: 'string' },
-  'task-completed': { status: 'string', reason: 'string' },
+  'task-completed': { status: 'string', reason: 'string', validationStatus: 'string' },
   'task-status': { status: 'string', reason: 'string' },
   'subagent-spawned': { agentRole: 'string', status: 'string' },
   'token-snapshot': {
@@ -215,6 +219,7 @@ const PAYLOAD_STRING_VALUES: Partial<Record<CanonicalEventKind, Record<string, R
   'task-completed': {
     status: new Set(['completed', 'failed', 'cancelled', 'aborted']),
     reason: new Set(['normal', 'user-cancelled', 'tool-error', 'turn-aborted', 'unknown']),
+    validationStatus: new Set(['performed', 'not-run', 'skipped', 'unknown']),
   },
   'task-status': {
     status: new Set(['started', 'running', 'completed', 'failed', 'cancelled', 'aborted', 'unknown']),

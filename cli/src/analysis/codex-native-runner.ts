@@ -20,9 +20,9 @@ const SAFE_ENVIRONMENT_NAMES = [
 const DISABLED_CODEX_FEATURES = [
   'hooks', 'shell_tool', 'code_mode', 'multi_agent', 'multi_agent_v2', 'apps',
   'plugins', 'image_generation', 'tool_suggest', 'standalone_web_search',
-  'workspace_dependencies', 'memories', 'goals', 'current_time_reminder',
+  'workspace_dependencies', 'memories', 'goals',
   'request_permissions_tool', 'browser_use', 'browser_use_external',
-  'browser_use_full_cdp_access', 'computer_use', 'artifact', 'remote_plugin',
+  'computer_use', 'artifact', 'remote_plugin',
   'auth_elicitation', 'tool_call_mcp_elicitation', 'skill_mcp_dependency_install',
 ] as const;
 
@@ -54,6 +54,18 @@ function tokenCount(value: unknown, label: string, optional = false): number | u
   return value;
 }
 
+function errorDetail(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as JsonObject;
+  for (const field of ['message', 'code', 'type']) {
+    const candidate = source[field];
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim().replace(/\s+/g, ' ').slice(0, 240);
+    }
+  }
+  return null;
+}
+
 /** Parse the documented `codex exec --json` event stream without repairing it. */
 export function parseCodexExecJsonl(rawOutput: string): ParsedCodexOutput {
   const lines = rawOutput.split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -63,6 +75,7 @@ export function parseCodexExecJsonl(rawOutput: string): ParsedCodexOutput {
   let sawTurnStarted = false;
   let completed: ParsedCodexOutput | undefined;
   let finalMessage: string | undefined;
+  let lastErrorDetail: string | null = null;
 
   for (let index = 0; index < lines.length; index += 1) {
     let eventValue: unknown;
@@ -99,7 +112,10 @@ export function parseCodexExecJsonl(rawOutput: string): ParsedCodexOutput {
         if (!sawTurnStarted) throw new Error('Codex JSONL emitted item.completed before turn.started');
         const item = object(event.item, 'item.completed.item');
         if (typeof item.type !== 'string') throw new Error('Codex item.completed is missing item.type');
-        if (item.type === 'error') throw new Error('Codex exec emitted a failed item');
+        if (item.type === 'error') {
+          const detail = errorDetail(item);
+          throw new Error(`Codex exec emitted a failed item${detail ? `: ${detail}` : ''}`);
+        }
         if (!['agent_message', 'reasoning'].includes(item.type)) {
           throw new Error('Codex exec attempted a disabled tool');
         }
@@ -135,16 +151,25 @@ export function parseCodexExecJsonl(rawOutput: string): ParsedCodexOutput {
         break;
       }
       case 'turn.failed': {
-        object(event.error, 'turn.failed.error');
-        throw new Error('Codex exec emitted a failed turn');
+        const failure = object(event.error, 'turn.failed.error');
+        const detail = errorDetail(failure);
+        throw new Error(`Codex exec emitted a failed turn${detail ? `: ${detail}` : ''}`);
       }
-      case 'error':
-        throw new Error('Codex exec emitted an error event');
+      case 'error': {
+        // Codex emits recoverable "Reconnecting…" error events before a later
+        // turn.completed. Preserve the latest detail, but only fail if the
+        // stream never recovers.
+        lastErrorDetail = errorDetail(event) ?? errorDetail(event.error) ?? lastErrorDetail;
+        break;
+      }
       default:
         throw new Error(`Codex JSONL contained unsupported event type: ${event.type}`);
     }
   }
 
+  if (!completed && lastErrorDetail) {
+    throw new Error(`Codex exec emitted an error event: ${lastErrorDetail}`);
+  }
   if (!completed) throw new Error('Codex JSONL contained no turn.completed event');
   return completed;
 }
@@ -260,7 +285,15 @@ function executeCodex(
         return rejectOnce(new Error('Codex exec exceeded the 10 MiB output limit'));
       }
       if (code !== 0) {
-        return rejectOnce(new Error(`Codex exec exited with exit code ${code ?? `signal ${signal ?? 'unknown'}`}`));
+        let detail = '';
+        try {
+          parseCodexExecJsonl(stdout.toString('utf8'));
+        } catch (error) {
+          if (error instanceof Error) detail = `: ${error.message}`;
+        }
+        return rejectOnce(new Error(
+          `Codex exec exited with exit code ${code ?? `signal ${signal ?? 'unknown'}`}${detail}`,
+        ));
       }
       settled = true;
       resolveOutput(stdout.toString('utf8'));

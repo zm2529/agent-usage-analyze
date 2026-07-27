@@ -186,6 +186,39 @@ describe('CodexProvider — Format A system context filtering', () => {
     expect(session?.assistantMessageCount).toBe(1);
   });
 
+  it('deduplicates mirrored assistant and reasoning envelopes without dropping fallback events', async () => {
+    const reasoningText = 'Planning the smallest relevant check';
+    const responseReasoningLine = JSON.stringify({
+      type: 'response_item',
+      timestamp: '2026-01-01T10:01:30Z',
+      payload: { type: 'reasoning', summary: [{ type: 'summary_text', text: reasoningText }] },
+    });
+    const eventReasoningLine = JSON.stringify({
+      type: 'event_msg',
+      timestamp: '2026-01-01T10:01:29Z',
+      payload: { type: 'agent_reasoning', text: reasoningText },
+    });
+    const content = buildJSONL([
+      sessionMeta(),
+      userMessageLine('Inspect this project.'),
+      agentMessageLine('I will inspect the project first.'),
+      assistantLine('I will inspect the project first.'),
+      eventReasoningLine,
+      responseReasoningLine,
+      agentMessageLine('The project is ready.'),
+      assistantLine('The project is ready.'),
+      taskCompleteLine(),
+    ]);
+    const filePath = path.join(tempDir, 'rollout-mirrored-assistant-envelope.jsonl');
+    fs.writeFileSync(filePath, content);
+
+    const session = await new CodexProvider().parse(filePath);
+    const assistant = session?.messages.find((message) => message.type === 'assistant');
+
+    expect(assistant?.content).toBe('I will inspect the project first.\nThe project is ready.');
+    expect(assistant?.thinking?.trim()).toBe(reasoningText);
+  });
+
   it('uses per-turn usage instead of account-wide cumulative token snapshots', async () => {
     const content = buildJSONL([
       sessionMeta(),

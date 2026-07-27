@@ -39,7 +39,7 @@ function task(db: Database.Database, id: string, startedAt: string, withPattern:
     (id, source_artifact_id, era_id, native_event_id, sequence, occurred_at, kind, actor,
      sensitivity, payload_json, task_id, thread_id, parser_version)
     VALUES (?, 'source', 'era', ?, 2, ?, 'task-completed', 'system', 'structural',
-      '{"status":"completed","reason":"normal"}', ?, ?, 'v1')`)
+      '{"status":"completed","reason":"normal","validationStatus":"not-run"}', ?, ?, 'v1')`)
     .run(`${id}:done`, `${id}:done`, startedAt, id, id);
 }
 
@@ -74,6 +74,19 @@ function classification(previousCount: number, currentCount: number): { state: T
 }
 
 describe('era-aware deterministic pattern comparison', () => {
+  it('keeps validation unknown when a completed changed task only lacks a captured command', () => {
+    const db = setup();
+    task(db, 'plain', '2026-07-17T00:00:00.000Z', true);
+    db.prepare(`UPDATE canonical_events
+      SET payload_json = '{"status":"completed","reason":"normal"}'
+      WHERE id = 'plain:done'`).run();
+
+    expect(comparePatternWindows(db, {
+      currentStart: CURRENT[0], currentEnd: CURRENT[1], minSampleSize: 1,
+    }).trends.find((item) => item.pattern === 'validation-missing')).toBeUndefined();
+    db.close();
+  });
+
   it('classifies new, persistent, improving, regressed, and resolved equal-window trends', () => {
     expect(classification(0, 1)).toEqual({ state: 'new', change: 0.5 });
     expect(classification(1, 1)).toEqual({ state: 'persistent', change: 0 });

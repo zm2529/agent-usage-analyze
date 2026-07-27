@@ -244,8 +244,8 @@ const DETERMINISTIC_ADVICE = {
     verification: 'Compare observed repository and worktree transitions in the next similar task.',
   },
   'validation-missing': {
-    triggerFact: 'A completed task changed files without an observed validation tool call.',
-    expectedBenefit: 'Earlier validation may shorten the feedback loop and expose rework sooner.',
+    triggerFact: 'The task record explicitly states that validation was not performed.',
+    expectedBenefit: 'Adding the smallest relevant check may expose problems sooner.',
     verification: 'Run the smallest relevant validation and compare the next similar task.',
   },
   'late-constraint': {
@@ -275,6 +275,31 @@ function semanticIssueKey(title: string, verification: string): string {
     normalize(title), normalize(verification),
   ])).digest('hex');
   return `semantic:sha256:${digest}`;
+}
+
+function hasExplicitNoValidationEvidence(
+  db: Database.Database,
+  taskId: string,
+  eventIds: string[],
+): boolean {
+  for (const eventId of eventIds) {
+    const row = db.prepare(`SELECT event.payload_json AS payloadJson
+      FROM canonical_events event JOIN work_tasks task ON task.id = event.task_id
+      WHERE event.id = ? AND task.root_task_id = ?`).get(eventId, taskId) as {
+        payloadJson: string;
+      } | undefined;
+    if (!row) continue;
+    try {
+      const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
+      if (payload.validationPerformed === false
+          || ['not-run', 'skipped'].includes(String(payload.validationStatus ?? '').toLowerCase())) {
+        return true;
+      }
+    } catch {
+      // Malformed payload is not evidence that validation was skipped.
+    }
+  }
+  return false;
 }
 
 function resolveEvidenceEvents(
@@ -389,6 +414,8 @@ export function queryAdvisories(
       sourceCategory: 'deterministic', algorithmVersion: row.algorithmVersion,
     });
     if (evidenceRefs.length === 0) continue;
+    if (row.patternKey === 'validation-missing'
+        && !hasExplicitNoValidationEvidence(db, task.rootTaskId, evidenceRefs)) continue;
     seen.add(issueKey);
     suggestions.push({
       issueKey,

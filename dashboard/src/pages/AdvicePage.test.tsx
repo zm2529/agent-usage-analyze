@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -29,7 +29,7 @@ function renderPage() {
 }
 
 describe('AdvicePage', () => {
-  it('shows active and muted evidence, history, non-causal comparison, and attention cost', async () => {
+  it('shows evidence and keeps only the plain-language hide controls', async () => {
     api.fetchAdvice.mockResolvedValue({
       status: 'ok', diagnostics: [],
       active: [{
@@ -67,24 +67,17 @@ describe('AdvicePage', () => {
     });
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: '把观察转成可验证的行动' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '看看哪些地方可以改进' })).toBeInTheDocument();
     expect(screen.getByText('Validation was not observed.')).toBeInTheDocument();
     expect(screen.getByText(/置信度 90%；观察覆盖 80%/i)).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: '证据 1' })[0])
       .toHaveAttribute('href', '/tasks/task%3Aroot#event-event%3Aone');
     expect(screen.getByText(/已静音建议/)).toBeInTheDocument();
-    expect(screen.getAllByText(/observational before\/after only; no causal claim/i)).toHaveLength(2);
-    await waitFor(() => expect(api.recordAdviceEvent).toHaveBeenCalledWith({
-      taskId: 'task:root', issueKey: 'pattern:validation-missing', action: 'shown',
-    }));
-    expect(api.recordAdviceEvent).not.toHaveBeenCalledWith(expect.objectContaining({ taskId: 'task:muted' }));
-    fireEvent.click(screen.getByRole('button', { name: /采纳/ }));
-    await waitFor(() => expect(api.recordAdviceEvent).toHaveBeenCalledWith({
-      taskId: 'task:root', issueKey: 'pattern:validation-missing', action: 'adopted',
-      interventionId: 'advisory-intervention:one',
-    }));
+    expect(screen.queryByText(/observational before\/after only; no causal claim/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /采纳|忽略|关闭/ })).not.toBeInTheDocument();
+    expect(api.recordAdviceEvent).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mute issue 验证证据尚不可见' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mute issue 记录明确显示未进行验证' }));
     expect(api.setAdviceMute).toHaveBeenCalledWith({
       scopeKind: 'issue', scopeKey: 'pattern:validation-missing', mutedUntil: null,
     });
@@ -100,7 +93,7 @@ describe('AdvicePage', () => {
     expect(screen.queryByText('No active suggestions.')).not.toBeInTheDocument();
   });
 
-  it('keeps failed display accounting silent because suggestions remain usable', async () => {
+  it('does not create implicit interaction records when suggestions render', async () => {
     api.fetchAdvice.mockResolvedValue({
       status: 'ok', diagnostics: [],
       active: [{
@@ -112,13 +105,43 @@ describe('AdvicePage', () => {
       muted: [], history: { events: [], comparisons: [] },
       attention: { shown: 0, adopted: 0, ignored: 0, dismissed: 0 },
     });
-    api.recordAdviceEvent
-      .mockResolvedValueOnce({ recorded: false, degraded: true })
-      .mockRejectedValueOnce(new Error('offline'));
     renderPage();
 
-    await waitFor(() => expect(api.recordAdviceEvent).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/Display was not recorded/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Retry display accounting' })).not.toBeInTheDocument();
+    expect(await screen.findByText('A tool call waited.')).toBeInTheDocument();
+    expect(api.recordAdviceEvent).not.toHaveBeenCalled();
+  });
+
+  it('shows one combined count and one suggestion list for report and recent-session advice', async () => {
+    api.fetchAdvice.mockResolvedValue({
+      status: 'ok', diagnostics: [],
+      active: [{
+        taskId: 'task:recent', issueKey: 'pattern:late-constraint', sourceCategory: 'deterministic',
+        triggerFact: 'A constraint arrived after work began.', expectedBenefit: 'Earlier context can reduce rework.',
+        confidence: 0.8, coverage: 0.9, evidenceRefs: ['event:recent'],
+        verification: 'Compare the next similar task.', muted: false,
+      }],
+      muted: [], history: { events: [], comparisons: [] },
+      attention: { shown: 0, adopted: 0, ignored: 0, dismissed: 0 },
+      strategic: {
+        generatedAt: '2026-07-26T00:00:00.000Z',
+        headline: '整体使用分析',
+        northStar: '更早说明边界',
+        actions: [
+          { category: 'overall', title: '先说明完成标准', rationale: '减少来回补充。' },
+          { category: 'skill', title: '$diagnose', rationale: '简单查询的流程偏重。', recommendation: '仅在需要排查原因时使用。' },
+          { category: 'model', title: 'gpt-5.6-sol', rationale: '简单任务可能等待更久。', applicability: '简单查询' },
+        ],
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText('4')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '建议清单' })).toBeInTheDocument();
+    expect(screen.getByText('整体使用')).toBeInTheDocument();
+    expect(screen.getByText('Skill')).toBeInTheDocument();
+    expect(screen.getByText('模型')).toBeInTheDocument();
+    expect(screen.getByText('近期会话')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '长期改进方向' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '当前建议' })).not.toBeInTheDocument();
   });
 });

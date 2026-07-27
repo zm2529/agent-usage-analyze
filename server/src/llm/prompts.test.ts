@@ -394,6 +394,17 @@ describe('buildSessionAnalysisInstructions', () => {
     const result = buildSessionAnalysisInstructions('proj', null);
     expect(result).toContain('<json>...</json>');
   });
+
+  it('includes detected automatic Skill usage for contextual assessment', () => {
+    const result = buildSessionAnalysisInstructions('proj', null, undefined, [{
+      name: 'computer-use',
+      userInvocations: 0,
+      agentInvocations: 1,
+      automaticInvocations: 1,
+    }]);
+    expect(result).toContain('$computer-use');
+    expect(result).toContain('Agent-auto-enabled Skills require the same fit evaluation');
+  });
 });
 
 // ──────────────────────────────────────────────────────

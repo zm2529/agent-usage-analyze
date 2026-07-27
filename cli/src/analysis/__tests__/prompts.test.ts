@@ -399,6 +399,18 @@ describe('buildSessionAnalysisInstructions', () => {
     const result = buildSessionAnalysisInstructions('proj', null);
     expect(result).toContain('<json>...</json>');
   });
+
+  it('requires contextual evaluation of Agent-auto-enabled Skills', () => {
+    const result = buildSessionAnalysisInstructions('proj', null, undefined, [{
+      name: 'systematic-debugging',
+      userInvocations: 0,
+      agentInvocations: 1,
+      automaticInvocations: 1,
+    }]);
+    expect(result).toContain('$systematic-debugging');
+    expect(result).toContain('Agent-auto-enabled Skills require the same fit evaluation');
+    expect(result).toContain('do not assume automatic use was appropriate');
+  });
 });
 
 // ──────────────────────────────────────────────────────

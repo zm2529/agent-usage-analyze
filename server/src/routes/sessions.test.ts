@@ -163,6 +163,30 @@ describe('Sessions routes', () => {
       expect(body.session.id).toBe('sess-abc');
     });
 
+    it('separates user-specified and Agent-selected Skill usage', async () => {
+      seedProject('proj-1', 'alpha');
+      seedSession('sess-skills', 'proj-1');
+      testDb.prepare(`UPDATE messages SET content = '请使用 $tdd'
+        WHERE id = 'sess-skills:user'`).run();
+      testDb.prepare(`UPDATE messages SET tool_calls = ?
+        WHERE id = 'sess-skills:assistant'`).run(JSON.stringify([
+        {
+          name: 'exec_command',
+          input: JSON.stringify({ cmd: 'cat /skills/tdd/SKILL.md' }),
+        },
+        {
+          name: 'exec_command',
+          input: JSON.stringify({ cmd: 'cat /skills/diagnose/SKILL.md' }),
+        },
+      ]));
+
+      const body = await (await createApp().request('/api/sessions/sess-skills')).json();
+      expect(body.session.observed_skill_usage).toEqual([
+        { name: 'tdd', userInvocations: 1, agentInvocations: 1, automaticInvocations: 0 },
+        { name: 'diagnose', userInvocations: 0, agentInvocations: 1, automaticInvocations: 1 },
+      ]);
+    });
+
     it('returns 404 for unknown session ID', async () => {
       const app = createApp();
       const res = await app.request('/api/sessions/nonexistent');

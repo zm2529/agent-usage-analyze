@@ -35,6 +35,41 @@ describe('behavior report and analysis run APIs', () => {
       report: null,
       needsRegeneration: true,
       run: { promptVersion: 'behavior-report-v3' },
+      latestAttempt: { promptVersion: 'behavior-report-v3' },
+    });
+  });
+
+  it('keeps the latest compatible report visible when a newer generation attempt fails', async () => {
+    const insert = getDb().prepare(`INSERT INTO analysis_runs (
+      id, analysis_type, status, unavailable_reason, provider, model,
+      prompt_version, input_summary_json, output_json, created_at
+    ) VALUES (?, 'behavior_report', ?, ?, ?, ?, ?, ?, ?, ?)`);
+    insert.run(
+      'analysis-run:completed-v8', 'completed', null, 'codex-native', 'codex-default',
+      'behavior-report-v8',
+      JSON.stringify({ leverage: { skills: { items: [] }, tools: { families: [] } } }),
+      JSON.stringify({ headline: 'Last successful report' }),
+      '2026-07-26 09:00:00',
+    );
+    insert.run(
+      'analysis-run:failed-v9', 'failed', 'runner-authentication-failed', null, null,
+      'behavior-report-v9',
+      JSON.stringify({ leverage: { skills: { items: [] }, tools: { families: [] } } }),
+      null,
+      '2026-07-26 09:01:00',
+    );
+
+    const response = await createApp().request('/api/behavior-report');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      report: { headline: 'Last successful report' },
+      needsRegeneration: true,
+      run: { status: 'completed', promptVersion: 'behavior-report-v8' },
+      latestAttempt: {
+        status: 'failed',
+        promptVersion: 'behavior-report-v9',
+        unavailableReason: 'runner-authentication-failed',
+      },
     });
   });
 

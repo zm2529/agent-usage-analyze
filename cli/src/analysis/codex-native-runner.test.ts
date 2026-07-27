@@ -38,6 +38,15 @@ process.stdin.on('end', () => {
     process.stderr.write('simulated codex failure');
     process.exit(17);
   }
+  if (scenario === 'auth-nonzero') {
+    process.stdout.write([
+      { type: 'thread.started', thread_id: 'thread-1' },
+      { type: 'turn.started' },
+      { type: 'error', message: 'Reconnecting after 401 Unauthorized' },
+      { type: 'turn.failed', error: { message: '401 Unauthorized' } },
+    ].map((event) => JSON.stringify(event)).join('\\n') + '\\n');
+    process.exit(1);
+  }
   if (scenario === 'malformed') {
     process.stdout.write('{not-json}\\n');
     return;
@@ -59,6 +68,19 @@ process.stdin.on('end', () => {
       { type: 'thread.started', thread_id: 'thread-1' },
       { type: 'turn.started' },
       { type: 'item.completed', item: { id: 'tool', type: 'command_execution', command: 'env' } },
+    ].map((event) => JSON.stringify(event)).join('\\n') + '\\n');
+    return;
+  }
+  if (scenario === 'recovered-error') {
+    process.stdout.write([
+      { type: 'thread.started', thread_id: 'thread-1' },
+      { type: 'turn.started' },
+      { type: 'error', message: 'Reconnecting... 1/5' },
+      { type: 'item.completed', item: { id: 'final', type: 'agent_message', text: '{\"answer\":\"safe\"}' } },
+      { type: 'turn.completed', usage: {
+        input_tokens: 101, cached_input_tokens: 41, cache_write_input_tokens: 7,
+        output_tokens: 23, reasoning_output_tokens: 11,
+      } },
     ].map((event) => JSON.stringify(event)).join('\\n') + '\\n');
     return;
   }
@@ -135,6 +157,10 @@ describe('CodexNativeRunner', () => {
       '--strict-config', '--disable', 'shell_tool', '--disable', 'multi_agent',
       '--config', 'web_search="disabled"',
     ]));
+    expect(capture.argv).not.toEqual(expect.arrayContaining([
+      'current_time_reminder',
+      'browser_use_full_cdp_access',
+    ]));
     expect(capture.argv.join(' ')).toContain('permissions.agent_analytics.filesystem');
     expect(capture.argv).not.toContain('--sandbox');
     expect(capture.schema).toMatchObject({
@@ -154,11 +180,19 @@ describe('CodexNativeRunner', () => {
     expect(result.model).toBe('gpt-explicit');
   });
 
+  it('accepts a completed turn after Codex reports a recoverable reconnect event', async () => {
+    installFakeCodex('recovered-error');
+    await expect(new CodexNativeRunner().runAnalysis({
+      systemPrompt: 's', userPrompt: 'u', jsonSchema: { type: 'object' },
+    })).resolves.toMatchObject({ rawJson: '{"answer":"safe"}' });
+  });
+
   it.each([
     ['malformed', /invalid JSONL/i],
-    ['failed-event', /failed turn/i],
+    ['failed-event', /failed turn: model failed/i],
     ['missing-usage', /turn\.completed/i],
     ['nonzero', /exit code 17/i],
+    ['auth-nonzero', /401 Unauthorized/i],
     ['tool-call', /disabled tool/i],
   ])('rejects %s output without accepting partial analysis', async (scenario, message) => {
     installFakeCodex(scenario);

@@ -1,35 +1,43 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Outlet } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { Header } from './Header';
-import { CommandPalette } from '@/components/search/CommandPalette';
-import { useCommandPalette } from '@/hooks/useCommandPalette';
+import {
+  FIRST_RUN_GUIDE_STORAGE_KEY,
+  FirstRunGuide,
+} from '@/components/onboarding/FirstRunGuide';
 
 export function Layout() {
-  const { isOpen, setIsOpen, open, close } = useCommandPalette();
+  const [guideOpen, setGuideOpen] = useState(false);
 
-  // Global Cmd+K / Ctrl+K shortcut
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        open();
-      }
+    try {
+      if (window.localStorage.getItem(FIRST_RUN_GUIDE_STORAGE_KEY) === 'completed') return;
+    } catch {
+      // Restricted storage should not prevent the local dashboard from rendering.
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open]);
+    setGuideOpen(true);
+  }, []);
+
+  const closeGuide = useCallback(() => {
+    try {
+      window.localStorage.setItem(FIRST_RUN_GUIDE_STORAGE_KEY, 'completed');
+    } catch {
+      // The guide still closes for this page load when storage is unavailable.
+    }
+    setGuideOpen(false);
+  }, []);
 
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background">
-        <Header onOpenSearch={open} />
-        <main className="pb-16 md:ml-[188px] md:pt-[61px] md:pb-0">
+        <Header />
+        <main data-onboarding="workspace" className="pb-16 md:ml-[188px] md:pt-[61px] md:pb-0">
           <Outlet />
         </main>
         <Toaster />
-        <CommandPalette isOpen={isOpen} onClose={close} />
+        <FirstRunGuide open={guideOpen} onClose={closeGuide} />
       </div>
     </TooltipProvider>
   );

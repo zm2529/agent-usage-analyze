@@ -7,9 +7,10 @@ import { classifyStoredUserMessage } from './message-format.js';
 import { recordAnalysisRun } from './analysis-run-db.js';
 import { createAnalysisRunnerFromPolicy } from './runner-factory.js';
 import type { AnalysisRunner, RunAnalysisResult } from './runner-types.js';
+import { agentAppliedSkillNames, userInvokedSkillNames } from './skill-usage.js';
 import { loadConfig } from '../utils/config.js';
 
-export const BEHAVIOR_REPORT_PROMPT_VERSION = 'behavior-report-v6';
+export const BEHAVIOR_REPORT_PROMPT_VERSION = 'behavior-report-v9';
 
 export type DimensionConfidence = 'high' | 'medium' | 'low';
 export type DimensionStatus = 'established' | 'candidate' | 'qualitative';
@@ -42,6 +43,16 @@ export interface BehaviorReport {
     observation: string;
     issue: string | null;
     recommendation: string;
+    evidenceRefs: string[];
+  }>;
+  runtimeAssessments: Array<{
+    category: 'model' | 'reasoning-effort';
+    target: string;
+    fit: 'appropriate' | 'mixed' | 'uncertain';
+    observation: string;
+    issue: string | null;
+    recommendation: string;
+    applicability: string;
     evidenceRefs: string[];
   }>;
   contextDocumentAssessments: Array<{
@@ -123,7 +134,13 @@ interface SessionRow {
   cacheReadTokens: number | null;
 }
 
-interface MessageRow { sessionId: string; type: 'user' | 'assistant'; content: string; timestamp: string }
+interface MessageRow {
+  sessionId: string;
+  type: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  toolCalls: string | null;
+}
 
 export interface BehaviorReportDataset {
   window: { startsAt: string; endsAt: string; spanDays: number };
@@ -148,6 +165,7 @@ export interface BehaviorReportDataset {
       durationMinutes: number; userMessages: number; assistantMessages: number;
       toolCalls: number; compactCount: number;
     };
+    runtime: { models: string[]; reasoningEfforts: string[] };
     behaviorSignals: {
       firstMessage: {
         hasPathContext: boolean;
@@ -155,6 +173,7 @@ export interface BehaviorReportDataset {
         hasValidationUpfront: boolean;
         hasSkillReference: boolean;
       };
+      openingMessageCluster: { ref: string; sessions: number };
       followups: { messages: number; shortMessages: number; shortRate: number };
       semanticEnriched: boolean;
     };
@@ -164,13 +183,23 @@ export interface BehaviorReportDataset {
       findingCategories: Array<Record<string, unknown>>; skillUsage: Array<Record<string, unknown>>;
     }>;
   }>;
+  runtimeUsage: {
+    models: Array<{ name: string; turns: number; sessions: number; sessionRefs: string[] }>;
+    reasoningEfforts: Array<{ name: string; turns: number; sessions: number; sessionRefs: string[] }>;
+    measurementNote: string;
+  };
   leverage: {
     skills: {
       explicitInvocations: number;
+      automaticInvocations: number;
+      agentReadEvents: number;
       coveredSessions: number;
       items: Array<{
         name: string;
         invocations: number;
+        userInvocations: number;
+        automaticInvocations: number;
+        agentReadEvents: number;
         sessions: number;
         sessionShare: number;
         weeklyInvocations: [number, number, number, number];
@@ -231,6 +260,11 @@ interface CanonicalToolRow {
   payloadJson: string;
 }
 
+interface TurnContextRow {
+  threadId: string | null;
+  payloadJson: string;
+}
+
 function percentile(values: number[], fraction: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -252,17 +286,6 @@ function safeObject(raw: string): Record<string, unknown> {
 
 function ratio(part: number, total: number): number {
   return total === 0 ? 0 : Number((part / total).toFixed(3));
-}
-
-function explicitSkillNames(content: string): string[] {
-  const names = new Set<string>();
-  for (const match of content.matchAll(/\[\$?([a-z][a-z0-9:-]*)\]\([^)]*\/SKILL\.md(?:\?[^)]*)?\)/g)) {
-    names.add(match[1].toLowerCase());
-  }
-  for (const match of content.matchAll(/(?:^|\s)\$([a-z][a-z0-9:-]*)\b/g)) {
-    names.add(match[1].toLowerCase());
-  }
-  return [...names];
 }
 
 function toolFamily(name: string): string {
@@ -370,7 +393,8 @@ export function buildBehaviorReportDataset(
       cache_creation_tokens AS cacheCreationTokens, cache_read_tokens AS cacheReadTokens
     FROM sessions WHERE deleted_at IS NULL AND started_at >= ? AND started_at <= ?
     ORDER BY started_at`).all(startsAt, endsAt) as SessionRow[];
-  const messages = db.prepare(`SELECT message.session_id AS sessionId, message.type, message.content, message.timestamp
+  const messages = db.prepare(`SELECT message.session_id AS sessionId, message.type, message.content,
+      message.timestamp, message.tool_calls AS toolCalls
     FROM messages message JOIN sessions session ON session.id = message.session_id
     WHERE session.deleted_at IS NULL AND session.started_at >= ? AND session.started_at <= ?
       AND message.type IN ('user', 'assistant')
@@ -385,6 +409,46 @@ export function buildBehaviorReportDataset(
   for (const message of humanMessages) humanCounts.set(message.sessionId, (humanCounts.get(message.sessionId) ?? 0) + 1);
   const sessions = candidateSessions.filter((session) => (humanCounts.get(session.id) ?? 0) > 0);
   const eligibleIds = new Set(sessions.map((session) => session.id));
+  const eligibleThreadIds = new Set(sessions.flatMap((session) => {
+    const nativeId = session.id.startsWith('codex:') ? session.id.slice('codex:'.length) : session.id;
+    return [session.id, nativeId];
+  }));
+  const sessionIdByThreadId = new Map(sessions.flatMap((session) => {
+    const nativeId = session.id.startsWith('codex:') ? session.id.slice('codex:'.length) : session.id;
+    return [[session.id, session.id], [nativeId, session.id]] as Array<[string, string]>;
+  }));
+  const runtimeBySession = new Map<string, { models: Set<string>; reasoningEfforts: Set<string> }>();
+  const modelStats = new Map<string, { turns: number; sessions: Set<string> }>();
+  const effortStats = new Map<string, { turns: number; sessions: Set<string> }>();
+  const turnContexts = db.prepare(`SELECT thread_id AS threadId, payload_json AS payloadJson
+    FROM canonical_events
+    WHERE kind = 'turn-context' AND occurred_at >= ? AND occurred_at <= ?
+    ORDER BY occurred_at, sequence`).all(startsAt, endsAt) as TurnContextRow[];
+  for (const context of turnContexts) {
+    if (!context.threadId || !eligibleThreadIds.has(context.threadId)) continue;
+    const sessionId = sessionIdByThreadId.get(context.threadId);
+    if (!sessionId) continue;
+    const payload = safeObject(context.payloadJson);
+    const model = typeof payload.model === 'string' ? payload.model.trim() : '';
+    const effort = typeof payload.effort === 'string' ? payload.effort.trim().toLowerCase() : '';
+    const runtime = runtimeBySession.get(sessionId)
+      ?? { models: new Set<string>(), reasoningEfforts: new Set<string>() };
+    if (model) {
+      runtime.models.add(model);
+      const stat = modelStats.get(model) ?? { turns: 0, sessions: new Set<string>() };
+      stat.turns += 1;
+      stat.sessions.add(sessionId);
+      modelStats.set(model, stat);
+    }
+    if (effort) {
+      runtime.reasoningEfforts.add(effort);
+      const stat = effortStats.get(effort) ?? { turns: 0, sessions: new Set<string>() };
+      stat.turns += 1;
+      stat.sessions.add(sessionId);
+      effortStats.set(effort, stat);
+    }
+    runtimeBySession.set(sessionId, runtime);
+  }
   const analyzedRows = db.prepare(`SELECT DISTINCT insight.session_id AS id FROM insights insight
     JOIN sessions session ON session.id = insight.session_id
     WHERE insight.source = 'llm' AND insight.type IN ('summary', 'decision', 'learning', 'prompt_quality')
@@ -396,6 +460,12 @@ export function buildBehaviorReportDataset(
   for (const message of eligibleHumanMessages) if (!firstBySession.has(message.sessionId)) firstBySession.set(message.sessionId, message);
   const followups = eligibleHumanMessages.filter((message) => firstBySession.get(message.sessionId) !== message);
   const firstMessages = [...firstBySession.values()];
+  const openingClusterCounts = new Map<string, number>();
+  for (const message of firstMessages) {
+    const normalized = message.content.trim().replace(/\s+/g, ' ');
+    const ref = createHash('sha256').update(normalized).digest('hex').slice(0, 12);
+    openingClusterCounts.set(ref, (openingClusterCounts.get(ref) ?? 0) + 1);
+  }
   const projectsByDay = new Map<string, Set<string>>();
   for (const session of sessions) {
     const day = session.startedAt.slice(0, 10);
@@ -474,6 +544,9 @@ export function buildBehaviorReportDataset(
     const findings = findingsBySession.get(sessionRef) ?? [];
     const sessionMessages = messagesBySession.get(sessionRef) ?? [];
     const firstMessage = sessionMessages[0]?.content ?? '';
+    const openingMessageRef = createHash('sha256')
+      .update(firstMessage.trim().replace(/\s+/g, ' '))
+      .digest('hex').slice(0, 12);
     const sessionFollowups = sessionMessages.slice(1);
     const shortFollowupCount = sessionFollowups.filter((message) => message.content.trim().length <= 40).length;
     const userMessages = humanCounts.get(sessionRef) ?? 0;
@@ -503,12 +576,20 @@ export function buildBehaviorReportDataset(
         toolCalls: session.toolCallCount,
         compactCount: session.compactCount,
       },
+      runtime: {
+        models: [...(runtimeBySession.get(sessionRef)?.models ?? [])],
+        reasoningEfforts: [...(runtimeBySession.get(sessionRef)?.reasoningEfforts ?? [])],
+      },
       behaviorSignals: {
         firstMessage: {
           hasPathContext: pathPattern.test(firstMessage),
           hasConstraintUpfront: constraintPattern.test(firstMessage),
           hasValidationUpfront: validationPattern.test(firstMessage),
           hasSkillReference: skillPattern.test(firstMessage),
+        },
+        openingMessageCluster: {
+          ref: `opening:${openingMessageRef}`,
+          sessions: openingClusterCounts.get(openingMessageRef) ?? 1,
         },
         followups: {
           messages: sessionFollowups.length,
@@ -551,16 +632,28 @@ export function buildBehaviorReportDataset(
       if (representativeEpisodes.length >= 24) break;
     }
   }
+  const runtimeUsage: BehaviorReportDataset['runtimeUsage'] = {
+    models: [...modelStats.entries()]
+      .map(([name, stat]) => ({
+        name, turns: stat.turns, sessions: stat.sessions.size, sessionRefs: [...stat.sessions].slice(0, 12),
+      }))
+      .sort((left, right) => right.turns - left.turns || left.name.localeCompare(right.name)),
+    reasoningEfforts: [...effortStats.entries()]
+      .map(([name, stat]) => ({
+        name, turns: stat.turns, sessions: stat.sessions.size, sessionRefs: [...stat.sessions].slice(0, 12),
+      }))
+      .sort((left, right) => right.turns - left.turns || left.name.localeCompare(right.name)),
+    measurementNote: '模型与推理强度来自每轮 Agent 上下文。使用更多、更强或更贵的配置不自动代表更合适；只有结合任务类型和可观察结果才能评价。',
+  };
   const emptyLeverage: BehaviorReportDataset['leverage'] = {
-    skills: { explicitInvocations: 0, coveredSessions: 0, items: [] },
+    skills: {
+      explicitInvocations: 0, automaticInvocations: 0, agentReadEvents: 0,
+      coveredSessions: 0, items: [],
+    },
     tools: { totalCalls: 0, coveredTasks: 0, families: [], topTools: [] },
   };
   let leverage = emptyLeverage;
   if (options.includeLeverage !== false) {
-  const eligibleThreadIds = new Set(sessions.flatMap((session) => {
-    const nativeId = session.id.startsWith('codex:') ? session.id.slice('codex:'.length) : session.id;
-    return [session.id, nativeId];
-  }));
   const taskIdentityRows = db.prepare(`SELECT id, root_task_id AS rootTaskId, thread_id AS threadId
     FROM work_tasks WHERE started_at >= ? AND started_at <= ?`).all(startsAt, endsAt) as Array<{
       id: string; rootTaskId: string; threadId: string;
@@ -598,25 +691,57 @@ export function buildBehaviorReportDataset(
     familyStats.set(familyName, family);
   }
   const skillSessions = new Map<string, Set<string>>();
-  const skillInvocations = new Map<string, number>();
+  const userSkillInvocations = new Map<string, number>();
+  const automaticSkillInvocations = new Map<string, number>();
+  const agentSkillReads = new Map<string, number>();
   const skillWeeklyInvocations = new Map<string, [number, number, number, number]>();
   const skillLastUsedAt = new Map<string, string>();
   const skillsBySession = new Map<string, Set<string>>();
+  const userSkillsBySession = new Map<string, Set<string>>();
   for (const message of eligibleHumanMessages) {
-    const names = explicitSkillNames(message.content);
+    const names = userInvokedSkillNames(message.content);
     const sessionNames = skillsBySession.get(message.sessionId) ?? new Set<string>();
+    const userSessionNames = userSkillsBySession.get(message.sessionId) ?? new Set<string>();
     for (const name of names) {
-      skillInvocations.set(name, (skillInvocations.get(name) ?? 0) + 1);
+      userSkillInvocations.set(name, (userSkillInvocations.get(name) ?? 0) + 1);
       const covered = skillSessions.get(name) ?? new Set<string>();
       covered.add(message.sessionId);
       skillSessions.set(name, covered);
       sessionNames.add(name);
+      userSessionNames.add(name);
       const weekly = skillWeeklyInvocations.get(name) ?? [0, 0, 0, 0];
       const position = Math.min(3, Math.max(0, Math.floor(
         (Date.parse(message.timestamp) - Date.parse(startsAt)) / (7.5 * 86_400_000),
       )));
       weekly[position] += 1;
       skillWeeklyInvocations.set(name, weekly);
+      if (!skillLastUsedAt.has(name) || message.timestamp > skillLastUsedAt.get(name)!) {
+        skillLastUsedAt.set(name, message.timestamp);
+      }
+    }
+    skillsBySession.set(message.sessionId, sessionNames);
+    userSkillsBySession.set(message.sessionId, userSessionNames);
+  }
+  for (const message of messages.filter((item) => item.type === 'assistant' && eligibleIds.has(item.sessionId))) {
+    const sessionNames = skillsBySession.get(message.sessionId) ?? new Set<string>();
+    const userSessionNames = userSkillsBySession.get(message.sessionId) ?? new Set<string>();
+    for (const name of agentAppliedSkillNames(message.toolCalls)) {
+      agentSkillReads.set(name, (agentSkillReads.get(name) ?? 0) + 1);
+      if (!userSessionNames.has(name)) {
+        automaticSkillInvocations.set(name, (automaticSkillInvocations.get(name) ?? 0) + 1);
+      }
+      const covered = skillSessions.get(name) ?? new Set<string>();
+      covered.add(message.sessionId);
+      skillSessions.set(name, covered);
+      sessionNames.add(name);
+      const weekly = skillWeeklyInvocations.get(name) ?? [0, 0, 0, 0];
+      if (!userSessionNames.has(name)) {
+        const position = Math.min(3, Math.max(0, Math.floor(
+          (Date.parse(message.timestamp) - Date.parse(startsAt)) / (7.5 * 86_400_000),
+        )));
+        weekly[position] += 1;
+        skillWeeklyInvocations.set(name, weekly);
+      }
       if (!skillLastUsedAt.has(name) || message.timestamp > skillLastUsedAt.get(name)!) {
         skillLastUsedAt.set(name, message.timestamp);
       }
@@ -634,13 +759,24 @@ export function buildBehaviorReportDataset(
   };
   leverage = {
     skills: {
-      explicitInvocations: [...skillInvocations.values()].reduce((sum, count) => sum + count, 0),
+      explicitInvocations: [...userSkillInvocations.values()].reduce((sum, count) => sum + count, 0),
+      automaticInvocations: [...automaticSkillInvocations.values()].reduce((sum, count) => sum + count, 0),
+      agentReadEvents: [...agentSkillReads.values()].reduce((sum, count) => sum + count, 0),
       coveredSessions: new Set([...skillSessions.values()].flatMap((ids) => [...ids])).size,
-      items: [...skillInvocations.entries()].map(([name, invocations]) => {
+      items: [...new Set([
+        ...userSkillInvocations.keys(),
+        ...automaticSkillInvocations.keys(),
+        ...agentSkillReads.keys(),
+      ])].map((name) => {
         const covered = skillSessions.get(name) ?? new Set<string>();
+        const userInvocations = userSkillInvocations.get(name) ?? 0;
+        const automaticInvocations = automaticSkillInvocations.get(name) ?? 0;
         return {
           name,
-          invocations,
+          invocations: userInvocations + automaticInvocations,
+          userInvocations,
+          automaticInvocations,
+          agentReadEvents: agentSkillReads.get(name) ?? 0,
           sessions: covered.size,
           sessionShare: ratio(covered.size, sessions.length),
           weeklyInvocations: skillWeeklyInvocations.get(name) ?? [0, 0, 0, 0],
@@ -710,6 +846,9 @@ export function buildBehaviorReportDataset(
       activeDays: projectsByDay.size,
       medianProjectsPerActiveDay: median([...projectsByDay.values()].map((projects) => projects.size)),
       projectSwitchesWithinTwoHours,
+      distinctOpeningMessages: openingClusterCounts.size,
+      sessionsInRepeatedOpeningClusters: [...openingClusterCounts.values()]
+        .filter((count) => count > 1).reduce((sum, count) => sum + count, 0),
     },
     promptSignals: {
       firstMessages: firstMessages.length,
@@ -719,6 +858,7 @@ export function buildBehaviorReportDataset(
       withSkillReference: firstMessages.filter((message) => skillPattern.test(message.content)).length,
     },
     representativeEpisodes,
+    runtimeUsage,
     leverage,
     contextDocuments,
     tokenEfficiency,
@@ -755,7 +895,7 @@ const RESEARCH_SCHEMA = {
 
 const REPORT_SCHEMA = {
   type: 'object',
-  required: ['identity', 'headline', 'summary', 'portrait', 'strengths', 'bottlenecks', 'dimensions', 'skillAssessments', 'contextDocumentAssessments', 'tokenEfficiencyFindings', 'skillOpportunities', 'developmentPlan', 'uncertainty'],
+  required: ['identity', 'headline', 'summary', 'portrait', 'strengths', 'bottlenecks', 'dimensions', 'skillAssessments', 'runtimeAssessments', 'contextDocumentAssessments', 'tokenEfficiencyFindings', 'skillOpportunities', 'developmentPlan', 'uncertainty'],
   properties: {
     identity: { type: 'object', required: ['title', 'stage', 'rationale', 'evidenceRefs'], properties: {
       title: { type: 'string' }, stage: { type: 'string' }, rationale: { type: 'string' }, evidenceRefs: stringArray,
@@ -779,6 +919,12 @@ const REPORT_SCHEMA = {
     skillAssessments: { type: 'array', items: { type: 'object', required: ['name', 'fit', 'observation', 'issue', 'recommendation', 'evidenceRefs'], properties: {
       name: { type: 'string' }, fit: { type: 'string', enum: ['appropriate', 'mixed', 'uncertain'] },
       observation: { type: 'string' }, issue: { type: ['string', 'null'] }, recommendation: { type: 'string' }, evidenceRefs: stringArray,
+    } } },
+    runtimeAssessments: { type: 'array', items: { type: 'object', required: ['category', 'target', 'fit', 'observation', 'issue', 'recommendation', 'applicability', 'evidenceRefs'], properties: {
+      category: { type: 'string', enum: ['model', 'reasoning-effort'] }, target: { type: 'string' },
+      fit: { type: 'string', enum: ['appropriate', 'mixed', 'uncertain'] },
+      observation: { type: 'string' }, issue: { type: ['string', 'null'] },
+      recommendation: { type: 'string' }, applicability: { type: 'string' }, evidenceRefs: stringArray,
     } } },
     contextDocumentAssessments: { type: 'array', items: { type: 'object', required: ['documentRef', 'name', 'assessment', 'observation', 'tokenCost', 'optimization', 'evidenceRefs'], properties: {
       documentRef: { type: 'string' }, name: { type: 'string' },
@@ -805,9 +951,9 @@ const REPORT_SCHEMA = {
   },
 } as const;
 
-const INVESTIGATOR_PROMPT = `You are the investigator in a two-stage personal engineering behavior study. The deterministic aggregates cover the full structurally readable 30-day behavior corpus. Representative episodes are sampled from that full corpus; their findings arrays are optional session-level semantic enrichment, never an eligibility condition. Work from privacy-bounded engineering episodes and deterministic aggregate facts. Discover recurring behavior and mechanisms instead of filling a fixed capability rubric. Contrast task cohorts, identify counterexamples, and separate observations from benefit hypotheses. Evaluate context documents only from metadata, instruction density, coverage and cohort outcomes; never imply that correlation proves causation. Analyze token efficiency through concrete mechanisms such as repeated context loading, long-thread compaction, duplicated instructions, cache reuse and unnecessary steering, while preserving quality and safety. Do not interpret missing semantic enrichment as missing behavior. A dimension is only established when repeated evidence and counterexample review support it; otherwise mark it candidate or qualitative. Do not use absence of a captured command as proof that an activity did not happen. Do not invent scores, target percentages, causal claims, or evidence references. Write in Simplified Chinese and return only JSON matching the schema.`;
+const INVESTIGATOR_PROMPT = `You are the investigator in a two-stage personal engineering behavior study. The deterministic aggregates cover the full structurally readable 30-day behavior corpus. Representative episodes are sampled from that full corpus; their findings arrays are optional session-level semantic enrichment, never an eligibility condition. Work from privacy-bounded engineering episodes and deterministic aggregate facts. Discover recurring behavior and mechanisms instead of filling a fixed capability rubric. Contrast task cohorts, identify counterexamples, and separate observations from benefit hypotheses. Evaluate context documents only from metadata, instruction density, coverage and cohort outcomes; never imply that correlation proves causation. Analyze token efficiency through concrete mechanisms such as repeated context loading, long-thread compaction, duplicated instructions, cache reuse and unnecessary steering, while preserving quality and safety. Evaluate model and reasoning-effort choices against the observable task type, complexity, duration, tool use, corrections and outcome evidence. A larger model or higher reasoning effort is not automatically better; a smaller or lower setting is not automatically cheaper in practice if it causes retries. Mark fit uncertain when the available record does not support a task-to-runtime comparison. Do not interpret missing semantic enrichment as missing behavior. A dimension is only established when repeated evidence and counterexample review support it; otherwise mark it candidate or qualitative. Verification can happen outside the Agent transcript. Absence of a captured validation command means unknown, not unverified; claim that validation did not happen only when explicit evidence says so. Some sessions can be created automatically by orchestration systems such as OMX workers rather than directly opened by the user. Use repeated opening-message clusters, task relationships, activity structure and semantic findings only as clues; let the evidence support the distinction, do not apply a fixed name or format filter, and do not count every session as an independent user-started task when origin is uncertain. Skill userInvocations are user-specified uses; automaticInvocations mean the Agent read and applied SKILL.md without the user naming that Skill. Analyze them separately and do not attribute automatic usage to user choice. Do not invent scores, target percentages, causal claims, or evidence references. Write in plain, idiomatic Simplified Chinese. Avoid invented management jargon, compressed slogans and untranslated analytical labels. Return only JSON matching the schema.`;
 
-const COACH_PROMPT = `You are a senior engineering coach synthesizing an investigator's evidence review into a personal engineering profile. Produce a coherent development narrative: current engineering identity, real usage portrait, high-leverage strengths, limiting mechanisms, dynamically discovered dimensions, context-document effectiveness, token-saving opportunities, Skill and Agent usage, and bounded development experiments. Prefer memorable causal explanations over generic productivity advice. Preserve contradictions and applicability boundaries. Never turn a candidate dimension into a score or assume that more is better. Skill opportunities are not mandatory: return an empty skillOpportunities array unless repeated evidence shows that an existing Skill would materially reduce work or a stable repeated workflow merits a new Skill. Do not recommend a Skill merely because it exists. Token advice must name the saving mechanism and the task cohort where it applies; never trade away verification or necessary context just to reduce token count. Every substantive claim must cite only provided session or context-document references. Write in Simplified Chinese and return only JSON matching the schema.`;
+const COACH_PROMPT = `You are a senior engineering coach synthesizing an investigator's evidence review into a clear Agent-usage review. Produce a coherent narrative: current working style, recurring usage patterns, strengths, limiting factors, context-document effectiveness, token-saving opportunities, Skill and Agent usage, model and reasoning-effort fit, and bounded improvement suggestions. Prefer clear explanations over generic productivity advice. Preserve contradictions and applicability boundaries. Never turn a candidate dimension into a score or assume that more is better. For runtimeAssessments, only evaluate recorded model or reasoning-effort choices when the supplied episodes support a task-specific comparison. Explain where a setting fits, where it may be excessive or insufficient, and what bounded change to try; otherwise use uncertain. Do not recommend one global model or effort for every task. Verification can happen outside the Agent transcript: missing captured commands must remain unknown unless explicit evidence says validation was not performed. Distinguish user-started work from likely orchestration-created worker sessions when the investigator provides support, and keep the origin uncertain when evidence is insufficient. Distinguish userInvocations from automaticInvocations when discussing Skills; an Agent reading SKILL.md without the user naming that Skill is automatic usage, not user-initiated usage. Skill opportunities are not mandatory: return an empty skillOpportunities array unless repeated evidence shows that an existing Skill would materially reduce work or a stable repeated workflow merits a new Skill. Do not recommend a Skill merely because it exists. Token advice must name the saving mechanism and the task cohort where it applies; never trade away verification or necessary context just to reduce token count. Every substantive claim must cite only provided session or context-document references. Write in plain, idiomatic Simplified Chinese that a first-time user can understand. In user-visible fields, do not use “画像”, “高杠杆”, “北极星”, “steering”, “cohort”, “mechanism”, “profile”, or “portrait”; write “使用总结”, “中途纠偏”, “同类任务”, “原因” or another direct Chinese phrase instead. Avoid invented compounds, management jargon, compressed slogans, untranslated analytical labels, and the word “实验” when “改进做法” or “尝试” is clearer. Return only JSON matching the schema.`;
 
 function reportInputSummary(
   dataset: BehaviorReportDataset,
@@ -825,6 +971,7 @@ function reportInputSummary(
     coverage: dataset.coverage,
     activity: dataset.activity,
     promptSignals: dataset.promptSignals,
+    runtimeUsage: dataset.runtimeUsage,
     leverage: dataset.leverage,
     contextDocuments: dataset.contextDocuments,
     tokenEfficiency: dataset.tokenEfficiency,
@@ -841,6 +988,22 @@ function reportInputSummary(
 function sumUsage(first: number | null | undefined, second: number | null | undefined): number | null {
   if (first == null && second == null) return null;
   return (first ?? 0) + (second ?? 0);
+}
+
+function runnerFailureReason(error: unknown): string {
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  if (/rate.?limit|too many requests|\b429\b/.test(message)) return 'runner-rate-limited';
+  if (/auth|unauthori[sz]ed|forbidden|\b401\b|\b403\b/.test(message)) {
+    return 'runner-authentication-failed';
+  }
+  if (/timed? out|timeout/.test(message)) return 'runner-timeout';
+  if (/model.*(?:not found|unavailable)|unsupported model/.test(message)) {
+    return 'runner-model-unavailable';
+  }
+  if (/service unavailable|temporarily unavailable|fetch failed|econnrefused|connection refused|\b502\b|\b503\b|\b504\b/.test(message)) {
+    return 'runner-service-unavailable';
+  }
+  return 'runner-failed';
 }
 
 export async function generateBehaviorReport(options: {
@@ -866,7 +1029,7 @@ export async function generateBehaviorReport(options: {
     }, db);
     return { status: 'unavailable', reason: unavailableReason };
   }
-  const researchPrompt = `阶段一：调查最近 30 天的全量结构化使用轨迹，发现行为模式、机制、反例和候选维度。\n\n确定性汇总覆盖全部可结构分析会话；代表性工程行为片段从全量窗口分层抽样，findings 只是可选的单会话语义增强。输入不含原始消息正文。分析开关为 ${JSON.stringify(analysisControls)}；关闭的维度不得生成结论。\n\n${JSON.stringify(dataset, null, 2)}`;
+  const researchPrompt = `阶段一：检查最近 30 天的全量结构化使用记录，找出常见做法、原因、反例和值得继续观察的方面。\n\n确定性汇总覆盖全部可结构分析会话；代表性工程行为片段从全量窗口分层抽样，findings 只是可选的单会话语义增强。输入不含原始消息正文。Skill 数据中的 userInvocations 表示用户指定，automaticInvocations 表示 Agent 在用户未指定时读取并应用 Skill 指令，不要混为一类。runtimeUsage 和每个代表性片段的 runtime 记录实际模型与推理强度；只能结合任务特点和结果证据评价是否合适，不能把更强或更高自动当成更好。分析开关为 ${JSON.stringify(analysisControls)}；关闭的维度不得生成结论。\n\n${JSON.stringify(dataset, null, 2)}`;
   let runner: AnalysisRunner;
   try {
     runner = options.runner ?? createAnalysisRunnerFromPolicy().runner;
@@ -884,7 +1047,7 @@ export async function generateBehaviorReport(options: {
     researchResult = await runner.runAnalysis({ systemPrompt: INVESTIGATOR_PROMPT, userPrompt: researchPrompt, jsonSchema: RESEARCH_SCHEMA });
   } catch (error) {
     recordAnalysisRun({
-      analysisType: 'behavior_report', status: 'failed', unavailableReason: 'runner-failed',
+      analysisType: 'behavior_report', status: 'failed', unavailableReason: runnerFailureReason(error),
       promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION, systemPrompt: INVESTIGATOR_PROMPT,
       inputPrompt: researchPrompt,
       inputSummary: summary,
@@ -912,20 +1075,21 @@ export async function generateBehaviorReport(options: {
   const coachInput = {
     facts: {
       window: dataset.window, basis: dataset.basis, coverage: dataset.coverage,
-      activity: dataset.activity, promptSignals: dataset.promptSignals, leverage: dataset.leverage,
+      activity: dataset.activity, promptSignals: dataset.promptSignals, runtimeUsage: dataset.runtimeUsage,
+      leverage: dataset.leverage,
       contextDocuments: dataset.contextDocuments, tokenEfficiency: dataset.tokenEfficiency,
     },
     representativeEpisodes: dataset.representativeEpisodes,
     investigatorResearch: research,
     analysisControls,
   };
-  const coachUserPrompt = `阶段二：把调查结果综合为“个人工程画像与发展方案”。动态维度来自调查结果，不得替换成统一固定量表。\n\n${JSON.stringify(coachInput, null, 2)}`;
+  const coachUserPrompt = `阶段二：把调查结果整理为“Agent 使用分析与改进建议”。分析方面来自调查结果，不得替换成统一固定量表。\n\n${JSON.stringify(coachInput, null, 2)}`;
   let coachResult: RunAnalysisResult;
   try {
     coachResult = await runner.runAnalysis({ systemPrompt: COACH_PROMPT, userPrompt: coachUserPrompt, jsonSchema: REPORT_SCHEMA });
   } catch (error) {
     recordAnalysisRun({
-      analysisType: 'behavior_report', status: 'failed', unavailableReason: 'coach-runner-failed',
+      analysisType: 'behavior_report', status: 'failed', unavailableReason: runnerFailureReason(error),
       provider: researchResult.provider, model: researchResult.model, promptVersion: BEHAVIOR_REPORT_PROMPT_VERSION,
       systemPrompt: `${INVESTIGATOR_PROMPT}\n\n${COACH_PROMPT}`,
       inputPrompt: `${researchPrompt}\n\n${coachUserPrompt}`,
@@ -950,6 +1114,8 @@ export async function generateBehaviorReport(options: {
       ? report.tokenEfficiencyFindings : [];
     report.skillOpportunities = Array.isArray(report.skillOpportunities)
       ? report.skillOpportunities : [];
+    report.runtimeAssessments = Array.isArray(report.runtimeAssessments)
+      ? report.runtimeAssessments : [];
     if (!analysisControls.contextDocumentAnalysis) report.contextDocumentAssessments = [];
     if (!analysisControls.tokenEfficiencyAnalysis) report.tokenEfficiencyFindings = [];
     if (!analysisControls.skillOpportunityAnalysis) report.skillOpportunities = [];

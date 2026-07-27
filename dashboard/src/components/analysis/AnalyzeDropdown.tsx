@@ -145,73 +145,71 @@ export function AnalyzeDropdown({
   }
 
   const showPromptOption = session.user_message_count >= 2;
-  const hasAnyExistingAnalysis = Boolean(hasExistingInsights || hasExistingPromptQuality);
-
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-8 gap-1.5">
-            <Sparkles className="h-3.5 w-3.5" />
-            {hasAnyExistingAnalysis
-              ? t('analysis.reanalyze', 'Re-analyze')
-              : t('analysis.analyze', 'Analyze')}
-            <ChevronDown className="h-3 w-3 opacity-50" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={handleSessionClick}>
-            <Sparkles className="h-4 w-4" />
-            {hasExistingInsights ? t('analysis.reanalyzeSession', 'Re-analyze session') : t('analysis.analyzeSession', 'Analyze session')}
-            {sessionCostEstimate !== null && (
-              <div className="text-xs text-muted-foreground pl-7 pb-1 w-full">
-                {isOllama
-                  ? 'free (local)'
-                  : `~${formatCost(sessionCostEstimate)}${inputTokensLabel ? ` · ${inputTokensLabel}` : ''}`}
-              </div>
-            )}
-          </DropdownMenuItem>
-          {showPromptOption && (
+      <div className="flex items-center">
+        <Button
+          variant="outline"
+          size="sm"
+          className={`h-8 gap-1.5 ${showPromptOption ? 'rounded-r-none border-r-0' : ''}`}
+          onClick={handleSessionClick}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          {hasExistingInsights
+            ? t('analysis.reanalyze', 'Re-analyze')
+            : t('analysis.analyze', 'Analyze')}
+        </Button>
+        {showPromptOption && <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-l-none px-2"
+              aria-label="选择其他分析"
+            >
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={handlePromptClick}>
               <Target className="h-4 w-4" />
               {hasExistingPromptQuality ? t('analysis.reanalyzePromptQuality', 'Re-analyze prompt quality') : t('analysis.analyzePromptQuality', 'Analyze prompt quality')}
               {pqCostEstimate !== null && (
-                <div className="text-xs text-muted-foreground pl-7 pb-0.5 w-full">
-                  {isOllama ? 'free (local)' : `~${formatCost(pqCostEstimate)} · same conversation`}
+                <div className="w-full pb-0.5 pl-7 text-xs text-muted-foreground">
+                  {isOllama ? '本地运行' : `约 ${formatCost(pqCostEstimate)} · 使用同一会话`}
                 </div>
               )}
               {showCacheHint && (
-                <div className="text-[10px] text-muted-foreground/60 pl-7 italic flex items-center gap-1 pb-1 w-full">
+                <div className="flex w-full items-center gap-1 pb-1 pl-7 text-[10px] italic text-muted-foreground/60">
                   <Info className="h-3 w-3 shrink-0" />
-                  ~90% cheaper if run right after (Anthropic cache)
+                  紧接会话分析运行时可复用缓存
                 </div>
               )}
             </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </DropdownMenuContent>
+        </DropdownMenu>}
+      </div>
 
       <AlertDialog open={confirmSessionOpen} onOpenChange={setConfirmSessionOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Re-analyze this session?</AlertDialogTitle>
+            <AlertDialogTitle>重新分析这次会话？</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div>
                 <p>
-                  This will replace {insightCount ?? 0} existing insight{(insightCount ?? 0) !== 1 ? 's' : ''} with new ones.
-                  This uses LLM tokens and cannot be undone.
+                  将重新生成摘要、决策与 Skill 评价，并替换现有 {insightCount ?? 0} 项分析结果。
                 </p>
                 {sessionCostEstimate !== null && !isOllama && (
                   <p className="text-sm text-muted-foreground mt-1">
-                    Estimated cost: ~{formatCost(sessionCostEstimate)}
+                    预计使用 {inputTokensLabel || '当前会话内容'}，费用约 {formatCost(sessionCostEstimate)}
                   </p>
                 )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleSessionAnalyze}>Re-analyze</AlertDialogAction>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSessionAnalyze}>开始重新分析</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -95,17 +95,31 @@ function acquireReportLease(databasePath: string): { release(): void } | null {
   }
 }
 
+/**
+ * Start one report job under the cross-process lease. A concurrent request is
+ * deliberately ignored: it is neither queued nor surfaced as a user-facing
+ * error.
+ */
+export function startBehaviorReportWithLease(
+  work: () => Promise<unknown>,
+  databasePath = getDbPath(),
+): Promise<void> | null {
+  const lease = acquireReportLease(databasePath);
+  if (!lease) return null;
+  return Promise.resolve()
+    .then(work)
+    .then(() => undefined)
+    .finally(() => lease.release());
+}
+
 export async function runAutomaticBehaviorReport(): Promise<AutomaticBehaviorReportState> {
-  const lease = acquireReportLease(getDbPath());
-  if (!lease) return getAutomaticBehaviorReportState();
-  try {
+  const job = startBehaviorReportWithLease(async () => {
     const db = getDb();
     const state = getAutomaticBehaviorReportState(db);
     if (state.due) await generateBehaviorReport({ db });
-    return getAutomaticBehaviorReportState(db);
-  } finally {
-    lease.release();
-  }
+  });
+  if (job) await job;
+  return getAutomaticBehaviorReportState();
 }
 
 /** Spawned only after a Hook frontier was settled; it never scans source directories. */

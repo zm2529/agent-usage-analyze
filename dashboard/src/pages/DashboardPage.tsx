@@ -13,9 +13,20 @@ import { useBehaviorReport } from '@/hooks/useBehaviorReport';
 import { useIngestionHealth } from '@/hooks/useIngestionHealth';
 import { useSessions } from '@/hooks/useSessions';
 import { HistorySyncButton } from '@/components/dashboard/HistorySyncButton';
+import { IngestionProgressCard } from '@/components/dashboard/IngestionProgressCard';
 import type { OverviewRange } from '@/lib/types';
+import { formatModelName } from '@/lib/utils';
 
 const COLORS = ['#28666E', '#3B6EA8', '#BF7A45', '#6B7280'];
+const SKILL_COLORS = ['#C8DCF4', '#75B5F4', '#3D8BE8', '#235CA8', '#C7A8F3', '#8757DF', '#E56AA6', '#A178E8'];
+const EFFORT_COLORS: Record<string, string> = {
+  none: '#9CA3AF', minimal: '#8AAFC1', low: '#5E93B4', medium: '#3B6EA8',
+  high: '#6D58B5', xhigh: '#8757DF', max: '#A178E8', ultra: '#BF7A45',
+};
+const EFFORT_LABELS: Record<string, string> = {
+  none: '无', minimal: '极低', low: '低', medium: '中', high: '高',
+  xhigh: '很高', max: '最高', ultra: '极高',
+};
 
 function compact(value: number): string {
   return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -50,6 +61,31 @@ function SectionTitle({ title, description, aside }: { title: string; descriptio
 const tooltipStyle = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 2, fontSize: 11, boxShadow: '0 10px 30px rgb(0 0 0 / .18)' };
 const chartCursor = { fill: 'rgba(40, 102, 110, 0.08)' };
 
+type SkillTooltipEntry = {
+  color?: string; dataKey?: string | number; name?: string | number; value?: string | number | ReadonlyArray<string | number>;
+};
+
+export function skillTooltipEntries(payload: ReadonlyArray<SkillTooltipEntry> = []): SkillTooltipEntry[] {
+  return [...payload].reverse();
+}
+
+function SkillTrendTooltip({ active, label, payload }: {
+  active?: boolean;
+  label?: string | number;
+  payload?: ReadonlyArray<SkillTooltipEntry>;
+}) {
+  if (!active || !payload?.length) return null;
+  return <div className="min-w-52 border border-border bg-card p-3 text-xs shadow-xl">
+    <p className="mb-2 font-semibold">时间：{label}</p>
+    <div className="space-y-1.5">
+      {skillTooltipEntries(payload).map((entry) => <div key={String(entry.dataKey)} className="flex items-center justify-between gap-6">
+        <span className="flex min-w-0 items-center gap-2"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: entry.color }} /><span className="truncate">{entry.name}</span></span>
+        <strong className="tabular-nums">{Number(entry.value ?? 0)}</strong>
+      </div>)}
+    </div>
+  </div>;
+}
+
 export default function DashboardPage() {
   const [range, setRange] = useState<OverviewRange>('7d');
   const overview = useOverviewAnalytics(range);
@@ -58,7 +94,6 @@ export default function DashboardPage() {
   const { data: sessions = [] } = useSessions({ limit: 8 });
   const data = overview.data;
   const report = behavior.data?.report;
-  const reportAutomation = behavior.data?.automation;
   const generatedAt = behavior.data?.run?.createdAt ?? null;
   const tokenComposition = useMemo(() => data ? [
     { name: '输入', value: data.totals.inputTokens },
@@ -66,6 +101,15 @@ export default function DashboardPage() {
     { name: '缓存写入', value: data.totals.cacheCreationTokens },
     { name: '缓存读取', value: data.totals.cacheReadTokens },
   ] : [], [data]);
+  const skillTrend = useMemo(() => (data?.skillTimeline ?? []).map((point) => ({
+    key: point.key,
+    label: point.label,
+    total: point.total,
+    ...Object.fromEntries((data?.skillSeries ?? []).map((series, index) => [
+      `skill_${index}`,
+      point.counts[series.name] ?? 0,
+    ])),
+  })), [data]);
 
   if (overview.isLoading) {
     return <div className="vibe-page pb-16"><header className="border-b border-foreground/80 pb-6 pt-8"><p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">ANALYTICS OVERVIEW</p><h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">Agent 使用总览</h1><p className="mt-3 text-sm text-muted-foreground">正在读取本地统计与趋势…</p></header><div className="overview-metrics mt-5" aria-hidden>{Array.from({ length: 8 }, (_, index) => <div key={index} className="overview-metric animate-pulse bg-muted/30" />)}</div></div>;
@@ -94,8 +138,14 @@ export default function DashboardPage() {
       </div>
     </header>
 
+    {health?.status === 'running' && (
+      <section className="border-b py-4">
+        <IngestionProgressCard health={health} />
+      </section>
+    )}
+
     <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b py-2 text-[10px] text-muted-foreground">
-      <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${health?.status === 'completed' ? 'bg-[#28666E]' : 'bg-[#BF7A45]'}`} />Hook 事件登记后约 10 秒开始导入；页面会在事件处理期间刷新本地结果</span>
+      <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${health?.status === 'completed' ? 'bg-[#28666E]' : 'bg-[#BF7A45]'}`} />所有统计均来自本机已整理的会话记录</span>
       <span>{data ? `统计生成 ${new Date(data.generatedAt).toLocaleTimeString('zh-CN')}` : '正在读取统计'}</span>
     </div>
 
@@ -105,7 +155,7 @@ export default function DashboardPage() {
       <Metric label="子 Agent" value={compact(data?.totals.subagents ?? 0)} detail="委派任务" icon={Bot} />
       <Metric label="持续时间" value={duration(data?.totals.durationMinutes ?? 0)} detail="会话累计" icon={Clock3} />
       <Metric label="工具调用" value={compact(data?.totals.toolCalls ?? 0)} detail="全部工具事件" icon={Wrench} />
-      <Metric label="Skill" value={compact(data?.totals.skillInvocations ?? 0)} detail="显式调用" icon={Sparkles} />
+      <Metric label="Skill" value={compact(data?.totals.skillInvocations ?? 0)} detail="用户指定与 Agent 自动启用" icon={Sparkles} />
       <Metric
         label="Token"
         value={compact((data?.totals.inputTokens ?? 0) + (data?.totals.outputTokens ?? 0))}
@@ -156,10 +206,76 @@ export default function DashboardPage() {
       </div>
     </section>
 
+    <section className="border-b py-7">
+      <SectionTitle
+        title="Skill 使用趋势"
+        description="按时间展示用户指定和 Agent 自动启用的 Skill；同一时段按 Skill 叠加。"
+        aside={<div className="text-right"><span className="block text-[10px] text-muted-foreground">当前范围调用</span><strong className="text-2xl tabular-nums">{compact(data.totals.skillInvocations)}</strong></div>}
+      />
+      {data.skillSeries.length > 0 ? <div className="h-[310px] min-w-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 900, height: 310 }}>
+          <AreaChart data={skillTrend} margin={{ left: -12, right: 28, top: 8 }}>
+            <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 4" />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={range === 'today' ? 2 : range === '30d' ? 4 : 0} />
+            <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+            <Tooltip
+              content={({ active, label, payload }) => <SkillTrendTooltip active={active} label={label} payload={payload} />}
+              cursor={{ stroke: 'rgba(168, 137, 230, 0.6)', strokeWidth: 1 }}
+            />
+            <Legend iconType="circle" wrapperStyle={{ fontSize: 10, lineHeight: '22px' }} />
+            {data.skillSeries.map((series, index) => <Area
+              key={series.name}
+              type="monotone"
+              name={series.name === '其他' ? '其他' : `$${series.name}`}
+              dataKey={`skill_${index}`}
+              stackId="skills"
+              stroke={SKILL_COLORS[index % SKILL_COLORS.length]}
+              fill={SKILL_COLORS[index % SKILL_COLORS.length]}
+              fillOpacity={0.88}
+              strokeWidth={1.5}
+            />)}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div> : <div className="border-y py-12 text-center text-xs text-muted-foreground">当前时间范围还没有识别到 Skill 使用记录</div>}
+    </section>
+
+    <section className="grid gap-9 border-b py-7 lg:grid-cols-2">
+      <div>
+        <SectionTitle title="模型使用" description="按实际记录到的 Agent 轮次统计；同一会话切换模型会分别计入。" />
+        {data.modelUsage.length > 0 ? <div className="h-[260px] min-w-0">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 260 }}>
+            <BarChart data={data.modelUsage.slice(0, 7)} layout="vertical" margin={{ left: 12, right: 28 }}>
+              <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
+              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+              <YAxis type="category" dataKey="name" width={112} tickFormatter={formatModelName} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} formatter={(value) => [`${Number(value)} 轮`, '使用']} labelFormatter={(label) => formatModelName(String(label))} />
+              <Bar dataKey="turns" name="使用轮次" fill="#28666E" radius={[0, 2, 2, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div> : <p className="border-y py-10 text-center text-xs text-muted-foreground">当前时间范围还没有模型记录</p>}
+      </div>
+      <div>
+        <SectionTitle title="推理强度" description="查看不同推理强度的使用轮次，帮助判断是否总在使用同一档位。" />
+        {data.reasoningEffortUsage.length > 0 ? <div className="h-[260px] min-w-0">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 260 }}>
+            <BarChart data={data.reasoningEffortUsage} margin={{ left: -12, right: 12 }}>
+              <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+              <XAxis dataKey="name" tickFormatter={(value) => EFFORT_LABELS[String(value)] ?? String(value)} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={tooltipStyle} cursor={chartCursor} formatter={(value) => [`${Number(value)} 轮`, '使用']} labelFormatter={(label) => `推理强度：${EFFORT_LABELS[String(label)] ?? String(label)}`} />
+              <Bar dataKey="turns" name="使用轮次" radius={[2, 2, 0, 0]}>
+                {data.reasoningEffortUsage.map((item) => <Cell key={item.name} fill={EFFORT_COLORS[item.name] ?? '#6B7280'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div> : <p className="border-y py-10 text-center text-xs text-muted-foreground">当前时间范围还没有推理强度记录</p>}
+      </div>
+    </section>
+
     <section className="grid gap-8 border-b py-7 lg:grid-cols-3">
       <div>
-        <SectionTitle title="Skill 使用" description="显式 $skill 与 Skill 链接；次数不等同于效果。" />
-        <div className="border-t">{(data?.skills ?? []).slice(0, 8).map((skill) => <div key={skill.name} className="grid grid-cols-[1fr_56px_62px] gap-3 border-b py-2.5 text-xs"><strong className="truncate">${skill.name}</strong><span className="text-right tabular-nums">{skill.invocations}</span><span className="text-right text-muted-foreground">{skill.sessions} 会话</span></div>)}{!data?.skills.length && <p className="border-b py-8 text-center text-xs text-muted-foreground">当前范围未发现显式 Skill 调用</p>}</div>
+        <SectionTitle title="常用 Skill" description="调用次数与覆盖会话数；是否合适请查看单次会话评价。" />
+        <div className="border-t">{(data?.skills ?? []).slice(0, 8).map((skill) => <div key={skill.name} className="grid grid-cols-[1fr_56px_62px] gap-3 border-b py-2.5 text-xs"><strong className="truncate">${skill.name}</strong><span className="text-right tabular-nums">{skill.invocations}</span><span className="text-right text-muted-foreground">{skill.sessions} 会话</span></div>)}{!data?.skills.length && <p className="border-b py-8 text-center text-xs text-muted-foreground">当前范围还没有识别到 Skill 使用记录</p>}</div>
       </div>
       <div>
         <SectionTitle title="工具族" description="按调用目的归类，便于识别工作方式变化。" />
@@ -188,13 +304,13 @@ export default function DashboardPage() {
       <aside className="border border-border bg-card p-5">
         <div className="flex items-center justify-between gap-3"><div><p className="vibe-mono text-[10px] tracking-[.14em] text-[#28666E]">CROSS-SESSION REPORT</p><h2 className="mt-2 text-lg font-semibold">跨会话行为报告</h2></div><Database className="h-5 w-5 text-muted-foreground" /></div>
         <p className="mt-4 text-sm font-medium leading-6">{report?.headline ?? '等待第一份跨会话报告'}</p>
-        <dl className="mt-5 space-y-3 border-t pt-4 text-xs"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">最近生成</dt><dd className="text-right">{generatedAt ? parseStoredDate(generatedAt).toLocaleString('zh-CN') : '尚未生成'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">自动策略</dt><dd className="max-w-[220px] text-right">会话事件与文件监听完成稳定导入后检查；有新证据且距上次尝试满 24 小时才生成</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">当前状态</dt><dd className={reportAutomation?.reason === 'due' || reportAutomation?.reason === 'cooldown' ? 'text-[#BF7A45]' : 'text-[#28666E]'}>{reportAutomation?.reason === 'due' ? '下一条稳定证据后可生成' : reportAutomation?.reason === 'cooldown' ? `冷却中${reportAutomation.nextEligibleAt ? `，最早 ${parseStoredDate(reportAutomation.nextEligibleAt).toLocaleString('zh-CN')}` : ''}` : reportAutomation?.reason === 'disabled' ? '自动生成已关闭' : reportAutomation?.reason === 'insufficient-evidence' ? '结构样本尚不足' : '已覆盖当前稳定证据'}</dd></div></dl>
+        <dl className="mt-5 border-t pt-4 text-xs"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">最近生成</dt><dd className="text-right">{generatedAt ? parseStoredDate(generatedAt).toLocaleString('zh-CN') : '尚未生成'}</dd></div></dl>
         <Link to="/improve" className="mt-5 block border border-foreground px-3 py-2 text-center text-xs font-semibold hover:bg-foreground hover:text-background">查看完整报告</Link>
       </aside>
     </section>
 
     <section className="py-7">
-      <SectionTitle title="最近会话" description="会话事件或本地文件变化会触发稳定导入；通常在会话写入结束后数秒出现。" aside={<Link to="/sessions" className="text-xs text-[#28666E] hover:underline">查看全部记录 →</Link>} />
+      <SectionTitle title="最近会话" description="回顾最近使用 Agent 完成的工作。" aside={<Link to="/sessions" className="text-xs text-[#28666E] hover:underline">查看全部记录 →</Link>} />
       <div className="border-t">{sessions.slice(0, 6).map((session) => <Link key={session.id} to={`/sessions?session=${encodeURIComponent(session.id)}`} className="grid grid-cols-[112px_112px_minmax(0,1fr)_80px] gap-4 border-b py-3 text-xs hover:bg-[#28666E]/[.055]"><span className="text-muted-foreground"><small className="mr-1 text-[9px]">开始</small>{new Date(session.started_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span className="text-muted-foreground"><small className="mr-1 text-[9px]">更新</small>{new Date(session.ended_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span className="truncate font-medium">{session.custom_title || session.generated_title || session.summary || session.project_name}</span><span className="text-right text-muted-foreground">{session.message_count} 条消息</span></Link>)}</div>
       {!sessions.length && <div className="flex items-center justify-center gap-2 border-b py-10 text-sm text-muted-foreground"><Database className="h-4 w-4" />等待第一条已稳定会话</div>}
     </section>

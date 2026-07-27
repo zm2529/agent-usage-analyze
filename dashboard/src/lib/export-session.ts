@@ -90,5 +90,7 @@ export function exportSession(
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Safari/WebKit may cancel the download if the object URL is revoked in the
+  // same task as the synthetic click.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }

@@ -31,17 +31,69 @@ function latestStrategicGuidance(db: ReturnType<typeof getDb>) {
   try {
     const report = JSON.parse(row.outputJson) as {
       headline?: unknown;
-      developmentPlan?: { northStar?: unknown; experiments?: Array<{ title?: unknown; hypothesis?: unknown }> };
+      developmentPlan?: { northStar?: unknown; experiments?: Array<{
+        title?: unknown; hypothesis?: unknown; eligibleCohort?: unknown;
+      }> };
+      skillAssessments?: Array<{
+        name?: unknown; fit?: unknown; observation?: unknown; issue?: unknown; recommendation?: unknown;
+      }>;
+      skillOpportunities?: Array<{
+        name?: unknown; trigger?: unknown; evidence?: unknown; expectedBenefit?: unknown;
+      }>;
+      runtimeAssessments?: Array<{
+        category?: unknown; target?: unknown; fit?: unknown; observation?: unknown;
+        issue?: unknown; recommendation?: unknown; applicability?: unknown;
+      }>;
     };
     if (typeof report.headline !== 'string' || typeof report.developmentPlan?.northStar !== 'string') return null;
+    const overall = (report.developmentPlan.experiments ?? []).flatMap((item) =>
+      typeof item.title === 'string' && typeof item.hypothesis === 'string'
+        ? [{
+            category: 'overall' as const,
+            title: item.title,
+            rationale: item.hypothesis,
+            ...(typeof item.eligibleCohort === 'string' ? { applicability: item.eligibleCohort } : {}),
+          }]
+        : []).slice(0, 4);
+    const skills = [
+      ...(report.skillAssessments ?? []).flatMap((item) =>
+        item.fit !== 'appropriate' && typeof item.name === 'string'
+          && typeof item.observation === 'string' && typeof item.recommendation === 'string'
+          ? [{
+              category: 'skill' as const,
+              title: `$${item.name}`,
+              rationale: typeof item.issue === 'string' ? item.issue : item.observation,
+              recommendation: item.recommendation,
+            }]
+          : []),
+      ...(report.skillOpportunities ?? []).flatMap((item) =>
+        typeof item.name === 'string' && typeof item.expectedBenefit === 'string'
+          ? [{
+              category: 'skill' as const,
+              title: item.name,
+              rationale: typeof item.evidence === 'string' ? item.evidence : item.expectedBenefit,
+              recommendation: item.expectedBenefit,
+              ...(typeof item.trigger === 'string' ? { applicability: item.trigger } : {}),
+            }]
+          : []),
+    ].slice(0, 4);
+    const runtimes = (report.runtimeAssessments ?? []).flatMap((item) =>
+      item.fit !== 'appropriate' && (item.category === 'model' || item.category === 'reasoning-effort')
+        && typeof item.target === 'string' && typeof item.observation === 'string'
+        && typeof item.recommendation === 'string'
+        ? [{
+            category: item.category === 'model' ? 'model' as const : 'reasoning' as const,
+            title: item.target,
+            rationale: typeof item.issue === 'string' ? item.issue : item.observation,
+            recommendation: item.recommendation,
+            ...(typeof item.applicability === 'string' ? { applicability: item.applicability } : {}),
+          }]
+        : []).slice(0, 4);
     return {
       generatedAt: row.createdAt,
       headline: report.headline,
       northStar: report.developmentPlan.northStar,
-      actions: (report.developmentPlan.experiments ?? []).flatMap((item) =>
-        typeof item.title === 'string' && typeof item.hypothesis === 'string'
-          ? [{ title: item.title, rationale: item.hypothesis }]
-          : []).slice(0, 4),
+      actions: [...overall, ...skills, ...runtimes],
     };
   } catch { return null; }
 }

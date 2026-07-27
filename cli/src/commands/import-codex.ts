@@ -6,6 +6,11 @@ import { ingestSourceAdapter, type IngestionOptions } from '../canonical/ingesti
 import { getDb } from '../db/client.js';
 import { getConfigDir } from '../utils/config.js';
 import { CLI_ENTRY } from '../utils/hooks-utils.js';
+import {
+  startAutomaticHistoryAnalysis,
+  type HistoryBackfillResult,
+} from '../analysis/history-backfill.js';
+import { spawnAutomaticBehaviorReport } from '../analysis/behavior-report-scheduler.js';
 
 export interface ImportCodexOptions extends IngestionOptions {
   home?: string;
@@ -16,6 +21,26 @@ export interface BackgroundImport {
   logPath: string;
 }
 
+export interface BackgroundImportOptions {
+  analyzeAfterImport?: boolean;
+}
+
+interface ImportCodexCommandDependencies {
+  importHistory: typeof importCodexHistory;
+  startHistoryAnalysis: () => HistoryBackfillResult;
+  startBehaviorReport: () => void;
+  writeSummary: (summary: unknown) => void;
+  warn?: (message: string) => void;
+}
+
+const defaultCommandDependencies: ImportCodexCommandDependencies = {
+  importHistory: importCodexHistory,
+  startHistoryAnalysis: startAutomaticHistoryAnalysis,
+  startBehaviorReport: spawnAutomaticBehaviorReport,
+  writeSummary: (summary) => process.stdout.write(`${JSON.stringify(summary)}\n`),
+  warn: (message) => process.stderr.write(`${message}\n`),
+};
+
 export async function importCodexHistory(options: ImportCodexOptions = {}) {
   return ingestSourceAdapter(
     new CodexRolloutAdapter(options.home),
@@ -25,7 +50,7 @@ export async function importCodexHistory(options: ImportCodexOptions = {}) {
 }
 
 /** Start the initial Codex backfill without delaying the local dashboard. */
-export function spawnCodexHistoryImport(): BackgroundImport {
+export function spawnCodexHistoryImport(options: BackgroundImportOptions = {}): BackgroundImport {
   const configDir = getConfigDir();
   if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const logPath = join(configDir, 'codex-import.log');
@@ -34,7 +59,13 @@ export function spawnCodexHistoryImport(): BackgroundImport {
     const child = spawn(process.execPath, [CLI_ENTRY, 'import-codex'], {
       detached: true,
       stdio: ['ignore', logFd, logFd],
-      env: { ...process.env, AGENT_USAGE_ANALYZE_BACKGROUND_IMPORT: '1' },
+      env: {
+        ...process.env,
+        AGENT_USAGE_ANALYZE_BACKGROUND_IMPORT: '1',
+        ...(options.analyzeAfterImport
+          ? { AGENT_USAGE_ANALYZE_ANALYZE_AFTER_IMPORT: '1' }
+          : {}),
+      },
     });
     child.on('error', () => {
       // A later start or explicit import can safely retry the idempotent backfill.
@@ -46,7 +77,28 @@ export function spawnCodexHistoryImport(): BackgroundImport {
   }
 }
 
-export async function importCodexCommand(options: { home?: string }): Promise<void> {
-  const summary = await importCodexHistory(options);
-  process.stdout.write(`${JSON.stringify(summary)}\n`);
+export async function runImportCodexCommand(
+  options: { home?: string; analyzeAfterImport?: boolean },
+  dependencies: ImportCodexCommandDependencies = defaultCommandDependencies,
+): Promise<void> {
+  const summary = await dependencies.importHistory(options);
+  const analyzeAfterImport = options.analyzeAfterImport === true
+    || process.env.AGENT_USAGE_ANALYZE_ANALYZE_AFTER_IMPORT === '1';
+  if (analyzeAfterImport) {
+    try {
+      dependencies.startHistoryAnalysis();
+    } catch (error) {
+      dependencies.warn?.(`Initial session analysis could not start: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      dependencies.startBehaviorReport();
+    } catch (error) {
+      dependencies.warn?.(`Initial behavior report could not start: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  dependencies.writeSummary(summary);
+}
+
+export async function importCodexCommand(options: { home?: string; analyzeAfterImport?: boolean }): Promise<void> {
+  await runImportCodexCommand(options);
 }

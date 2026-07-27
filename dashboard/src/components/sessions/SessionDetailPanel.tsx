@@ -28,12 +28,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { PromptQualityCard } from '@/components/insights/PromptQualityCard';
 import { AnalyzeDropdown } from '@/components/analysis/AnalyzeDropdown';
 import { AnalyzeButton } from '@/components/analysis/AnalyzeButton';
@@ -200,6 +194,12 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
     : {};
   const sessionOutcome = summaryMetadata.outcome;
   const skillUsage = summaryMetadata.skill_usage ?? [];
+  const observedSkillUsage = session.observed_skill_usage ?? [];
+  const assessedSkillNames = new Set(skillUsage.map((item) => item.name.toLowerCase()));
+  const skillCount = new Set([
+    ...observedSkillUsage.map((item) => item.name),
+    ...skillUsage.map((item) => item.name),
+  ]).size;
   const summaryText = session.summary || summaryInsight?.content;
   const summaryBulletsRaw = summaryInsight
     ? parseJsonField<string[]>(summaryInsight.bullets, [])
@@ -292,32 +292,18 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
               insightCount={nonPromptInsights.length}
               hasExistingPromptQuality={hasPromptQuality}
             />
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" disabled={exporting}>
-                      {exporting
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Download className="h-3.5 w-3.5" />}
-                      <span className="sr-only">{t('sessions.export', 'Export session')}</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t('sessions.export', 'Export session')}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleExport('plain')}>
-                  {t('sessions.exportMarkdown', 'Export as Markdown')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport('obsidian')}>
-                  {t('sessions.exportObsidian', 'Export for Obsidian')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport('notion')}>
-                  {t('sessions.exportNotion', 'Export for Notion')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 px-2.5 text-xs"
+              disabled={exporting}
+              onClick={() => { void handleExport('plain'); }}
+            >
+              {exporting
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Download className="h-3.5 w-3.5" />}
+              {exporting ? '正在导出' : '导出 Markdown'}
+            </Button>
             <AlertDialog>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -429,7 +415,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
             对话 ({session.message_count})
           </TabsTrigger>
           <TabsTrigger value="skills" className="h-full min-w-[108px] flex-none rounded-none border-r px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
-            Skill ({skillUsage.length})
+            Skill ({skillCount})
           </TabsTrigger>
           <TabsTrigger value="metadata" className="h-full min-w-[108px] flex-none rounded-none border-r px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
             元数据
@@ -664,15 +650,28 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
         <TabsContent value="skills" className="mt-0 flex-1 overflow-y-auto p-6">
           <div className="border-b border-foreground pb-4">
             <p className="vibe-mono text-[10px] tracking-[.12em] text-muted-foreground">SESSION-LOCAL SKILL REVIEW</p>
-            <h2 className="vibe-serif mt-2 text-2xl">Skill 使用评估</h2>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">模型只评价本会话中可观察到的使用是否匹配任务；没有调用不自动构成问题。</p>
+            <h2 className="vibe-serif mt-2 text-2xl">本次会话使用的 Skill</h2>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">“用户指定”来自用户消息中的 $Skill；“Agent 自动启用”来自 Agent 读取 Skill 指令的记录。模型会结合本次任务分别评价两种来源是否合适，评价不计入调用次数。</p>
           </div>
-          {skillUsage.length > 0 ? <div className="border-t">
+          {observedSkillUsage.length > 0 && <div className="border-t">
+            {observedSkillUsage.map((item) => <article key={item.name} className="grid gap-3 border-b py-5 sm:grid-cols-[150px_minmax(0,1fr)]">
+              <strong className="vibe-mono text-xs">${item.name}</strong>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {item.userInvocations > 0 && <Badge variant="outline">用户指定 · {item.userInvocations} 次</Badge>}
+                {item.automaticInvocations > 0 && <Badge variant="secondary">Agent 自动启用 · {item.automaticInvocations} 次</Badge>}
+                <span className="text-muted-foreground">Agent 读取指令 {item.agentInvocations} 次</span>
+                {!assessedSkillNames.has(item.name.toLowerCase()) && <span className="text-[#BF7A45]">当前分析尚未评价；重新分析后补充</span>}
+              </div>
+            </article>)}
+          </div>}
+          {skillUsage.length > 0 && <div className="mt-8">
+            <h3 className="border-b pb-3 text-sm font-semibold">模型对使用方式的评价</h3>
             {skillUsage.map((item) => <article key={item.name} className="grid gap-3 border-b py-5 sm:grid-cols-[120px_minmax(0,1fr)]">
               <div><strong className="vibe-mono text-xs">${item.name}</strong><Badge variant="outline" className="mt-2 block w-fit text-[10px]">{item.fit === 'appropriate' ? '匹配' : item.fit === 'mixed' ? '利弊并存' : '证据不足'}</Badge></div>
               <div><p className="text-xs leading-5 text-muted-foreground">{item.observation}</p>{item.issue && <p className="mt-2 text-xs"><strong>发现的问题：</strong>{item.issue}</p>}<p className="mt-2 text-xs text-[#28666E]"><strong>建议：</strong>{item.recommendation}</p>{item.evidence.length > 0 && <details className="mt-3 text-[10px] text-muted-foreground"><summary className="cursor-pointer">会话内证据 · {item.evidence.length} 项</summary><ul className="mt-2 space-y-1">{item.evidence.map((itemEvidence, index) => <li key={index}>{itemEvidence}</li>)}</ul></details>}</div>
             </article>)}
-          </div> : <div className="border-b py-14 text-center"><p className="vibe-serif text-xl">没有可复核的 Skill 评估</p><p className="mt-2 text-xs text-muted-foreground">本会话可能没有显式调用 Skill，或当前分析没有足够证据。</p></div>}
+          </div>}
+          {observedSkillUsage.length === 0 && skillUsage.length === 0 && <div className="border-b py-14 text-center"><p className="vibe-serif text-xl">没有识别到 Skill 使用记录</p><p className="mt-2 text-xs text-muted-foreground">当前会话中既没有用户指定记录，也没有 Agent 读取 Skill 指令的记录。</p></div>}
         </TabsContent>
 
         {/* Tab 5: Deterministic metadata */}

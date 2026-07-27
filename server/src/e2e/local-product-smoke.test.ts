@@ -83,7 +83,11 @@ function fixtureBatch(artifact: SourceArtifact): CanonicalBatch {
         'tool-result', { callId, status: 'completed' }, sequence++, { parentEventId: callId }));
     }
     events.push(event(`${taskId}:done`, taskId, startedAt.replace('00.000Z', '30.000Z'),
-      'task-completed', { status: 'completed', reason: 'normal' }, sequence++));
+      'task-completed', {
+        status: 'completed',
+        reason: 'normal',
+        ...(mode === 'unvalidated-change' ? { validationStatus: 'not-run' } : {}),
+      }, sequence++));
   };
   addTask('task:previous-one', '2026-07-08T00:00:00.000Z', 'plain');
   addTask('task:previous-two', '2026-07-09T00:00:00.000Z', 'plain');

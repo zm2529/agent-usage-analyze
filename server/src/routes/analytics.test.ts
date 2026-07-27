@@ -80,12 +80,27 @@ describe('Analytics routes', () => {
       expect(body.timeline).toHaveLength(24);
       expect(body.totals).toMatchObject({ sessions: 0, subagents: 0, inputTokens: 0 });
       expect(body.skills).toEqual([]);
+      expect(body.skillSeries).toEqual([]);
+      expect(body.skillTimeline).toHaveLength(24);
+      expect(body.modelUsage).toEqual([]);
+      expect(body.reasoningEffortUsage).toEqual([]);
     });
 
     it('rejects unsupported overview ranges', async () => {
       const app = createApp();
       const res = await app.request('/api/analytics/overview?range=all');
       expect(res.status).toBe(400);
+    });
+
+    it('includes the current local day as the final 7-day bucket', async () => {
+      const app = createApp();
+      const res = await app.request('/api/analytics/overview?range=7d');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      expect(body.timeline).toHaveLength(7);
+      expect(body.timeline.at(-1).key).toBe(today);
     });
 
     it('uses event-time Token deltas without adding cached input twice', async () => {
@@ -111,6 +126,70 @@ describe('Analytics routes', () => {
         outputTokens: 100,
         cacheTokens: 720,
       });
+    });
+
+    it('returns per-period Skill counts for the trend chart', async () => {
+      const now = new Date();
+      const startedAt = now.toISOString();
+      testDb.prepare(`INSERT INTO projects (id, name, path, last_activity)
+        VALUES ('project-1', 'Project', '/tmp/project', ?)`).run(startedAt);
+      testDb.prepare(`INSERT INTO sessions (
+        id, project_id, project_name, project_path, started_at, ended_at,
+        message_count, user_message_count, assistant_message_count, tool_call_count, synced_at
+      ) VALUES ('session-1', 'project-1', 'Project', '/tmp/project', ?, ?, 2, 1, 1, 1, ?)`)
+        .run(startedAt, startedAt, startedAt);
+      testDb.prepare(`INSERT INTO messages (
+        id, session_id, type, content, tool_calls, tool_results, timestamp
+      ) VALUES ('message-1', 'session-1', 'user', '$diagnose investigate this', '[]', '[]', ?)`)
+        .run(startedAt);
+
+      const app = createApp();
+      const res = await app.request('/api/analytics/overview?range=today');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.skillSeries).toContainEqual({ name: 'diagnose', invocations: 1 });
+      expect(body.skillTimeline[now.getHours()]).toMatchObject({
+        total: 1,
+        counts: { diagnose: 1 },
+      });
+    });
+
+    it('returns model and reasoning-effort usage from recorded turn context', async () => {
+      const now = new Date();
+      const occurredAt = now.toISOString();
+      testDb.exec(`
+        INSERT INTO projects (id, name, path, last_activity)
+          VALUES ('project-model', 'Project', '/tmp/project', '${occurredAt}');
+        INSERT INTO sessions (
+          id, project_id, project_name, project_path, started_at, ended_at, synced_at
+        ) VALUES (
+          'codex:thread-model', 'project-model', 'Project', '/tmp/project',
+          '${occurredAt}', '${occurredAt}', '${occurredAt}'
+        );
+        INSERT INTO observation_eras
+          (id, name, mode, parser_version, capabilities_json, starts_at)
+        VALUES ('era-model', 'model fixture', 'historical-backfill', 'fixture-v1', '[]', '${occurredAt}');
+        INSERT INTO source_artifacts
+          (id, source_kind, parser_version, locator_hash, observed_at, era_id)
+        VALUES ('source-model', 'codex-rollout', 'fixture-v1', 'hash-model', '${occurredAt}', 'era-model');
+        INSERT INTO canonical_events (
+          id, source_artifact_id, era_id, native_event_id, sequence, occurred_at, kind,
+          actor, sensitivity, payload_json, thread_id, parser_version
+        ) VALUES
+          ('context-1', 'source-model', 'era-model', 'native-context-1', 1, '${occurredAt}',
+           'turn-context', 'system', 'metadata', '{"model":"gpt-5.6-sol","effort":"high"}',
+           'thread-model', 'fixture-v1'),
+          ('context-2', 'source-model', 'era-model', 'native-context-2', 2, '${occurredAt}',
+           'turn-context', 'system', 'metadata', '{"model":"gpt-5.6-sol","effort":"xhigh"}',
+           'thread-model', 'fixture-v1');
+      `);
+
+      const body = await (await createApp().request('/api/analytics/overview?range=today')).json();
+      expect(body.modelUsage).toEqual([{ name: 'gpt-5.6-sol', turns: 2, sessions: 1 }]);
+      expect(body.reasoningEffortUsage).toEqual([
+        { name: 'high', turns: 1, sessions: 1 },
+        { name: 'xhigh', turns: 1, sessions: 1 },
+      ]);
     });
   });
 

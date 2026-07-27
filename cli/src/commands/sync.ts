@@ -195,7 +195,12 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncResult> {
 
           // Write session and messages to SQLite
           const isNew = insertSessionWithProjectAndReturnIsNew(session, !!options.force);
-          insertMessages(session, !!options.force);
+          const { realPath } = splitVirtualPath(filePath);
+          const previousFileState = syncState.files[realPath];
+          const parserUpgrade = Boolean(
+            previousFileState && parserVersion && previousFileState.parserVersion !== parserVersion,
+          );
+          insertMessages(session, Boolean(options.force || parserUpgrade));
 
           // Update and persist sync state after each file
           // so progress survives crashes

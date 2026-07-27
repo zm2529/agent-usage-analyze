@@ -106,6 +106,40 @@ describe('runSync', () => {
     expect(recalculateUsageStats).toHaveBeenCalledTimes(1);
   });
 
+  it('replaces persisted messages when the parser version changes', async () => {
+    const filePath = path.join(tempDir, 'parser-upgrade.jsonl');
+    fs.writeFileSync(filePath, '{}');
+    syncState.files[filePath] = {
+      lastModified: fs.statSync(filePath).mtime.toISOString(),
+      lastSyncedLine: 0,
+      sessionId: 'session-upgrade',
+      parserVersion: 'mock-v1',
+    };
+    const session = makeParsedSession({
+      id: 'session-upgrade',
+      messageCount: 3,
+      userMessageCount: 2,
+      assistantMessageCount: 1,
+      messages: [
+        makeParsedMessage({ id: 'msg-u1', sessionId: 'session-upgrade' }),
+        makeParsedMessage({ id: 'msg-a1', sessionId: 'session-upgrade', type: 'assistant' }),
+        makeParsedMessage({ id: 'msg-u2', sessionId: 'session-upgrade' }),
+      ],
+    });
+    getAllProviders.mockReturnValue([{
+      getProviderName: () => 'mock',
+      getParserVersion: () => 'mock-v2',
+      discover: async () => [filePath],
+      parse: async () => session,
+    }]);
+    insertSessionWithProjectAndReturnIsNew.mockReturnValue(false);
+
+    await runSync({ quiet: true });
+
+    expect(insertMessages).toHaveBeenCalledWith(session, true);
+    expect(syncState.files[filePath].parserVersion).toBe('mock-v2');
+  });
+
   it('re-syncs virtual paths when the backing DB file changes', async () => {
     const dbPath = path.join(tempDir, 'state.vscdb');
     fs.writeFileSync(dbPath, 'db');

@@ -25,7 +25,7 @@ const eligibleState = {
     promptSignals: { firstMessages: 100 },
     representativeEpisodes: [],
     leverage: {
-      skills: { explicitInvocations: 0, coveredSessions: 0, items: [] },
+      skills: { explicitInvocations: 0, automaticInvocations: 0, agentReadEvents: 0, coveredSessions: 0, items: [] },
       tools: { totalCalls: 0, coveredTasks: 0, families: [], topTools: [] },
     },
   },
@@ -60,7 +60,7 @@ describe('ImprovePage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('尚未生成个人工程画像')).toBeInTheDocument();
+    expect(await screen.findByText('尚未生成使用分析')).toBeInTheDocument();
     expect(await screen.findByText('620/620 个会话完成结构分析')).toBeInTheDocument();
     expect(api.runBehaviorReport).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Generate LLM report' })).toBeEnabled();
@@ -113,7 +113,7 @@ describe('ImprovePage', () => {
     expect(api.runBehaviorReport).not.toHaveBeenCalled();
   });
 
-  it('renders a dynamic personal profile and experiments without the old fixed validation rubric', async () => {
+  it('renders a dynamic personal profile and sends action items to the advice page', async () => {
     api.fetchBehaviorReport.mockResolvedValue({
       ...eligibleState,
       run: { id: 'run-2', status: 'completed', analysisType: 'behavior_report', promptVersion: 'behavior-report-v4', createdAt: '2026-07-23 10:00:00', inputSummary: {} },
@@ -121,8 +121,8 @@ describe('ImprovePage', () => {
       dataset: {
         ...eligibleState.dataset,
         leverage: {
-          skills: { explicitInvocations: 3, coveredSessions: 2, items: [{
-            name: 'diagnose', invocations: 3, sessions: 2, weeklyInvocations: [1, 0, 2, 0],
+          skills: { explicitInvocations: 3, automaticInvocations: 1, agentReadEvents: 4, coveredSessions: 2, items: [{
+            name: 'diagnose', invocations: 4, userInvocations: 3, automaticInvocations: 1, agentReadEvents: 4, sessions: 2, weeklyInvocations: [1, 0, 2, 1],
             sessionShare: 0.04, coUsedWith: [], lastUsedAt: '2026-07-20T00:00:00Z',
           }] },
           tools: { totalCalls: 10, coveredTasks: 3, families: [], topTools: [] },
@@ -133,10 +133,13 @@ describe('ImprovePage', () => {
 
     expect(await screen.findByText('AI 工程编排者')).toBeInTheDocument();
     expect(screen.getAllByText('真实使用画像')).not.toHaveLength(0);
-    expect(screen.getByText('动态行为维度')).toBeInTheDocument();
-    expect(screen.getByText('建议验证计划')).toBeInTheDocument();
-    expect(screen.getByText(/目标：/)).toBeInTheDocument();
-    expect(screen.getByText('四周趋势')).toBeInTheDocument();
+    expect(screen.getByText('值得关注的使用习惯')).toBeInTheDocument();
+    expect(screen.getByText('查看改进建议')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前往建议页 →' })).toHaveAttribute('href', '/advice');
+    expect(screen.getByText('用户指定')).toBeInTheDocument();
+    expect(screen.getByText('自动启用')).toBeInTheDocument();
+    expect(screen.queryByText('根据本次分析生成，不是固定内容。')).not.toBeInTheDocument();
+    expect(screen.queryByText('目前无法确定的部分：')).not.toBeInTheDocument();
     expect(screen.queryByText('工作方式观察')).not.toBeInTheDocument();
     expect(screen.queryByText('验证状态未知')).not.toBeInTheDocument();
     expect(screen.queryByText('验证率')).not.toBeInTheDocument();
@@ -148,8 +151,8 @@ describe('ImprovePage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('分析方法已升级')).toBeInTheDocument();
-    expect(screen.getByText('分析方法已升级，等待手动生成或下次自动生成')).toBeInTheDocument();
+    expect(await screen.findByText('分析方法已更新')).toBeInTheDocument();
+    expect(screen.getByText('现有结果使用旧版分析方法。你可以现在重新生成，或等待下一次自动分析。')).toBeInTheDocument();
     expect(api.runBehaviorReport).not.toHaveBeenCalled();
   });
 });

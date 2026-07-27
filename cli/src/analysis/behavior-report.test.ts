@@ -52,6 +52,9 @@ function fixtureDb(): Database.Database {
       (id, source_artifact_id, era_id, native_event_id, sequence, occurred_at, kind, actor,
        sensitivity, payload_json, task_id, thread_id, parser_version)
       VALUES
+      ('event-context', 'source', 'era', 'native-context', 0, '2026-07-10T00:05:00.000Z',
+       'turn-context', 'system', 'metadata', '{"model":"gpt-5.6-sol","effort":"high"}',
+       'task-0', 'session-0', 'fixture-v1'),
       ('event-edit', 'source', 'era', 'native-edit', 1, '2026-07-10T00:10:00.000Z',
        'tool-call', 'assistant', 'metadata', '{"toolName":"apply_patch","callId":"edit"}',
        'task-0', 'session-0', 'fixture-v1'),
@@ -134,6 +137,12 @@ describe('cross-session behavior report', () => {
     });
     expect(dataset.leverage.skills.items[0]).not.toHaveProperty('validationRate');
     expect(dataset.leverage.tools).toMatchObject({ totalCalls: 2, coveredTasks: 1 });
+    expect(dataset.runtimeUsage).toMatchObject({
+      models: [{ name: 'gpt-5.6-sol', turns: 1, sessions: 1 }],
+      reasoningEfforts: [{ name: 'high', turns: 1, sessions: 1 }],
+    });
+    expect(dataset.representativeEpisodes.find((item) => item.sessionRef === 'session-0')?.runtime)
+      .toEqual({ models: ['gpt-5.6-sol'], reasoningEfforts: ['high'] });
     const runAnalysis = vi.fn(async ({ userPrompt }: { userPrompt: string }) => {
       expect(userPrompt).not.toContain('SECRET_RAW_MESSAGE');
       if (userPrompt.includes('阶段一')) {
@@ -167,6 +176,12 @@ describe('cross-session behavior report', () => {
             applicability: ['多阶段实现'], limitations: ['缺少结果对照'], confidence: 'medium', evidenceRefs: ['session-0'],
           }],
           skillAssessments: [],
+          runtimeAssessments: [{
+            category: 'model', target: 'gpt-5.6-sol', fit: 'appropriate',
+            observation: '复杂诊断任务中使用。', issue: null,
+            recommendation: '复杂诊断继续使用；简单查询先比较更轻配置。',
+            applicability: '多步骤诊断', evidenceRefs: ['session-0'],
+          }],
           developmentPlan: {
             northStar: '建立可自主闭环的个人工程系统',
             operatingRules: ['可逆动作一次授权'],
@@ -182,7 +197,7 @@ describe('cross-session behavior report', () => {
     await expect(generateBehaviorReport({ db, runner, now })).resolves.toMatchObject({ status: 'completed' });
     expect(runAnalysis).toHaveBeenCalledTimes(2);
     expect(db.prepare(`SELECT status, prompt_version AS promptVersion FROM analysis_runs
-      WHERE analysis_type = 'behavior_report'`).get()).toEqual({ status: 'completed', promptVersion: 'behavior-report-v6' });
+      WHERE analysis_type = 'behavior_report'`).get()).toEqual({ status: 'completed', promptVersion: 'behavior-report-v9' });
     db.close();
   });
 
@@ -197,6 +212,26 @@ describe('cross-session behavior report', () => {
     expect(behaviorReportUnavailableReason(buildBehaviorReportDataset(
       db, new Date('2026-07-22T00:00:00.000Z'),
     ))).toBeNull();
+    db.close();
+  });
+
+  it('records an unreachable local model service as temporarily unavailable', async () => {
+    const db = fixtureDb();
+    const runner = {
+      name: 'unreachable-provider',
+      runAnalysis: vi.fn(async () => {
+        throw new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED') });
+      }),
+    } as AnalysisRunner;
+
+    await expect(generateBehaviorReport({
+      db, runner, now: new Date('2026-07-22T00:00:00.000Z'),
+    })).rejects.toThrow('fetch failed');
+    expect(db.prepare(`SELECT status, unavailable_reason AS unavailableReason
+      FROM analysis_runs WHERE analysis_type = 'behavior_report'`).get()).toEqual({
+      status: 'failed',
+      unavailableReason: 'runner-service-unavailable',
+    });
     db.close();
   });
 });

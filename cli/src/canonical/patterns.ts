@@ -78,7 +78,7 @@ const PATTERNS: Record<PatternKey, { label: string; observableFact: string }> = 
   rework: { label: 'Rework', observableFact: 'The same redacted file identity changed more than once in a task.' },
   waiting: { label: 'Waiting', observableFact: 'A linked tool call and result were at least 60 seconds apart.' },
   'context-switching': { label: 'Context switching', observableFact: 'A task moved between observed repository or worktree contexts.' },
-  'validation-missing': { label: 'Validation missing', observableFact: 'A completed task changed files without an observed validation tool call.' },
+  'validation-missing': { label: 'Validation explicitly skipped', observableFact: 'A task record explicitly states that validation was not performed.' },
   'late-constraint': { label: 'Late constraint', observableFact: 'A user message arrived after the first observed file change.' },
   'repeated-failure': { label: 'Repeated failure', observableFact: 'At least two explicit failed task lifecycle events were observed.' },
 };
@@ -160,12 +160,17 @@ function detectLanePatterns(events: EventRow[]): Record<PatternKey, string[]> {
 
   const fileChanges = ordered.filter((event) => event.kind === 'file-change');
   const completed = ordered.filter((event) => event.kind === 'task-completed');
-  const validation = ordered.some((event) => {
-    if (event.kind !== 'tool-call') return false;
-    return typeof parsePayload(event.payloadJson).validationKind === 'string';
+  const explicitlyUnvalidated = ordered.filter((event) => {
+    const payload = parsePayload(event.payloadJson);
+    return payload.validationPerformed === false
+      || ['not-run', 'skipped'].includes(String(payload.validationStatus ?? '').toLowerCase());
   });
-  if (fileChanges.length > 0 && completed.length > 0 && !validation) {
-    found['validation-missing'].push(...fileChanges.map((event) => event.id), completed.at(-1)!.id);
+  if (fileChanges.length > 0 && completed.length > 0 && explicitlyUnvalidated.length > 0) {
+    found['validation-missing'].push(
+      ...fileChanges.map((event) => event.id),
+      completed.at(-1)!.id,
+      ...explicitlyUnvalidated.map((event) => event.id),
+    );
   }
 
   if (fileChanges.length > 0) {
