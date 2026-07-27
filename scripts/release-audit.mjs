@@ -166,21 +166,32 @@ try {
     failures.push(`managed vendor integrity failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const packEntries = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
-    cwd: staging, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-  }));
-  const pack = packEntries[0];
-  if (!pack?.files) throw new Error('npm pack did not return a package manifest');
-  const packageFiles = pack.files.map((entry) => entry.path).sort();
-  for (const path of packageFiles) {
-    if (path.startsWith('vendor/') && vendorVerified) continue;
-    scanFile(join(staging, path), path, 'package');
+  let packageFiles = [];
+  try {
+    const packEntries = JSON.parse(execFileSync(
+      'npm', ['pack', '--dry-run', '--json', '--ignore-scripts'],
+      { cwd: staging, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    ));
+    const pack = packEntries[0];
+    if (!pack?.files) {
+      failures.push('npm pack did not return a package manifest');
+    } else {
+      packageFiles = pack.files.map((entry) => entry.path).sort();
+    }
+  } catch (error) {
+    failures.push(`npm pack failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!packageFiles.some((path) => path.startsWith('vendor/'))
-      || !packageFiles.some((path) => path.startsWith('dist/'))
-      || !packageFiles.some((path) => path.startsWith('dashboard-dist/'))
-      || !packageFiles.some((path) => path.startsWith('server-dist/'))) {
-    failures.push('npm pack manifest is missing a declared runtime release tree');
+  if (packageFiles.length > 0) {
+    for (const path of packageFiles) {
+      if (path.startsWith('vendor/') && vendorVerified) continue;
+      scanFile(join(staging, path), path, 'package');
+    }
+    if (!packageFiles.some((path) => path.startsWith('vendor/'))
+        || !packageFiles.some((path) => path.startsWith('dist/'))
+        || !packageFiles.some((path) => path.startsWith('dashboard-dist/'))
+        || !packageFiles.some((path) => path.startsWith('server-dist/'))) {
+      failures.push('npm pack manifest is missing a declared runtime release tree');
+    }
   }
 } finally {
   rmSync(stagingRoot, { recursive: true, force: true });
