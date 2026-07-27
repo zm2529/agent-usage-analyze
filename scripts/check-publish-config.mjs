@@ -32,7 +32,7 @@ requireValue(/^\s*runs-on:\s*ubuntu-latest\s*$/m.test(workflow),
   'publish.yml must use a GitHub-hosted runner');
 requireValue(/node-version:\s*['"]24['"]/.test(workflow),
   'publish.yml must use Node 24 or newer for npm Trusted Publishing');
-requireValue(/npm install --global npm@latest/.test(workflow),
+requireValue(/npm install --global npm@11\.11\.0/.test(workflow),
   'publish.yml must install an OIDC-capable npm CLI');
 requireValue(/working-directory:\s*cli[\s\S]*?npm publish --access public/.test(workflow),
   'publish.yml must publish from the public CLI package directory');

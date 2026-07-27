@@ -132,4 +132,4 @@ Trusted Publishing 会为公开仓库中的公开包自动生成 provenance，�
 - tag 校验失败：tag 必须严格等于 `v${cli/package.json.version}`。
 - provenance 缺失：确认仓库与包都是 public，并使用 GitHub-hosted runner 和 OIDC 发布。
 
-npm 官方要求 Node.js 22.14+、npm CLI 11.5.1+；当前工作流使用 Node 24 并安装最新版 npm。
+npm 官方要求 Node.js 22.14+、npm CLI 11.5.1+；当前工作流使用 Node 24 和 npm 11.11.0。
