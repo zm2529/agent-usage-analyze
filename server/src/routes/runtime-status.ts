@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import { getDb } from 'agent-usage-analyze/db/client';
 import { getQueueStatus } from 'agent-usage-analyze/db/queue';
-import { readIngestionHealth } from 'agent-usage-analyze/canonical/ingestion';
 import { BEHAVIOR_REPORT_PROMPT_VERSION } from 'agent-usage-analyze/analysis/behavior-report';
 import { getConfigDir } from 'agent-usage-analyze/utils/config';
 import { inspectCodexHook } from 'agent-usage-analyze/utils/codex-hooks';
@@ -161,24 +160,38 @@ function hookStage(): RuntimeStage {
 }
 
 function ingestionStage(): RuntimeStage {
-  const health = readIngestionHealth(getDb());
-  const failures = health.coverage.failed;
-  if (health.status === 'running') return {
-    state: 'running', label: '正在导入', lastSuccessAt: null,
-    backlog: Math.max(0, health.coverage.discovered - health.processedSources),
-    failures, action: { label: '查看导入', href: '/settings#pipeline-status' },
-    detail: `已处理 ${health.processedSources}/${health.coverage.discovered} 个来源`,
-  };
-  if (health.status === 'never-run') return {
+  const health = getDb().prepare(`
+    SELECT status, started_at AS startedAt, completed_at AS completedAt,
+           discovered_count AS discovered, processed_source_count AS processedSources,
+           failed_count AS failed
+    FROM ingestion_runs
+    ORDER BY started_at DESC, rowid DESC
+    LIMIT 1
+  `).get() as {
+    status: 'running' | 'completed' | 'completed-with-errors' | 'failed';
+    startedAt: string;
+    completedAt: string | null;
+    discovered: number;
+    processedSources: number;
+    failed: number;
+  } | undefined;
+  if (!health) return {
     state: 'waiting', label: '尚未导入', lastSuccessAt: null, backlog: 0, failures: 0,
     action: { label: '同步历史', href: '/dashboard' }, detail: '等待首次本地历史导入',
+  };
+  const failures = health.failed;
+  if (health.status === 'running') return {
+    state: 'running', label: '正在导入', lastSuccessAt: null,
+    backlog: Math.max(0, health.discovered - health.processedSources),
+    failures, action: { label: '查看导入', href: '/settings#pipeline-status' },
+    detail: `已处理 ${health.processedSources}/${health.discovered} 个来源`,
   };
   return {
     state: health.status === 'failed' ? 'failed' : failures > 0 ? 'stale' : 'healthy',
     label: health.status === 'failed' ? '最近导入失败' : failures > 0 ? '部分来源未导入' : '最近导入成功',
     lastSuccessAt: health.status === 'failed' ? null : health.completedAt,
     backlog: 0, failures, action: { label: '查看导入', href: '/settings#pipeline-status' },
-    detail: `${health.eventCount} 个事件，${health.sourceCount} 个来源`,
+    detail: `最近一次处理 ${health.processedSources}/${health.discovered} 个来源`,
   };
 }
 

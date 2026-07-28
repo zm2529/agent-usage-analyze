@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, DatabaseZap, Globe2, Route, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Copy, DatabaseZap, Globe2, Route, Sparkles, TerminalSquare, X } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageProvider';
 import { Switch } from '@/components/ui/switch';
 
@@ -18,6 +18,14 @@ const copy = {
       description: '首次打开后，我们会整理本机保存的 Agent 会话。准备完成后，你可以在这里查看使用情况和分析结果。',
       target: null,
       icon: Sparkles,
+    },
+    {
+      eyebrow: 'Codex Hook',
+      title: '在 Codex 中确认一次 Hook',
+      description: '打开 Codex，在输入框键入 /hooks，确认 Agent Usage Analyzer 的处理器为已启用。完成后，新会话会自动进入这里。',
+      target: null,
+      icon: TerminalSquare,
+      hook: true,
     },
     {
       eyebrow: '数据准备',
@@ -56,6 +64,14 @@ const copy = {
       description: 'On first launch, we organize Agent sessions saved on this computer. When preparation finishes, you can review usage and analysis here.',
       target: null,
       icon: Sparkles,
+    },
+    {
+      eyebrow: 'CODEX HOOK',
+      title: 'Confirm the hook once in Codex',
+      description: 'Open Codex, enter /hooks, and confirm that the Agent Usage Analyzer handler is enabled. New sessions will then appear here automatically.',
+      target: null,
+      icon: TerminalSquare,
+      hook: true,
     },
     {
       eyebrow: 'DATA PREPARATION',
@@ -132,6 +148,8 @@ export function FirstRunGuide({
     next: '下一步',
     finish: '开始使用',
     close: '关闭指引',
+    copyHook: '复制 /hooks',
+    copied: '已复制',
   } : {
     dialog: 'First-run guide',
     skip: 'Skip guide',
@@ -139,7 +157,10 @@ export function FirstRunGuide({
     next: 'Next',
     finish: 'Start using',
     close: 'Close guide',
+    copyHook: 'Copy /hooks',
+    copied: 'Copied',
   }, [language]);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -207,6 +228,21 @@ export function FirstRunGuide({
         <p className="vibe-mono mt-5 text-[10px] tracking-[.18em] text-[#28666E]">{step.eyebrow}</p>
         <h2 className="mt-2 text-xl font-semibold tracking-[-.025em]">{step.title}</h2>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">{step.description}</p>
+        {'hook' in step && step.hook && (
+          <div className="mt-5 border-y py-4">
+            <div className="grid grid-cols-[28px_1fr] gap-x-3 gap-y-3 text-xs">
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground text-background">1</span><span className="self-center">{language === 'zh-CN' ? '打开 Codex 的任一任务' : 'Open any Codex task'}</span>
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground text-background">2</span><code className="self-center border bg-muted px-2 py-1 font-mono">/hooks</code>
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground text-background">3</span><span className="self-center">{language === 'zh-CN' ? '确认处理器已启用' : 'Confirm the handler is enabled'}</span>
+            </div>
+            <button type="button" className="mt-4 inline-flex min-h-10 items-center gap-2 border px-3 text-xs font-semibold hover:bg-muted" onClick={() => {
+              void navigator.clipboard.writeText('/hooks').then(() => {
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1_500);
+              });
+            }}><Copy className="h-3.5 w-3.5" />{copied ? labels.copied : labels.copyHook}</button>
+          </div>
+        )}
         {'consent' in step && step.consent && (
           <label className="mt-5 flex items-center justify-between gap-5 border-y py-4">
             <span className="text-sm font-medium">{language === 'zh-CN' ? '允许公开实践研究' : 'Allow public practice research'}</span>

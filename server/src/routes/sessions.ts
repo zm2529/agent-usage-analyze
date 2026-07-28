@@ -15,7 +15,7 @@ const app = new Hono();
 
 app.get('/', (c) => {
   const db = getDb();
-  const { projectId, sourceTool, limit, offset, q, from, to } = c.req.query();
+  const { projectId, sourceTool, limit, offset, q, from, to, analysisStatus } = c.req.query();
 
   // Validate from/to are ISO 8601 date strings before passing to SQLite comparisons.
   // Invalid date strings in SQLite produce silent wrong results rather than errors.
@@ -50,14 +50,17 @@ app.get('/', (c) => {
     conditions.push('started_at <= ?');
     params.push(to);
   }
+  if (analysisStatus === 'analyzed') {
+    conditions.push('EXISTS (SELECT 1 FROM insights insight WHERE insight.session_id = sessions.id)');
+  } else if (analysisStatus === 'unanalyzed') {
+    conditions.push('NOT EXISTS (SELECT 1 FROM insights insight WHERE insight.session_id = sessions.id)');
+  }
   conditions.push('deleted_at IS NULL');
-  conditions.push(`EXISTS (SELECT 1 FROM messages message
-    WHERE message.session_id = sessions.id AND message.type = 'user')`);
-  conditions.push(`EXISTS (SELECT 1 FROM messages message
-    WHERE message.session_id = sessions.id AND message.type = 'assistant')`);
   const where = `WHERE ${conditions.join(' AND ')}`;
-  const sessions = db.prepare(`
-    SELECT id, project_id, project_name, project_path, git_remote_url,
+  const pageLimit = Math.min(parseIntParam(limit, 50), 500);
+  const rows = db.prepare(`
+    WITH candidates AS MATERIALIZED (
+      SELECT id, project_id, project_name, project_path, git_remote_url,
            summary, custom_title, generated_title, title_source, session_character,
            started_at, ended_at, message_count, user_message_count,
            assistant_message_count, tool_call_count, git_branch,
@@ -66,13 +69,23 @@ app.get('/', (c) => {
            cache_creation_tokens, cache_read_tokens, estimated_cost_usd,
            models_used, primary_model, usage_source,
            compact_count, auto_compact_count, slash_commands
-    FROM sessions
-    ${where}
+      FROM sessions
+      ${where}
+      ORDER BY ended_at DESC, started_at DESC
+      LIMIT ? OFFSET ?
+    )
+    SELECT candidates.*,
+      (SELECT COUNT(*) FROM insights insight
+        WHERE insight.session_id = candidates.id) AS insight_count
+    FROM candidates
+    WHERE EXISTS (SELECT 1 FROM messages message
+      WHERE message.session_id = candidates.id AND message.type = 'user')
+      AND EXISTS (SELECT 1 FROM messages message
+        WHERE message.session_id = candidates.id AND message.type = 'assistant')
     ORDER BY ended_at DESC, started_at DESC
-    LIMIT ? OFFSET ?
-  `).all(...params, parseIntParam(limit, 50), parseIntParam(offset, 0));
-
-  return c.json({ sessions });
+  `).all(...params, pageLimit + 10, parseIntParam(offset, 0));
+  const hasMore = rows.length > pageLimit;
+  return c.json({ sessions: hasMore ? rows.slice(0, pageLimit) : rows, hasMore });
 });
 
 // GET /api/sessions/deleted/count — count of soft-deleted sessions for a project

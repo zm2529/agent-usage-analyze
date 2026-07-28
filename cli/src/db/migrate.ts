@@ -42,6 +42,9 @@ export interface MigrationResult {
  * Version 28: Add event-time hourly Token usage projection
  * Version 29: Add versioned practice research and LLM-led improvement tracking
  * Version 30: Decouple durable improvement observations from the rebuildable task projection
+ * Version 31: Cache LLM translations of generated user-visible content
+ * Version 32: Index canonical event type/time reads used by the dashboard
+ * Version 33: Index cross-session message timeline reads used by dashboard analytics
  */
 export function runMigrations(db: Database.Database): MigrationResult {
   // Create schema_version table first if it doesn't exist.
@@ -181,6 +184,15 @@ export function runMigrations(db: Database.Database): MigrationResult {
 
   if (currentVersion < 30) {
     applyV30(db);
+  }
+  if (currentVersion < 31) {
+    applyV31(db);
+  }
+  if (currentVersion < 32) {
+    applyV32(db);
+  }
+  if (currentVersion < 33) {
+    applyV33(db);
   }
 
   return { v6Applied, v7Applied, v8Applied, v9Applied };
@@ -1218,5 +1230,43 @@ function applyV30(db: Database.Database): void {
         ON improvement_observations(plan_id, created_at DESC);
     `);
     db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(30);
+  })();
+}
+
+function applyV31(db: Database.Database): void {
+  db.transaction(() => {
+    const runColumns = new Set((db.prepare('PRAGMA table_info(analysis_runs)').all() as Array<{ name: string }>).map((column) => column.name));
+    if (!runColumns.has('cache_creation_tokens')) {
+      db.exec(`ALTER TABLE analysis_runs ADD COLUMN cache_creation_tokens INTEGER
+        CHECK (cache_creation_tokens IS NULL OR cache_creation_tokens >= 0)`);
+    }
+    if (!runColumns.has('cache_read_tokens')) {
+      db.exec(`ALTER TABLE analysis_runs ADD COLUMN cache_read_tokens INTEGER
+        CHECK (cache_read_tokens IS NULL OR cache_read_tokens >= 0)`);
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS translation_cache (
+      content_hash    TEXT NOT NULL,
+      target_language TEXT NOT NULL CHECK (target_language IN ('en', 'zh-CN')),
+      translated_json TEXT NOT NULL CHECK (json_valid(translated_json)),
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (content_hash, target_language)
+    )`);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(31);
+  })();
+}
+
+function applyV32(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_canonical_events_kind_time
+      ON canonical_events(kind, occurred_at, sequence)`);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(32);
+  })();
+}
+
+function applyV33(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_global_timestamp
+      ON messages(timestamp, session_id)`);
+    db.prepare('INSERT OR IGNORE INTO schema_version (version) VALUES (?)').run(33);
   })();
 }

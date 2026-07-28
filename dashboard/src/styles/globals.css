@@ -76,6 +76,14 @@
   }
 }
 
+.recharts-default-tooltip,
+.recharts-tooltip-label,
+.recharts-tooltip-item,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value {
+  color: hsl(var(--foreground)) !important;
+}
+
 @layer base {
   * {
     border-color: hsl(var(--border));
@@ -140,7 +148,7 @@
   .vibe-onboarding { position: fixed; inset: 0; z-index: 70; pointer-events: auto; }
   .vibe-onboarding-scrim { position: absolute; inset: 0; background: rgb(8 12 12 / .72); backdrop-filter: blur(2px); }
   .vibe-onboarding-spotlight { position: fixed; z-index: 71; border: 1px solid color-mix(in srgb, #70b5bb 70%, white); background: transparent; box-shadow: 0 0 0 9999px rgb(8 12 12 / .72), 0 0 0 5px rgb(40 102 110 / .18); pointer-events: none; transition: inset .22s ease, width .22s ease, height .22s ease; }
-  .vibe-onboarding-panel { position: fixed; right: 24px; bottom: 24px; z-index: 72; width: min(420px, calc(100vw - 32px)); border: 1px solid color-mix(in srgb, #28666e 38%, hsl(var(--border))); background: hsl(var(--card)); padding: 20px; color: hsl(var(--foreground)); box-shadow: 0 24px 70px rgb(0 0 0 / .35); pointer-events: auto; outline: none; }
+  .vibe-onboarding-panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 72; width: min(500px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; border: 1px solid color-mix(in srgb, #28666e 38%, hsl(var(--border))); background: hsl(var(--card)); padding: 24px; color: hsl(var(--foreground)); box-shadow: 0 24px 70px rgb(0 0 0 / .35); pointer-events: auto; outline: none; }
   .vibe-mobile-nav { position: fixed; inset: auto 0 0; z-index: 50; height: 68px; align-items: stretch; border-top: 1px solid hsl(var(--border)); background: hsl(var(--background)); }
   .vibe-mobile-nav a { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: hsl(var(--muted-foreground)); font-size: 10px; }
   .vibe-mobile-nav a.is-active { color: #4f775f; }
@@ -173,7 +181,7 @@
     .vibe-global-report + main { padding-top: 100px; }
   }
   @media (max-width: 767px) {
-    .vibe-onboarding-panel { right: 16px; bottom: 74px; }
+    .vibe-onboarding-panel { width: calc(100vw - 24px); max-height: calc(100vh - 24px); padding: 20px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .vibe-onboarding-spotlight, .vibe-stage-progress > span { transition: none; }

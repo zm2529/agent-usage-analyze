@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../migrate.js';
+import { CURRENT_SCHEMA_VERSION } from '../schema.js';
 
 // ──────────────────────────────────────────────────────
 // Migration tests focusing on behavior NOT already covered
@@ -34,7 +35,9 @@ describe('runMigrations — idempotency', () => {
       .all() as Array<{ version: number }>;
 
     // One row per version, no duplicates
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
+    expect(rows.map(r => r.version)).toEqual(
+      Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => index + 1),
+    );
     db.close();
   });
 });
@@ -219,7 +222,8 @@ describe('runMigrations — V25 ingestion progress', () => {
     runMigrations(db);
     const columns = db.prepare('PRAGMA table_info(ingestion_runs)').all() as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toContain('processed_source_count');
-    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 30 });
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get())
+      .toEqual({ version: CURRENT_SCHEMA_VERSION });
     db.close();
   });
 });
@@ -230,7 +234,8 @@ describe('runMigrations — V26 transparent analysis runs', () => {
     runMigrations(db);
     expect(db.prepare(`SELECT name FROM sqlite_master
       WHERE type = 'table' AND name = 'analysis_runs'`).get()).toEqual({ name: 'analysis_runs' });
-    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()).toEqual({ version: 30 });
+    expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get())
+      .toEqual({ version: CURRENT_SCHEMA_VERSION });
     db.close();
   });
 });
@@ -371,7 +376,7 @@ describe('runMigrations — V27 settled frontier repair', () => {
     const db = freshDb();
     runMigrations(db);
     db.exec(`DROP TABLE analysis_frontier_events;
-      DELETE FROM schema_version WHERE version IN (27, 28, 29, 30);`);
+      DELETE FROM schema_version WHERE version >= 27;`);
 
     runMigrations(db);
 
@@ -379,7 +384,7 @@ describe('runMigrations — V27 settled frontier repair', () => {
       WHERE type = 'table' AND name = 'analysis_frontier_events'`).get())
       .toEqual({ name: 'analysis_frontier_events' });
     expect(db.prepare('SELECT MAX(version) AS version FROM schema_version').get())
-      .toEqual({ version: 30 });
+      .toEqual({ version: CURRENT_SCHEMA_VERSION });
     db.close();
   });
 });
@@ -403,6 +408,48 @@ describe('runMigrations — V30 durable improvement task references', () => {
     const foreignKeys = db.prepare(`PRAGMA foreign_key_list(improvement_observations)`)
       .all() as Array<{ table: string }>;
     expect(foreignKeys.map((foreignKey) => foreignKey.table)).not.toContain('work_tasks');
+    db.close();
+  });
+});
+
+describe('runMigrations — V31 generated-content translations', () => {
+  it('creates a durable per-language translation cache', () => {
+    const db = freshDb();
+    runMigrations(db);
+    db.prepare(`INSERT INTO translation_cache
+      (content_hash, target_language, translated_json) VALUES ('abc', 'en', '{"title":"Hello"}')`).run();
+    expect(db.prepare(`SELECT target_language AS language, translated_json AS content
+      FROM translation_cache WHERE content_hash = 'abc'`).get()).toEqual({
+      language: 'en',
+      content: '{"title":"Hello"}',
+    });
+    const runColumns = (db.prepare('PRAGMA table_info(analysis_runs)').all() as Array<{ name: string }>).map((column) => column.name);
+    expect(runColumns).toEqual(expect.arrayContaining(['cache_creation_tokens', 'cache_read_tokens']));
+    db.close();
+  });
+});
+
+describe('runMigrations — V32 dashboard event reads', () => {
+  it('indexes canonical events by kind and occurrence time', () => {
+    const db = freshDb();
+    runMigrations(db);
+    const indexes = db.prepare(`PRAGMA index_list(canonical_events)`)
+      .all() as Array<{ name: string }>;
+    expect(indexes.map((index) => index.name)).toContain('idx_canonical_events_kind_time');
+    const columns = db.prepare(`PRAGMA index_info(idx_canonical_events_kind_time)`)
+      .all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(['kind', 'occurred_at', 'sequence']);
+    db.close();
+  });
+});
+
+describe('runMigrations — V33 dashboard message reads', () => {
+  it('indexes messages by global timestamp before session', () => {
+    const db = freshDb();
+    runMigrations(db);
+    const columns = db.prepare(`PRAGMA index_info(idx_messages_global_timestamp)`)
+      .all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(['timestamp', 'session_id']);
     db.close();
   });
 });

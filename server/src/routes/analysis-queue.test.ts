@@ -91,4 +91,20 @@ describe('GET /api/analysis/queue', () => {
     expect(await response.json()).toEqual({ accepted: true, retrying: 1 });
     expect(spawnSettledAnalysisWorker).toHaveBeenCalledOnce();
   });
+
+  it('retries a failed oversized automatic analysis but leaves non-actionable failures alone', async () => {
+    const insert = testDb.prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, generation, error_message)
+      VALUES ('codex-cli', ?, 'failed', 'auto', 1, ?)`);
+    insert.run('oversized', 'Automatic analysis rejected: input-evidence-too-large');
+    insert.run('empty', 'Analysis unavailable: no genuine user messages were imported for this session.');
+
+    const response = await createApp().request('/api/analysis/queue/retry', { method: 'POST' });
+
+    expect(await response.json()).toEqual({ accepted: true, retrying: 1 });
+    expect(testDb.prepare(`SELECT status FROM analysis_queue WHERE session_id = 'oversized'`)
+      .get()).toEqual({ status: 'settling' });
+    expect(testDb.prepare(`SELECT status FROM analysis_queue WHERE session_id = 'empty'`)
+      .get()).toEqual({ status: 'failed' });
+  });
 });

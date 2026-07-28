@@ -119,7 +119,7 @@ describe('Sessions routes', () => {
       testDb.prepare(`DELETE FROM messages WHERE session_id = 'sess-empty'`).run();
 
       const res = await createApp().request('/api/sessions');
-      expect(await res.json()).toEqual({ sessions: [] });
+      expect(await res.json()).toEqual({ sessions: [], hasMore: false });
       expect((await createApp().request('/api/sessions/sess-empty')).status).toBe(404);
     });
 

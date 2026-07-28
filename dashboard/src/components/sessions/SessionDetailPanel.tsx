@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useState, useMemo, useEffect, useCallback } from 'react';
 import { useSession, useSessionMutation, useDeleteSession } from '@/hooks/useSessions';
 import { useInsights } from '@/hooks/useInsights';
 import { useMessages } from '@/hooks/useMessages';
@@ -28,7 +28,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { PromptQualityCard } from '@/components/insights/PromptQualityCard';
 import { AnalyzeDropdown } from '@/components/analysis/AnalyzeDropdown';
 import { AnalyzeButton } from '@/components/analysis/AnalyzeButton';
 import { useAnalysis } from '@/components/analysis/AnalysisContext';
@@ -41,9 +40,6 @@ import { PromptQualityAnalyzeButton } from '@/components/sessions/PromptQualityA
 import { RenameSessionDialog } from '@/components/sessions/RenameSessionDialog';
 import { VitalsStrip } from '@/components/sessions/VitalsStrip';
 import { AnalysisCostLine } from '@/components/sessions/AnalysisCostLine';
-import { AnalysisRunTrace } from '@/components/analysis/AnalysisRunTrace';
-import { ChatConversation } from '@/components/chat/conversation/ChatConversation';
-import { ConversationSearch } from '@/components/chat/conversation/ConversationSearch';
 import {
   AlertTriangle,
   Clock,
@@ -62,6 +58,16 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLanguage } from '@/i18n/LanguageProvider';
+import { useLocalizedGeneratedContent } from '@/hooks/useLocalizedGeneratedContent';
+
+const PromptQualityCard = lazy(() => import('@/components/insights/PromptQualityCard')
+  .then((module) => ({ default: module.PromptQualityCard })));
+const AnalysisRunTrace = lazy(() => import('@/components/analysis/AnalysisRunTrace')
+  .then((module) => ({ default: module.AnalysisRunTrace })));
+const ChatConversation = lazy(() => import('@/components/chat/conversation/ChatConversation')
+  .then((module) => ({ default: module.ChatConversation })));
+const ConversationSearch = lazy(() => import('@/components/chat/conversation/ConversationSearch')
+  .then((module) => ({ default: module.ConversationSearch })));
 
 interface SessionDetailPanelProps {
   sessionId: string;
@@ -69,10 +75,14 @@ interface SessionDetailPanelProps {
 }
 
 export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelProps) {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const chinese = language === 'zh-CN';
   const { data: session, isLoading: loading, error } = useSession(sessionId);
   const { data: insights = [] } = useInsights({ sessionId });
-  const messagesQuery = useMessages(sessionId);
+  const localizedInsights = useLocalizedGeneratedContent(insights);
+  const displayInsights = localizedInsights.data ?? insights;
+  const [activeTab, setActiveTab] = useState('insights');
+  const messagesQuery = useMessages(sessionId, activeTab === 'conversation');
   const sessionMutation = useSessionMutation();
   const deleteMutation = useDeleteSession();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -179,16 +189,16 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
     );
   }
 
-  const nonPromptInsights = insights.filter(
+  const nonPromptInsights = displayInsights.filter(
     (i) => i.type !== 'prompt_quality' && i.type !== 'summary'
   );
-  const hasPromptQuality = insights.some((i) => i.type === 'prompt_quality');
-  const promptQualityInsight = insights.find((i) => i.type === 'prompt_quality') ?? null;
+  const hasPromptQuality = displayInsights.some((i) => i.type === 'prompt_quality');
+  const promptQualityInsight = displayInsights.find((i) => i.type === 'prompt_quality') ?? null;
   const promptQualityScore = promptQualityInsight
     ? extractPQScore(parseJsonField<Record<string, unknown>>(promptQualityInsight.metadata, {}))
     : null;
 
-  const summaryInsight = insights.find((i) => i.type === 'summary');
+  const summaryInsight = displayInsights.find((i) => i.type === 'summary');
   const summaryMetadata = summaryInsight
     ? parseJsonField<InsightMetadata>(summaryInsight.metadata, {})
     : {};
@@ -238,7 +248,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
       const response = await fetchMessages(currentSession.id, {
         limit: Math.max(currentSession.message_count + 10, 100),
       });
-      exportSession(currentSession, insights, summaryText, response.messages, format);
+      exportSession(currentSession, displayInsights, summaryText, response.messages, format);
       toast.success(`${t('sessions.exported', 'Exported as')} ${format === 'plain' ? 'Markdown' : format}`);
     } catch (exportError) {
       toast.error(exportError instanceof Error
@@ -254,10 +264,13 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
       {/* Session dossier header */}
       <div className="shrink-0 border-b border-foreground px-6 py-6">
         <p className="vibe-mono mb-4 flex items-center gap-3 text-[10px] tracking-[.15em] text-muted-foreground">
-          <span className="w-6 border-t-2 border-[#365D8D]" />SESSION DOSSIER / 会话档案
+          <span className="w-6 border-t-2 border-[#365D8D]" />{chinese ? 'SESSION DOSSIER / 会话档案' : 'SESSION DOSSIER'}
         </p>
         <div className="flex items-center gap-2 flex-wrap">
           <h1 className="vibe-serif max-w-3xl text-2xl leading-tight">{getSessionTitle(session)}</h1>
+          {localizedInsights.isFetching && <span className="text-[10px] text-muted-foreground">
+            {chinese ? '正在翻译…' : 'Translating…'}
+          </span>}
           {sessionOutcome && OUTCOME_DOT[sessionOutcome] && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -302,7 +315,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
               {exporting
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 : <Download className="h-3.5 w-3.5" />}
-              {exporting ? '正在导出' : '导出 Markdown'}
+              {exporting ? (chinese ? '正在导出' : 'Exporting') : (chinese ? '导出 Markdown' : 'Export Markdown')}
             </Button>
             <AlertDialog>
               <Tooltip>
@@ -393,14 +406,14 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
       </div>
 
       {/* Six-part audit dossier: interpretation stays separate from source facts. */}
-      <Tabs defaultValue="insights" className="flex flex-1 flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
         <TabsList variant="line" className="!flex !h-14 w-full shrink-0 justify-start gap-0 overflow-x-auto rounded-none border-b bg-background p-0">
           <TabsTrigger value="insights" className="h-full min-w-[108px] flex-none rounded-none border-r px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
-            洞察{nonPromptInsights.length > 0 && ` (${nonPromptInsights.length})`}
+            {chinese ? '洞察' : 'Insights'}{nonPromptInsights.length > 0 && ` (${nonPromptInsights.length})`}
           </TabsTrigger>
           <TabsTrigger value="prompt-quality" className="h-full min-w-[142px] flex-none rounded-none border-r px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
             <span className="flex items-center gap-1.5" aria-label={promptQualityScore != null ? `${t('sessions.promptQuality', 'Prompt Quality')} ${promptQualityScore}/100` : t('sessions.promptQuality', 'Prompt Quality')}>
-              提示词质量
+              {chinese ? '提示词质量' : 'Prompt quality'}
               {promptQualityScore != null && (
                 <span className={cn(
                   'inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none',
@@ -412,16 +425,16 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
             </span>
           </TabsTrigger>
           <TabsTrigger value="conversation" className="h-full min-w-[108px] flex-none rounded-none border-r px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
-            对话 ({session.message_count})
+            {chinese ? '对话' : 'Conversation'} ({session.message_count})
           </TabsTrigger>
           <TabsTrigger value="skills" className="h-full min-w-[108px] flex-none rounded-none border-r px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
             Skill ({skillCount})
           </TabsTrigger>
           <TabsTrigger value="metadata" className="h-full min-w-[108px] flex-none rounded-none border-r px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
-            元数据
+            {chinese ? '元数据' : 'Metadata'}
           </TabsTrigger>
           <TabsTrigger value="evidence" className="h-full min-w-[108px] flex-none rounded-none px-3 py-3 text-[11px] tracking-wide data-[state=active]:bg-primary/[.04]">
-            证据
+            {chinese ? '证据' : 'Evidence'}
           </TabsTrigger>
         </TabsList>
 
@@ -486,7 +499,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
                 <FileText className="h-4 w-4 text-purple-500 shrink-0" />
                 <h3 className="text-sm font-medium">{t('activity.insight.summary', 'Summary')}</h3>
               </div>
-              <p className="mb-2 text-xs text-muted-foreground">这次会话完成了什么；只概括任务结果，不把它当成跨项目规则。</p>
+              <p className="mb-2 text-xs text-muted-foreground">{chinese ? '这次会话完成了什么；只概括任务结果，不把它当成跨项目规则。' : 'What this session completed; this summarizes the task outcome without treating it as a cross-project rule.'}</p>
               <div className="border bg-muted/20 px-4 py-3">
                 <p className="font-medium text-sm mb-1.5">{summaryTitle}</p>
                 {summaryBullets.length > 0 ? (
@@ -527,7 +540,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
           )}
 
           {/* Learnings & Decisions */}
-          {insights.filter((i) => i.type !== 'summary' && i.type !== 'prompt_quality').length === 0 ? (
+          {displayInsights.filter((i) => i.type !== 'summary' && i.type !== 'prompt_quality').length === 0 ? (
             <div className="rounded-lg border border-dashed">
               <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
                 <BarChart2 className="h-8 w-8 text-muted-foreground" />
@@ -547,7 +560,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
           ) : (
             <>
               {(() => {
-                const learningInsights = insights.filter(
+                const learningInsights = displayInsights.filter(
                   (i) => i.type === 'learning' || i.type === 'technique'
                 );
                 if (learningInsights.length === 0) return null;
@@ -573,7 +586,7 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
               })()}
 
               {(() => {
-                const decisionInsights = insights.filter((i) => i.type === 'decision');
+                const decisionInsights = displayInsights.filter((i) => i.type === 'decision');
                 if (decisionInsights.length === 0) return null;
                 return (
                   <div>
@@ -602,7 +615,9 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
         {/* Tab 2: Prompt Quality */}
         <TabsContent value="prompt-quality" className="flex-1 overflow-y-auto mt-0 p-5 space-y-4">
           {promptQualityInsight ? (
-            <PromptQualityCard insight={promptQualityInsight} />
+            <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+              <PromptQualityCard insight={promptQualityInsight} />
+            </Suspense>
           ) : (
             <div className="rounded-lg border border-dashed">
               <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
@@ -617,11 +632,12 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
               </div>
             </div>
           )}
-          <AnalysisRunTrace
-            sessionId={session.id}
-            hasCurrentConversationEvidence={messages.some((message) =>
-              message.type === 'user' && message.content.trim().length > 0)}
-          />
+          <Suspense fallback={<Skeleton className="h-28 w-full" />}>
+            <AnalysisRunTrace
+              sessionId={session.id}
+              hasCurrentConversationEvidence={session.user_message_count > 0}
+            />
+          </Suspense>
         </TabsContent>
 
         {/* Tab 3: Conversation */}
@@ -629,93 +645,96 @@ export function SessionDetailPanel({ sessionId, onDelete }: SessionDetailPanelPr
           value="conversation"
           className="flex flex-col flex-1 overflow-hidden mt-0 bg-muted/40 dark:bg-muted/20"
         >
-          <ConversationSearch
-            messages={messages}
-            onHighlightMessage={setSearchHighlightId}
-            onSearchQueryChange={setSearchQuery}
-            fetchAllMessages={fetchAllMessages}
-            isLoadingAll={loadingAllMessages}
-          />
-          <div className="flex-1 overflow-y-auto">
-            <ChatConversation
+          <Suspense fallback={<div className="grid flex-1 place-items-center text-xs text-muted-foreground">{chinese ? '正在读取对话…' : 'Loading conversation…'}</div>}>
+            <ConversationSearch
               messages={messages}
-              loading={loadingMessages}
-              loadingMore={loadingMore}
-              hasMore={hasMore}
-              onLoadMore={() => messagesQuery.fetchNextPage()}
-              sourceTool={session.source_tool ?? undefined}
-              highlightMessageId={searchHighlightId}
-              searchQuery={searchQuery}
+              onHighlightMessage={setSearchHighlightId}
+              onSearchQueryChange={setSearchQuery}
+              fetchAllMessages={fetchAllMessages}
+              isLoadingAll={loadingAllMessages}
             />
-          </div>
+            <div className="flex-1 overflow-y-auto">
+              <ChatConversation
+                messages={messages}
+                loading={loadingMessages}
+                loadingMore={loadingMore}
+                hasMore={hasMore}
+                onLoadMore={() => messagesQuery.fetchNextPage()}
+                sourceTool={session.source_tool ?? undefined}
+                highlightMessageId={searchHighlightId}
+                searchQuery={searchQuery}
+              />
+            </div>
+          </Suspense>
         </TabsContent>
 
         {/* Tab 4: Skill evaluation */}
         <TabsContent value="skills" className="mt-0 flex-1 overflow-y-auto p-6">
           <div className="border-b border-foreground pb-4">
             <p className="vibe-mono text-[10px] tracking-[.12em] text-muted-foreground">SESSION-LOCAL SKILL REVIEW</p>
-            <h2 className="vibe-serif mt-2 text-2xl">本次会话使用的 Skill</h2>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">“用户指定”来自用户消息中的 $Skill；“Agent 自动启用”来自 Agent 读取 Skill 指令的记录。模型会结合本次任务分别评价两种来源是否合适，评价不计入调用次数。</p>
+            <h2 className="vibe-serif mt-2 text-2xl">{chinese ? '本次会话使用的 Skill' : 'Skills used in this session'}</h2>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{chinese ? '“用户指定”来自用户消息中的 $Skill；“Agent 自动启用”来自 Agent 读取 Skill 指令的记录。模型会结合本次任务分别评价两种来源是否合适，评价不计入调用次数。' : '“User requested” comes from $Skill references in user messages; “Agent enabled” comes from recorded Skill instruction reads. The model assesses each source in the context of this task, separately from invocation counts.'}</p>
           </div>
           {observedSkillUsage.length > 0 && <div className="border-t">
             {observedSkillUsage.map((item) => <article key={item.name} className="grid gap-3 border-b py-5 sm:grid-cols-[150px_minmax(0,1fr)]">
               <strong className="vibe-mono text-xs">${item.name}</strong>
               <div className="flex flex-wrap gap-2 text-xs">
-                {item.userInvocations > 0 && <Badge variant="outline">用户指定 · {item.userInvocations} 次</Badge>}
-                {item.automaticInvocations > 0 && <Badge variant="secondary">Agent 自动启用 · {item.automaticInvocations} 次</Badge>}
-                <span className="text-muted-foreground">Agent 读取指令 {item.agentInvocations} 次</span>
-                {!assessedSkillNames.has(item.name.toLowerCase()) && <span className="text-[#BF7A45]">当前分析尚未评价；重新分析后补充</span>}
+                {item.userInvocations > 0 && <Badge variant="outline">{chinese ? '用户指定' : 'User requested'} · {item.userInvocations}</Badge>}
+                {item.automaticInvocations > 0 && <Badge variant="secondary">{chinese ? 'Agent 自动启用' : 'Agent enabled'} · {item.automaticInvocations}</Badge>}
+                <span className="text-muted-foreground">{chinese ? `Agent 读取指令 ${item.agentInvocations} 次` : `Agent read instructions ${item.agentInvocations} times`}</span>
+                {!assessedSkillNames.has(item.name.toLowerCase()) && <span className="text-[#BF7A45]">{chinese ? '当前分析尚未评价；重新分析后补充' : 'Not assessed in the current analysis; re-analyze to add it'}</span>}
               </div>
             </article>)}
           </div>}
           {skillUsage.length > 0 && <div className="mt-8">
-            <h3 className="border-b pb-3 text-sm font-semibold">模型对使用方式的评价</h3>
+            <h3 className="border-b pb-3 text-sm font-semibold">{chinese ? '模型对使用方式的评价' : 'Model assessment of usage'}</h3>
             {skillUsage.map((item) => <article key={item.name} className="grid gap-3 border-b py-5 sm:grid-cols-[120px_minmax(0,1fr)]">
-              <div><strong className="vibe-mono text-xs">${item.name}</strong><Badge variant="outline" className="mt-2 block w-fit text-[10px]">{item.fit === 'appropriate' ? '匹配' : item.fit === 'mixed' ? '利弊并存' : '证据不足'}</Badge></div>
-              <div><p className="text-xs leading-5 text-muted-foreground">{item.observation}</p>{item.issue && <p className="mt-2 text-xs"><strong>发现的问题：</strong>{item.issue}</p>}<p className="mt-2 text-xs text-[#28666E]"><strong>建议：</strong>{item.recommendation}</p>{item.evidence.length > 0 && <details className="mt-3 text-[10px] text-muted-foreground"><summary className="cursor-pointer">会话内证据 · {item.evidence.length} 项</summary><ul className="mt-2 space-y-1">{item.evidence.map((itemEvidence, index) => <li key={index}>{itemEvidence}</li>)}</ul></details>}</div>
+              <div><strong className="vibe-mono text-xs">${item.name}</strong><Badge variant="outline" className="mt-2 block w-fit text-[10px]">{item.fit === 'appropriate' ? (chinese ? '匹配' : 'Appropriate') : item.fit === 'mixed' ? (chinese ? '利弊并存' : 'Mixed') : (chinese ? '证据不足' : 'Insufficient evidence')}</Badge></div>
+              <div><p className="text-xs leading-5 text-muted-foreground">{item.observation}</p>{item.issue && <p className="mt-2 text-xs"><strong>{chinese ? '发现的问题：' : 'Issue: '}</strong>{item.issue}</p>}<p className="mt-2 text-xs text-[#28666E]"><strong>{chinese ? '建议：' : 'Recommendation: '}</strong>{item.recommendation}</p>{item.evidence.length > 0 && <details className="mt-3 text-[10px] text-muted-foreground"><summary className="cursor-pointer">{chinese ? `会话内证据 · ${item.evidence.length} 项` : `Session evidence · ${item.evidence.length}`}</summary><ul className="mt-2 space-y-1">{item.evidence.map((itemEvidence, index) => <li key={index}>{itemEvidence}</li>)}</ul></details>}</div>
             </article>)}
           </div>}
-          {observedSkillUsage.length === 0 && skillUsage.length === 0 && <div className="border-b py-14 text-center"><p className="vibe-serif text-xl">没有识别到 Skill 使用记录</p><p className="mt-2 text-xs text-muted-foreground">当前会话中既没有用户指定记录，也没有 Agent 读取 Skill 指令的记录。</p></div>}
+          {observedSkillUsage.length === 0 && skillUsage.length === 0 && <div className="border-b py-14 text-center"><p className="vibe-serif text-xl">{chinese ? '没有识别到 Skill 使用记录' : 'No Skill usage was identified'}</p><p className="mt-2 text-xs text-muted-foreground">{chinese ? '当前会话中既没有用户指定记录，也没有 Agent 读取 Skill 指令的记录。' : 'This session contains neither a user-requested Skill nor a recorded Agent instruction read.'}</p></div>}
         </TabsContent>
 
         {/* Tab 5: Deterministic metadata */}
         <TabsContent value="metadata" className="mt-0 flex-1 overflow-y-auto p-6">
-          <div className="border-b border-foreground pb-4"><p className="vibe-mono text-[10px] tracking-[.12em] text-muted-foreground">LOCAL SESSION METADATA</p><h2 className="vibe-serif mt-2 text-2xl">确定性元数据</h2><p className="mt-2 text-xs text-muted-foreground">以下字段来自本地会话记录，不是 LLM 推断。</p></div>
+          <div className="border-b border-foreground pb-4"><p className="vibe-mono text-[10px] tracking-[.12em] text-muted-foreground">LOCAL SESSION METADATA</p><h2 className="vibe-serif mt-2 text-2xl">{chinese ? '确定性元数据' : 'Deterministic metadata'}</h2><p className="mt-2 text-xs text-muted-foreground">{chinese ? '以下字段来自本地会话记录，不是 LLM 推断。' : 'These fields come from local session records, not LLM inference.'}</p></div>
           <dl className="grid grid-cols-[130px_minmax(0,1fr)] border-t text-xs">
             {[
-              ['会话 ID', session.id],
-              ['项目', session.project_name],
-              ['项目路径', session.project_path || '未记录'],
-              ['来源', session.source_tool || '未记录'],
-              ['分支', session.git_branch || '未记录'],
-              ['开始时间', startedAt.toLocaleString()],
-              ['结束时间', endedAt.toLocaleString()],
-              ['消息', `${session.user_message_count} user · ${session.assistant_message_count} assistant`],
-              ['工具调用', String(session.tool_call_count)],
-              ['上下文压缩', `${session.compact_count} 次 · 自动 ${session.auto_compact_count} 次`],
-              ['主模型', session.primary_model || '未记录'],
-              ['最近同步', new Date(session.synced_at).toLocaleString()],
+              [chinese ? '会话 ID' : 'Session ID', session.id],
+              [chinese ? '项目' : 'Project', session.project_name],
+              [chinese ? '项目路径' : 'Project path', session.project_path || (chinese ? '未记录' : 'Not recorded')],
+              [chinese ? '来源' : 'Source', session.source_tool || (chinese ? '未记录' : 'Not recorded')],
+              [chinese ? '分支' : 'Branch', session.git_branch || (chinese ? '未记录' : 'Not recorded')],
+              [chinese ? '开始时间' : 'Started', startedAt.toLocaleString()],
+              [chinese ? '结束时间' : 'Ended', endedAt.toLocaleString()],
+              [chinese ? '消息' : 'Messages', `${session.user_message_count} user · ${session.assistant_message_count} assistant`],
+              [chinese ? '工具调用' : 'Tool calls', String(session.tool_call_count)],
+              [chinese ? '上下文压缩' : 'Compactions', chinese ? `${session.compact_count} 次 · 自动 ${session.auto_compact_count} 次` : `${session.compact_count} · ${session.auto_compact_count} automatic`],
+              [chinese ? '主模型' : 'Primary model', session.primary_model || (chinese ? '未记录' : 'Not recorded')],
+              [chinese ? '最近同步' : 'Last synced', new Date(session.synced_at).toLocaleString()],
             ].map(([label, value]) => <div key={label} className="contents"><dt className="border-b border-r p-3 text-muted-foreground">{label}</dt><dd className="min-w-0 break-all border-b p-3 vibe-mono">{value}</dd></div>)}
           </dl>
         </TabsContent>
 
         {/* Tab 6: Provenance and analysis traces */}
         <TabsContent value="evidence" className="mt-0 flex-1 space-y-6 overflow-y-auto p-6">
-          <div className="border-b border-foreground pb-4"><p className="vibe-mono text-[10px] tracking-[.12em] text-muted-foreground">PROVENANCE / ANALYSIS TRACE</p><h2 className="vibe-serif mt-2 text-2xl">证据链</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">把本地事实、模型输入输出和未记录边界分开。出现“未记录”不等同于失败。</p></div>
+          <div className="border-b border-foreground pb-4"><p className="vibe-mono text-[10px] tracking-[.12em] text-muted-foreground">PROVENANCE / ANALYSIS TRACE</p><h2 className="vibe-serif mt-2 text-2xl">{chinese ? '证据链' : 'Evidence chain'}</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">{chinese ? '把本地事实、模型输入输出和未记录边界分开。' : 'Separates local facts, model input and output, and evidence that has not been recorded.'}</p></div>
           <ol className="border-t">
             {[
-              ['01 · 会话发现', `${session.source_tool || '本地来源'} · ${startedAt.toLocaleString()}`],
-              ['02 · 消息与工具导入', `${session.message_count} 条消息 · ${session.tool_call_count} 次工具调用`],
-              ['03 · 会话稳定', `最近同步 ${new Date(session.synced_at).toLocaleString()}`],
-              ['04 · LLM 解读', insights.length > 0 ? `${insights.length} 条分析结果 · 可核对运行记录` : '尚无模型分析；不生成默认结论'],
-              ['05 · 外部验证与交付', '仅在结构化工具事件或已登记证据存在时显示；人工验证未登记时保持“未记录”'],
+              [chinese ? '01 · 会话发现' : '01 · Session discovered', `${session.source_tool || (chinese ? '本地来源' : 'Local source')} · ${startedAt.toLocaleString()}`],
+              [chinese ? '02 · 消息与工具导入' : '02 · Messages and tools imported', chinese ? `${session.message_count} 条消息 · ${session.tool_call_count} 次工具调用` : `${session.message_count} messages · ${session.tool_call_count} tool calls`],
+              [chinese ? '03 · 会话稳定' : '03 · Session stabilized', chinese ? `最近同步 ${new Date(session.synced_at).toLocaleString()}` : `Last synced ${new Date(session.synced_at).toLocaleString()}`],
+              [chinese ? '04 · LLM 解读' : '04 · LLM interpretation', displayInsights.length > 0 ? (chinese ? `${displayInsights.length} 条分析结果 · 可核对运行记录` : `${displayInsights.length} analysis results · run records available`) : (chinese ? '尚无模型分析' : 'No model analysis yet')],
+              [chinese ? '05 · 外部验证与交付' : '05 · External validation and delivery', chinese ? '存在已登记证据时显示' : 'Shown when registered evidence is available'],
             ].map(([title, detail]) => <li key={title} className="grid grid-cols-[150px_minmax(0,1fr)] gap-4 border-b py-4 text-xs"><strong>{title}</strong><span className="text-muted-foreground">{detail}</span></li>)}
           </ol>
-          <AnalysisRunTrace
-            sessionId={session.id}
-            hasCurrentConversationEvidence={messages.some((message) =>
-              message.type === 'user' && message.content.trim().length > 0)}
-          />
+          <Suspense fallback={<Skeleton className="h-28 w-full" />}>
+            <AnalysisRunTrace
+              sessionId={session.id}
+              hasCurrentConversationEvidence={session.user_message_count > 0}
+            />
+          </Suspense>
         </TabsContent>
       </Tabs>
 

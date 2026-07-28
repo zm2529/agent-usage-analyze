@@ -10,6 +10,9 @@ import {
   type HistoryBackfillResult,
 } from '../analysis/history-backfill.js';
 import { spawnAutomaticBehaviorReport } from '../analysis/behavior-report-scheduler.js';
+import ora from 'ora';
+import { ensureDashboardService } from '../utils/dashboard-service.js';
+import { openUrl } from '../utils/browser.js';
 
 export interface StartOptions {
   port: string;
@@ -26,6 +29,8 @@ interface StartDependencies {
   importHistory: typeof importCodexHistory;
   startBackgroundImport: typeof spawnCodexHistoryImport;
   launchDashboard: typeof dashboardCommand;
+  startDashboardService?: typeof ensureDashboardService;
+  openDashboard?: typeof openUrl;
   startHistoryAnalysis?: () => HistoryBackfillResult;
   startBehaviorReport?: () => void;
 }
@@ -37,6 +42,8 @@ const defaultDependencies: StartDependencies = {
   importHistory: importCodexHistory,
   startBackgroundImport: spawnCodexHistoryImport,
   launchDashboard: dashboardCommand,
+  startDashboardService: ensureDashboardService,
+  openDashboard: openUrl,
   startHistoryAnalysis: startAutomaticHistoryAnalysis,
   startBehaviorReport: spawnAutomaticBehaviorReport,
 };
@@ -52,6 +59,7 @@ function formatDuration(milliseconds: number): string {
 function foregroundProgressReporter(startedAt: number): (progress: IngestionProgress) => void {
   let announcedCount = false;
   let lastBucket = -1;
+  const samples: Array<{ completed: number; at: number }> = [];
   return (progress) => {
     if (progress.phase === 'discovering') {
       console.log(chalk.cyan('  → Reading the local Codex session index…'));
@@ -72,8 +80,17 @@ function foregroundProgressReporter(startedAt: number): (progress: IngestionProg
       if (!process.stdout.isTTY && completed < total && bucket === lastBucket) return;
       lastBucket = bucket;
       const elapsed = Date.now() - startedAt;
-      const remaining = completed > 0 && completed < total
-        ? (elapsed / completed) * (total - completed)
+      if (samples.at(-1)?.completed !== completed) {
+        samples.push({ completed, at: Date.now() });
+        if (samples.length > 8) samples.shift();
+      }
+      const first = samples[0];
+      const last = samples.at(-1);
+      const sampleElapsed = first && last ? last.at - first.at : 0;
+      const sampleProgress = first && last ? last.completed - first.completed : 0;
+      const remaining = completed >= Math.min(20, Math.ceil(total * 0.02))
+        && sampleElapsed >= 5_000 && sampleProgress > 0 && completed < total
+        ? ((total - completed) / (sampleProgress / sampleElapsed))
         : 0;
       const estimate = remaining > 0 ? ` · ETA ~${formatDuration(remaining)}` : '';
       const line = `    Progress ${completed}/${total} files (${percent}%) · elapsed ${formatDuration(elapsed)}${estimate}`;
@@ -98,13 +115,15 @@ export async function runStart(
   console.log(chalk.green(`  ✓ Local data ${setup.configCreated ? 'initialized' : 'ready'}`));
   const deferAnalysisUntilImport = setup.configCreated && options.importHistory;
 
+  const historySpinner = ora('Checking local Agent history…').start();
   try {
     const sync = await dependencies.syncHistory({ quiet: true });
     const sources = Object.entries(sync.sessionsByProvider)
       .filter(([, count]) => count > 0)
       .map(([source]) => source);
-    console.log(chalk.green(`  ✓ Agent history synced${sources.length ? ` (${sources.join(', ')})` : ''}`));
+    historySpinner.succeed(`Agent history synced${sources.length ? ` (${sources.join(', ')})` : ''}`);
   } catch (error) {
+    historySpinner.stop();
     console.warn(chalk.yellow(`  ! Agent history sync skipped: ${error instanceof Error ? error.message : String(error)}`));
     console.warn(chalk.dim('    The dashboard will still open; run `agent-usage-analyze sync` to retry.'));
   }
@@ -179,12 +198,24 @@ export async function runStart(
     }
   }
 
-  console.log(chalk.green('  ✓ Opening local dashboard\n'));
-  await dependencies.launchDashboard({
-    port: options.port,
-    open: options.open,
-    sync: false,
-  });
+  console.log(chalk.green('  ✓ Starting local dashboard service'));
+  if (dependencies.startDashboardService) {
+    const port = Number(options.port);
+    const service = await dependencies.startDashboardService(port);
+    const url = `http://localhost:${port}`;
+    if (options.open) dependencies.openDashboard?.(url);
+    console.log(chalk.green(`  ✓ Dashboard ready: ${url}`));
+    console.log(chalk.dim(service.persistent
+      ? '    The terminal can now be closed. The dashboard will start automatically when you sign in.'
+      : '    The dashboard is running in the background; automatic login start is currently available on macOS.'));
+    console.log('');
+  } else {
+    await dependencies.launchDashboard({
+      port: options.port,
+      open: options.open,
+      sync: false,
+    });
+  }
 }
 
 export async function startCommand(options: StartOptions): Promise<void> {

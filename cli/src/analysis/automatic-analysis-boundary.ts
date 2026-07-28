@@ -11,6 +11,7 @@ import type {
 
 export const AUTOMATIC_EVIDENCE_MAX_EVENTS = 128;
 export const AUTOMATIC_EVIDENCE_MAX_BYTES = 32 * 1024;
+const AUTOMATIC_OVERSIZED_TURN_SAMPLE_EVENTS = 24;
 
 export type AutomaticAnalysisRejectionCode =
   | 'input-injection-detected'
@@ -44,6 +45,21 @@ function messageVersion(message: SQLiteMessageRow): string {
     timestamp: message.timestamp,
     parentId: message.parent_id,
   }))}`;
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  const marker = '\n[content truncated for bounded analysis]';
+  const budget = Math.max(0, maxBytes - Buffer.byteLength(marker, 'utf8'));
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(value.slice(0, middle), 'utf8') <= budget) low = middle;
+    else high = middle - 1;
+  }
+  if (low > 0 && /[\uD800-\uDBFF]/.test(value[low - 1] ?? '')) low -= 1;
+  return `${value.slice(0, low)}${marker}`;
 }
 
 function toolNames(value: string): string[] {
@@ -188,6 +204,7 @@ function renderEvidence(
   omittedEvents: number,
   omittedTurns: number,
   metadata: AutomaticAnalysisMetadata,
+  contentByteLimit?: number,
 ): RenderedEvidence {
   let userIndex = 0;
   let assistantIndex = 0;
@@ -218,8 +235,9 @@ function renderEvidence(
         evidenceRef = `System#${systemIndex++}`;
       }
       contentClass = 'redacted-text';
-      content = redactEvidenceText(message.content);
-      if (content.includes('[untrusted-instruction]')) injectionDetected = true;
+      const redacted = redactEvidenceText(message.content);
+      if (redacted.includes('[untrusted-instruction]')) injectionDetected = true;
+      content = contentByteLimit ? truncateUtf8(redacted, contentByteLimit) : redacted;
     }
     allowedEvidenceRefs.add(evidenceRef);
     const tools = toolNames(message.tool_calls);
@@ -259,7 +277,7 @@ function sanitizeMetadata(metadata: AutomaticAnalysisMetadata): {
   const redact = (value: string): string => {
     const redacted = redactEvidenceText(value);
     if (redacted.includes('[untrusted-instruction]')) injectionDetected = true;
-    return redacted;
+    return truncateUtf8(redacted, 4 * 1024);
   };
   return {
     metadata: {
@@ -268,7 +286,8 @@ function sanitizeMetadata(metadata: AutomaticAnalysisMetadata): {
       sessionMeta: {
         compactCount: metadata.sessionMeta.compactCount,
         autoCompactCount: metadata.sessionMeta.autoCompactCount,
-        slashCommands: metadata.sessionMeta.slashCommands?.map(redact),
+        slashCommands: metadata.sessionMeta.slashCommands?.slice(0, 50).map((value) =>
+          truncateUtf8(redact(value), 512)),
       },
     },
     injectionDetected,
@@ -288,10 +307,14 @@ export function buildAutomaticAnalysisBoundary(
   const selectedTurns: SQLiteMessageRow[][] = [];
   let selectedEvents = 0;
   let newestTurnTooLarge = false;
+  let selectedContentByteLimit: number | undefined;
   for (let index = turns.length - 1; index >= 0; index -= 1) {
-    const turn = turns[index];
-    if (!turn || selectedEvents + turn.length > AUTOMATIC_EVIDENCE_MAX_EVENTS) {
-      newestTurnTooLarge = selectedTurns.length === 0;
+    const completeTurn = turns[index];
+    if (!completeTurn) continue;
+    const turn = completeTurn.length > AUTOMATIC_EVIDENCE_MAX_EVENTS && selectedTurns.length === 0
+      ? [completeTurn[0]!, ...completeTurn.slice(-(AUTOMATIC_OVERSIZED_TURN_SAMPLE_EVENTS - 1))]
+      : completeTurn;
+    if (selectedEvents + turn.length > AUTOMATIC_EVIDENCE_MAX_EVENTS) {
       break;
     }
     const candidateTurns = [turn, ...selectedTurns];
@@ -303,7 +326,24 @@ export function buildAutomaticAnalysisBoundary(
       sanitizedMetadata.metadata,
     );
     if (Buffer.byteLength(candidate.formattedEvidence, 'utf8') > AUTOMATIC_EVIDENCE_MAX_BYTES) {
-      newestTurnTooLarge = selectedTurns.length === 0;
+      if (selectedTurns.length === 0) {
+        for (const limit of [8_192, 4_096, 2_048, 1_024, 512, 256]) {
+          const bounded = renderEvidence(
+            turn,
+            messages.length - turn.length,
+            turnCollection.totalTurnCount - 1,
+            sanitizedMetadata.metadata,
+            limit,
+          );
+          if (Buffer.byteLength(bounded.formattedEvidence, 'utf8') <= AUTOMATIC_EVIDENCE_MAX_BYTES) {
+            selectedTurns.push(turn);
+            selectedEvents += turn.length;
+            selectedContentByteLimit = limit;
+            break;
+          }
+        }
+        newestTurnTooLarge = selectedTurns.length === 0;
+      }
       break;
     }
     selectedTurns.unshift(turn);
@@ -315,6 +355,7 @@ export function buildAutomaticAnalysisBoundary(
     messages.length - selectedMessages.length,
     turnCollection.totalTurnCount - selectedTurns.length,
     sanitizedMetadata.metadata,
+    selectedContentByteLimit,
   );
   const versions = new Map(messages.map((message) => [message.id, messageVersion(message)]));
   const noCompleteEvidence = messages.length > 0 && turns.length === 0;

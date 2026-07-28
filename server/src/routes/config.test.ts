@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { runMigrations } from 'agent-usage-analyze/db/schema';
+import { CURRENT_SCHEMA_VERSION, runMigrations } from 'agent-usage-analyze/db/schema';
 import { loadConfig, saveConfig } from 'agent-usage-analyze/utils/config';
 
 // ──────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ describe('Config routes', () => {
         sources: [{ kind: 'synthetic-codex', count: 1 }],
         eras: [{ mode: 'continuous-observation', parserVersion: 'fixture-v1' }],
         llm: { configured: false, enabled: false },
-        migration: { databaseSchema: 30 },
+        migration: { databaseSchema: CURRENT_SCHEMA_VERSION },
         dataActions: {
           exportPath: '/api/export/sanitized',
           archiveCommand: 'agent-usage-analyze reset',

@@ -909,12 +909,11 @@ export function readIngestionHealth(db: Database.Database): IngestionHealth {
     startedAt: string;
     completedAt: string | null;
   }) | undefined;
-  // Force the narrow source/sequence covering index. SQLite otherwise chooses
-  // the multi-gigabyte table b-tree for COUNT(*), which can block the
-  // single-threaded WebUI server for tens of seconds.
+  // Source-level coverage is maintained transactionally with canonical event
+  // writes. Summing that compact projection avoids scanning the multi-gigabyte
+  // event index on every WebUI health request.
   const eventCount = db.prepare(
-    `SELECT COUNT(source_artifact_id) AS count
-     FROM canonical_events INDEXED BY idx_canonical_events_source_sequence`,
+    `SELECT COALESCE(SUM(parsed_count), 0) AS count FROM source_ingestion_stats`,
   ).get() as { count: number };
   const sourceCount = db.prepare('SELECT COUNT(*) AS count FROM source_artifacts').get() as { count: number };
   const eras = db.prepare(`

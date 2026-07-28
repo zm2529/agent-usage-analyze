@@ -39,14 +39,22 @@ export function fetchSessions(params?: {
   sourceTool?: string;
   limit?: number;
   offset?: number;
+  q?: string;
+  from?: string;
+  to?: string;
+  analysisStatus?: 'analyzed' | 'unanalyzed';
 }) {
   const q = new URLSearchParams();
   if (params?.projectId) q.set('projectId', params.projectId);
   if (params?.sourceTool) q.set('sourceTool', params.sourceTool);
   if (params?.limit !== undefined) q.set('limit', String(params.limit));
   if (params?.offset !== undefined) q.set('offset', String(params.offset));
+  if (params?.q) q.set('q', params.q);
+  if (params?.from) q.set('from', params.from);
+  if (params?.to) q.set('to', params.to);
+  if (params?.analysisStatus) q.set('analysisStatus', params.analysisStatus);
   const qs = q.toString() ? `?${q.toString()}` : '';
-  return request<{ sessions: Session[] }>(`/sessions${qs}`);
+  return request<{ sessions: Session[]; hasMore: boolean }>(`/sessions${qs}`);
 }
 
 export function fetchSession(id: string) {
@@ -109,6 +117,49 @@ export function fetchAnalysisRuns(params?: {
   if (params?.limit !== undefined) q.set('limit', String(params.limit));
   const qs = q.toString() ? `?${q.toString()}` : '';
   return request<{ runs: AnalysisRunRecord[] }>(`/analysis/runs${qs}`);
+}
+
+export interface AnalysisUsageSummary {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  estimatedCostUsd: number | null;
+  updatedAt: string | null;
+}
+
+export function fetchAnalysisUsageSummary() {
+  return request<AnalysisUsageSummary>('/analysis/usage/summary');
+}
+
+export function translateContent<T>(targetLanguage: 'en' | 'zh-CN', content: T) {
+  type TranslationState = {
+    status: 'queued' | 'running' | 'completed' | 'failed';
+    jobId?: string;
+    content?: T;
+    cached?: boolean;
+    error?: string;
+  };
+  const wait = () => new Promise((resolve) => setTimeout(resolve, 1_500));
+  return (async () => {
+    let state = await request<TranslationState>('/translate', {
+      method: 'POST',
+      body: JSON.stringify({ targetLanguage, content }),
+    });
+    const startedAt = Date.now();
+    while ((state.status === 'queued' || state.status === 'running') && state.jobId) {
+      if (Date.now() - startedAt > 330_000) throw new Error('Translation timed out');
+      await wait();
+      const [language, hash] = state.jobId.split(':');
+      state = await request<TranslationState>(`/translate/${language}/${hash}`);
+    }
+    if (state.status === 'failed') throw new Error(state.error || 'Translation failed');
+    if (state.status !== 'completed' || state.content === undefined) {
+      throw new Error('Translation did not complete');
+    }
+    return { content: state.content, cached: Boolean(state.cached) };
+  })();
 }
 
 export function fetchBehaviorReport() {

@@ -14,7 +14,10 @@ export interface SelectedAnalysisRunner {
 }
 
 /** Build the model runner selected by the same policy shown in Settings. */
-export function createAnalysisRunnerFromPolicy(options: { codexTimeoutMs?: number } = {}): SelectedAnalysisRunner {
+export function createAnalysisRunnerFromPolicy(options: {
+  codexTimeoutMs?: number;
+  codexReasoningEffort?: 'low' | 'medium' | 'high';
+} = {}): SelectedAnalysisRunner {
   const state = resolveAnalysisExecutionPolicy(loadConfig());
   switch (state.effectiveRunner) {
     case 'provider':
@@ -22,7 +25,11 @@ export function createAnalysisRunnerFromPolicy(options: { codexTimeoutMs?: numbe
     case 'codex-native':
       return {
         state,
-        runner: new CodexNativeRunner({ model: state.model, timeoutMs: options.codexTimeoutMs }),
+        runner: new CodexNativeRunner({
+          model: state.model,
+          reasoningEffort: options.codexReasoningEffort,
+          timeoutMs: options.codexTimeoutMs,
+        }),
       };
     case 'claude-native':
       return { state, runner: new ClaudeNativeRunner() };

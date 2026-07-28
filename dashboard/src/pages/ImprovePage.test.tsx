@@ -6,7 +6,16 @@ import ImprovePage from './ImprovePage';
 
 const api = vi.hoisted(() => ({ fetchBehaviorReport: vi.fn(), runBehaviorReport: vi.fn() }));
 vi.mock('@/lib/api', () => api);
-vi.mock('@/components/analysis/AnalysisRunTrace', () => ({ AnalysisRunTrace: () => <div>analysis trace</div> }));
+vi.mock('@/i18n/LanguageProvider', () => ({
+  useLanguage: () => ({
+    language: 'zh-CN',
+    t: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}));
+vi.mock('@/components/analysis/AnalysisRunTrace', () => ({
+  AnalysisRunTrace: () => <div>analysis trace</div>,
+  BehaviorAnalysisRunTimeline: () => <div>analysis timeline</div>,
+}));
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -61,7 +70,7 @@ describe('ImprovePage', () => {
     renderPage();
 
     expect(await screen.findByText('尚未生成使用分析')).toBeInTheDocument();
-    expect(await screen.findByText('620/620 个会话完成结构分析')).toBeInTheDocument();
+    expect(await screen.findByText('620/620 个会话')).toBeInTheDocument();
     expect(api.runBehaviorReport).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Generate LLM report' })).toBeEnabled();
   });
@@ -107,8 +116,8 @@ describe('ImprovePage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('590/590 个会话完成结构分析')).toBeInTheDocument();
-    expect(screen.getByText('3 个会话带语义增强')).toBeInTheDocument();
+    expect(await screen.findByText('590/590 个会话')).toBeInTheDocument();
+    expect(screen.getByText('3 个会话')).toBeInTheDocument();
     expect(screen.getByText('代表性片段')).toBeInTheDocument();
     expect(api.runBehaviorReport).not.toHaveBeenCalled();
   });
@@ -136,8 +145,8 @@ describe('ImprovePage', () => {
     expect(screen.getByText('值得关注的使用习惯')).toBeInTheDocument();
     expect(screen.getByText('查看改进追踪')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '前往改进追踪 →' })).toHaveAttribute('href', '/improvements');
-    expect(screen.getByText('用户指定')).toBeInTheDocument();
-    expect(screen.getByText('自动启用')).toBeInTheDocument();
+    expect(screen.getAllByText('用户指定').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('自动启用').length).toBeGreaterThan(0);
     expect(screen.queryByText('根据本次分析生成，不是固定内容。')).not.toBeInTheDocument();
     expect(screen.queryByText('目前无法确定的部分：')).not.toBeInTheDocument();
     expect(screen.queryByText('工作方式观察')).not.toBeInTheDocument();
@@ -152,7 +161,7 @@ describe('ImprovePage', () => {
     renderPage();
 
     expect(await screen.findByText('分析方法已更新')).toBeInTheDocument();
-    expect(screen.getByText('现有结果使用旧版分析方法。你可以现在重新生成，或等待下一次自动分析。')).toBeInTheDocument();
+    expect(screen.getByText('可以现在重新分析，或等待下一次自动分析。')).toBeInTheDocument();
     expect(api.runBehaviorReport).not.toHaveBeenCalled();
   });
 });

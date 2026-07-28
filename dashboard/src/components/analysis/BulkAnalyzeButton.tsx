@@ -135,7 +135,7 @@ export function BulkAnalyzeButton({ sessions, onComplete }: BulkAnalyzeButtonPro
               </div>
               <div className="w-full bg-muted rounded-full h-2">
                 <div
-                  className="bg-primary h-2 rounded-full transition-all"
+                  className="h-2 rounded-full bg-primary transition-[width]"
                   style={{ width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%` }}
                 />
               </div>

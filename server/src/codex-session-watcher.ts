@@ -1,4 +1,13 @@
-import { closeSync, existsSync, openSync, readSync, statSync, watch, type FSWatcher } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  watch,
+  type FSWatcher,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
@@ -8,7 +17,8 @@ import { recordSettledFrontier } from 'agent-usage-analyze/analysis/settled-fron
 import { spawnSettledScheduler } from 'agent-usage-analyze/analysis/settled-scheduler';
 import { readCodexRolloutIdentity } from 'agent-usage-analyze/analysis/codex-source-locator';
 import { recordIngestionLog } from 'agent-usage-analyze/analysis/ingestion-log';
-import { loadConfig } from 'agent-usage-analyze/utils/config';
+import { getConfigDir, loadConfig } from 'agent-usage-analyze/utils/config';
+import { inspectCodexHook } from 'agent-usage-analyze/utils/codex-hooks';
 
 const DEBOUNCE_MS = 1_200;
 // File notifications arrive throughout an active response. A longer fallback
@@ -20,6 +30,43 @@ interface RolloutSessionMeta {
   id: string;
   cwd: string;
   timestamp: string;
+}
+
+interface PersistedHookStatus {
+  status?: unknown;
+}
+
+export function isTrustedHookState(
+  inspected: { installed: boolean; stale: boolean; parseError?: unknown },
+  status: PersistedHookStatus | null,
+): boolean {
+  return inspected.installed
+    && !inspected.stale
+    && !inspected.parseError
+    && status?.status === 'recorded';
+}
+
+function hasTrustedCodexHook(): boolean {
+  const inspected = inspectCodexHook();
+  if (!inspected.installed || inspected.stale || inspected.parseError) return false;
+  try {
+    const status = JSON.parse(
+      readFileSync(join(getConfigDir(), 'codex-hook-status.json'), 'utf8'),
+    ) as PersistedHookStatus;
+    return isTrustedHookState(inspected, status);
+  } catch {
+    return false;
+  }
+}
+
+function withNonBlockingWrite<T>(db: Database.Database, action: () => T): T {
+  const previousTimeout = db.pragma('busy_timeout', { simple: true }) as number;
+  db.pragma('busy_timeout = 0');
+  try {
+    return action();
+  } finally {
+    db.pragma(`busy_timeout = ${previousTimeout}`);
+  }
 }
 
 function readSessionMeta(sourcePath: string): RolloutSessionMeta | null {
@@ -84,6 +131,14 @@ function upsertPendingSession(
  */
 export function startCodexSessionWatcher(): FSWatcher | null {
   if (process.env.NODE_ENV === 'test') return null;
+  if (loadConfig()?.dashboard?.capabilities?.hookCapture === false) {
+    recordIngestionLog({ stage: 'watcher', outcome: 'disabled-by-config' });
+    return null;
+  }
+  if (hasTrustedCodexHook()) {
+    recordIngestionLog({ stage: 'watcher', outcome: 'skipped-trusted-hook' });
+    return null;
+  }
   const codexHome = process.env.AGENT_ANALYTICS_CODEX_HOME
     ?? process.env.CODEX_HOME
     ?? join(homedir(), '.codex');
@@ -107,14 +162,18 @@ export function startCodexSessionWatcher(): FSWatcher | null {
           return;
         }
         const stat = statSync(sourcePath);
-        const frontier = recordSettledFrontier(getDb(), {
-          source: 'codex-cli',
-          sessionId: identity,
-          turnId: `watch-${Math.trunc(stat.mtimeMs)}-${stat.size}`,
-          locator: sourcePath,
-          basis: `watch-stat:${Math.trunc(stat.mtimeMs)}:${stat.size}`,
-        }, new Date(), SETTLE_SECONDS);
-        upsertPendingSession(getDb(), sourcePath, identity);
+        const db = getDb();
+        const frontier = withNonBlockingWrite(db, () => {
+          const recorded = recordSettledFrontier(db, {
+            source: 'codex-cli',
+            sessionId: identity,
+            turnId: `watch-${Math.trunc(stat.mtimeMs)}-${stat.size}`,
+            locator: sourcePath,
+            basis: `watch-stat:${Math.trunc(stat.mtimeMs)}:${stat.size}`,
+          }, new Date(), SETTLE_SECONDS);
+          upsertPendingSession(db, sourcePath, identity);
+          return recorded;
+        });
         recordIngestionLog({
           stage: 'watcher', outcome: 'frontier-recorded', sessionId: identity,
           sourcePath, generation: frontier.generation, sizeBytes: stat.size,
@@ -139,7 +198,6 @@ export function startCodexSessionWatcher(): FSWatcher | null {
     }, delayMs));
   };
   const watcher = watch(sessionsRoot, { recursive: true }, (_eventType, filename) => {
-    if (loadConfig()?.dashboard?.capabilities?.hookCapture === false) return;
     if (!filename || !filename.endsWith('.jsonl')) return;
     const sourcePath = isAbsolute(filename) ? filename : join(sessionsRoot, filename);
     schedule(sourcePath);

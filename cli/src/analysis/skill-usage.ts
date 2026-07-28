@@ -5,7 +5,7 @@ export interface ObservedSkillUsage {
   automaticInvocations: number;
 }
 
-function skillNameFromPath(value: string): string | null {
+export function skillNameFromPath(value: string): string | null {
   const match = value.match(/(?:^|[/\\])([^/\\\s"'`]+)[/\\]SKILL\.md(?:\?[^/\\\s"'`]*)?/i);
   const name = match?.[1]?.toLowerCase();
   return name && /^[a-z0-9][a-z0-9:-]*$/.test(name) ? name : null;

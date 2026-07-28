@@ -17,6 +17,7 @@ let activeBehaviorReportJob: Promise<void> | null = null;
 let activeBehaviorReportStartedAt: string | null = null;
 let activeBehaviorReportSnapshot: ReturnType<typeof latestState> | null = null;
 let lastServedBehaviorReportSnapshot: ReturnType<typeof latestState> | null = null;
+let datasetCache: { key: string; value: BehaviorReportDataset } | null = null;
 
 export function getBehaviorReportGenerationStatus() {
   return {
@@ -48,9 +49,19 @@ function latestState() {
       && cachedInput?.tokenEfficiency
       && cachedLeverage?.skills?.items?.every((item) => Array.isArray(item.weeklyInvocations)),
   );
+  const evidenceVersion = db.prepare(`SELECT
+      COALESCE(MAX(completed_at), '') AS completedAt,
+      COALESCE(MAX(processed_source_count), 0) AS processedSources
+    FROM ingestion_runs`).get() as { completedAt: string; processedSources: number };
+  const datasetKey = `${evidenceVersion.completedAt}:${evidenceVersion.processedSources}`;
   const dataset = hasCurrentEvidenceSnapshot
     ? structuredClone(cachedInput) as unknown as BehaviorReportDataset
-    : buildBehaviorReportDataset(db, new Date());
+    : datasetCache?.key === datasetKey
+      ? structuredClone(datasetCache.value)
+      : buildBehaviorReportDataset(db, new Date());
+  if (!hasCurrentEvidenceSnapshot && datasetCache?.key !== datasetKey) {
+    datasetCache = { key: datasetKey, value: structuredClone(dataset) };
+  }
   if (hasCurrentEvidenceSnapshot) {
     const latestSession = db.prepare(`SELECT MAX(ended_at) AS latestSessionAt FROM sessions`)
       .get() as { latestSessionAt: string | null };

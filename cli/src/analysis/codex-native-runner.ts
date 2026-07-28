@@ -311,11 +311,18 @@ function executeCodex(
 export class CodexNativeRunner implements AnalysisRunner {
   readonly name = 'codex-native';
   private readonly model?: string;
+  private readonly reasoningEffort?: 'low' | 'medium' | 'high';
   private readonly timeoutMs: number;
   private readonly purpose: CodexNativePurpose;
 
-  constructor(options?: { model?: string; timeoutMs?: number; purpose?: CodexNativePurpose }) {
+  constructor(options?: {
+    model?: string;
+    reasoningEffort?: 'low' | 'medium' | 'high';
+    timeoutMs?: number;
+    purpose?: CodexNativePurpose;
+  }) {
     this.model = options?.model;
+    this.reasoningEffort = options?.reasoningEffort;
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.purpose = options?.purpose ?? 'analysis';
     if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1) {
@@ -344,6 +351,9 @@ export class CodexNativeRunner implements AnalysisRunner {
       '--config', permissionProfile,
       '--output-schema', schemaPath, '--json', '--color', 'never', '--cd', root,
     ];
+    if (this.reasoningEffort) {
+      args.push('--config', `model_reasoning_effort="${this.reasoningEffort}"`);
+    }
     for (const feature of DISABLED_CODEX_FEATURES) {
       if (this.purpose === 'research' && feature === 'standalone_web_search') continue;
       args.push('--disable', feature);

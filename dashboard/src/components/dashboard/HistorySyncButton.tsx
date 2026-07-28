@@ -19,7 +19,7 @@ export function HistorySyncButton() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('sync.title', 'Sync history')}</DialogTitle>
-          <DialogDescription>{t('sync.description', 'Re-read all supported local Agent conversations and refresh tasks and linked delivery results. This does not run LLM analysis.')}</DialogDescription>
+          <DialogDescription>{t('sync.description', 'Re-read supported local Agent conversations and refresh tasks and linked delivery results. Required analysis starts automatically after import.')}</DialogDescription>
         </DialogHeader>
         {!sync.data && !sync.isError && <Button className="w-full gap-2" disabled={sync.isPending} onClick={() => sync.mutate({ force: true })}>
           {sync.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <History className="h-4 w-4" />}

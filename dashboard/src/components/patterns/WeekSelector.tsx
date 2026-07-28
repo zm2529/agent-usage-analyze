@@ -126,7 +126,7 @@ export function WeekSelector({ currentWeek, weeks, onWeekChange }: WeekSelectorP
                 tabIndex={-1}
                 onClick={w.sessionCount > 0 ? () => onWeekChange(w.week) : undefined}
                 className={[
-                  'rounded-full transition-all',
+                  'rounded-full transition-[width,height,background-color,border-color]',
                   isCurrent ? 'w-2.5 h-2.5' : 'w-1.5 h-1.5',
                   w.sessionCount === 0
                     ? 'bg-muted cursor-default'

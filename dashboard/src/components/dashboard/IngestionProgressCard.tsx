@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import type { IngestionHealth } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLanguage } from '@/i18n/LanguageProvider';
+import { estimateRemainingMs, type ProgressSample } from '@/lib/ingestion-eta';
 
 function durationLabel(milliseconds: number, language: 'en' | 'zh-CN'): string {
   const seconds = Math.max(1, Math.round(milliseconds / 1_000));
@@ -18,9 +20,16 @@ export function IngestionProgressCard({ health }: { health: IngestionHealth }) {
   const completed = Math.min(health.processedSources, total);
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
   const elapsed = health.startedAt ? Math.max(0, Date.now() - Date.parse(health.startedAt)) : 0;
-  const remaining = completed > 0 && completed < total
-    ? (elapsed / completed) * (total - completed)
-    : null;
+  const samples = useRef<ProgressSample[]>([]);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  useEffect(() => {
+    const at = Date.now();
+    const previous = samples.current.at(-1);
+    if (!previous || previous.completed !== completed) {
+      samples.current = [...samples.current, { completed, at }].slice(-12);
+    }
+    setRemaining(estimateRemainingMs(samples.current, total));
+  }, [completed, total]);
 
   return (
     <Card className="border-primary/30 bg-primary/[0.04]" aria-label={t('import.title', 'Importing Codex history in the background')}>

@@ -193,6 +193,17 @@ describe('CodexNativeRunner', () => {
     expect(result.model).toBe('gpt-explicit');
   });
 
+  it('uses an explicit low reasoning override for latency-sensitive work', async () => {
+    const { capturePath } = installFakeCodex('success');
+    await new CodexNativeRunner({ reasoningEffort: 'low' }).runAnalysis({
+      systemPrompt: 'translate', userPrompt: 'text', jsonSchema: { type: 'object' },
+    });
+    const capture = JSON.parse(readFileSync(capturePath, 'utf8')) as { argv: string[] };
+    expect(capture.argv).toEqual(expect.arrayContaining([
+      '--config', 'model_reasoning_effort="low"',
+    ]));
+  });
+
   it('allows only live public web search in the dedicated research purpose', async () => {
     const { capturePath } = installFakeCodex('web-search');
     const result = await new CodexNativeRunner({ purpose: 'research' }).runAnalysis({

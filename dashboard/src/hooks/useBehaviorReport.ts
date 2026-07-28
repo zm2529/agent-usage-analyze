@@ -24,9 +24,20 @@ export function useRunBehaviorReport() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: runBehaviorReport,
+    onMutate: () => {
+      client.setQueryData(['behaviorReport'], (current: BehaviorReportState | undefined) => ({
+        ...(current ?? {
+          report: null,
+          eligibility: null,
+          evidence: null,
+        } as unknown as BehaviorReportState),
+        generation: { running: true, startedAt: new Date().toISOString() },
+      }));
+    },
     onSuccess: (data) => {
       client.setQueryData(['behaviorReport'], (current: BehaviorReportState | undefined) =>
         current ? { ...current, generation: data.generation } : current);
+      client.invalidateQueries({ queryKey: ['behaviorReport'] });
       client.invalidateQueries({ queryKey: ['behaviorReportSummary'] });
       client.invalidateQueries({ queryKey: ['analysisRuns'] });
     },

@@ -53,7 +53,7 @@ const zh: Record<string, string> = {
   'import.estimating': '正在估算剩余时间',
   'import.indexing': '正在生成最终任务与证据索引',
   'sync.title': '同步历史数据',
-  'sync.description': '重新读取 Codex、Claude Code 等本地 Agent 对话，并刷新任务和已关联的交付成果；这个过程不会运行 LLM 分析。首次完整修复可能需要一些时间。',
+  'sync.description': '重新读取 Codex、Claude Code 等本地 Agent 对话，并刷新任务和已关联的交付成果。导入完成后会自动补充需要的分析。',
   'sync.running': '正在同步本地历史…',
   'sync.start': '开始同步',
   'sync.completed': '历史数据同步完成',
@@ -831,7 +831,7 @@ const englishFallback: LanguageContextValue = {
 
 const LanguageContext = createContext<LanguageContextValue>(englishFallback);
 
-function initialLanguage(): Language {
+export function initialLanguage(): Language {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'en' || stored === 'zh-CN') return stored;

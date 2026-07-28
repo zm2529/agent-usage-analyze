@@ -1,18 +1,9 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LanguageProvider, useLanguage } from './LanguageProvider';
-import { LanguageToggle } from '@/components/layout/LanguageToggle';
+import { initialLanguage } from './LanguageProvider';
 
-function Probe() {
-  const { t } = useLanguage();
-  return <span>{t('analysis.title', 'Behavior analysis and improvement advice')}</span>;
-}
-
-describe('LanguageProvider', () => {
-  const values = new Map<string, string>();
+describe('initialLanguage', () => {
   beforeEach(() => {
-    values.clear();
+    const values = new Map<string, string>();
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value),
@@ -21,12 +12,16 @@ describe('LanguageProvider', () => {
     });
   });
 
-  it('switches the WebUI to Simplified Chinese and persists the choice', async () => {
-    render(<LanguageProvider><Probe /><LanguageToggle /></LanguageProvider>);
-    expect(screen.getByText('Behavior analysis and improvement advice')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Switch language' }));
-    expect(screen.getByText('行为分析与改进建议')).toBeInTheDocument();
-    expect(localStorage.getItem('agent-usage-analyze:language')).toBe('zh-CN');
-    expect(document.documentElement.lang).toBe('zh-CN');
+  it('uses the browser language when no preference was saved', () => {
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'zh-CN' });
+    expect(initialLanguage()).toBe('zh-CN');
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'en-US' });
+    expect(initialLanguage()).toBe('en');
+  });
+
+  it('keeps an explicit user preference', () => {
+    localStorage.setItem('agent-usage-analyze:language', 'en');
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'zh-CN' });
+    expect(initialLanguage()).toBe('en');
   });
 });

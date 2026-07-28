@@ -39,7 +39,8 @@ export function AnalyzeDropdown({
   insightCount,
   hasExistingPromptQuality,
 }: AnalyzeDropdownProps) {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const chinese = language === 'zh-CN';
   const [confirmSessionOpen, setConfirmSessionOpen] = useState(false);
   const [confirmPromptOpen, setConfirmPromptOpen] = useState(false);
   const { getAnalysisState, startAnalysis, cancelAnalysis } = useAnalysis();
@@ -165,7 +166,7 @@ export function AnalyzeDropdown({
               variant="outline"
               size="sm"
               className="h-8 rounded-l-none px-2"
-              aria-label="选择其他分析"
+              aria-label={chinese ? '选择其他分析' : 'Choose another analysis'}
             >
               <ChevronDown className="h-3 w-3 opacity-60" />
             </Button>
@@ -176,13 +177,15 @@ export function AnalyzeDropdown({
               {hasExistingPromptQuality ? t('analysis.reanalyzePromptQuality', 'Re-analyze prompt quality') : t('analysis.analyzePromptQuality', 'Analyze prompt quality')}
               {pqCostEstimate !== null && (
                 <div className="w-full pb-0.5 pl-7 text-xs text-muted-foreground">
-                  {isOllama ? '本地运行' : `约 ${formatCost(pqCostEstimate)} · 使用同一会话`}
+                  {isOllama
+                    ? (chinese ? '本地运行' : 'Runs locally')
+                    : (chinese ? `约 ${formatCost(pqCostEstimate)} · 使用同一会话` : `About ${formatCost(pqCostEstimate)} · same session`)}
                 </div>
               )}
               {showCacheHint && (
                 <div className="flex w-full items-center gap-1 pb-1 pl-7 text-[10px] italic text-muted-foreground/60">
                   <Info className="h-3 w-3 shrink-0" />
-                  紧接会话分析运行时可复用缓存
+                  {chinese ? '紧接会话分析运行时可复用缓存' : 'Can reuse cache when run after session analysis'}
                 </div>
               )}
             </DropdownMenuItem>
@@ -193,23 +196,27 @@ export function AnalyzeDropdown({
       <AlertDialog open={confirmSessionOpen} onOpenChange={setConfirmSessionOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>重新分析这次会话？</AlertDialogTitle>
+            <AlertDialogTitle>{chinese ? '重新分析这次会话？' : 'Re-analyze this session?'}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div>
                 <p>
-                  将重新生成摘要、决策与 Skill 评价，并替换现有 {insightCount ?? 0} 项分析结果。
+                  {chinese
+                    ? `将重新生成摘要、决策与 Skill 评价，并替换现有 ${insightCount ?? 0} 项分析结果。`
+                    : `This regenerates the summary, decisions, and Skill assessment, replacing ${insightCount ?? 0} existing results.`}
                 </p>
                 {sessionCostEstimate !== null && !isOllama && (
                   <p className="text-sm text-muted-foreground mt-1">
-                    预计使用 {inputTokensLabel || '当前会话内容'}，费用约 {formatCost(sessionCostEstimate)}
+                    {chinese
+                      ? `预计使用 ${inputTokensLabel || '当前会话内容'}，费用约 ${formatCost(sessionCostEstimate)}`
+                      : `Estimated input: ${inputTokensLabel || 'current session content'} · about ${formatCost(sessionCostEstimate)}`}
                   </p>
                 )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleSessionAnalyze}>开始重新分析</AlertDialogAction>
+            <AlertDialogCancel>{chinese ? '取消' : 'Cancel'}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSessionAnalyze}>{chinese ? '开始重新分析' : 'Start re-analysis'}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

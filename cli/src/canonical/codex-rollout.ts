@@ -178,15 +178,26 @@ function constraintKind(body: Record<string, unknown>): 'scope-change' | 'accept
   return undefined;
 }
 
-function gitRoot(cwd?: string): string | undefined {
+const gitRootCache = new Map<string, string | undefined>();
+
+export function clearGitRootCache(): void {
+  gitRootCache.clear();
+}
+
+export function gitRoot(cwd?: string): string | undefined {
   if (!cwd) return undefined;
+  const cached = gitRootCache.get(cwd);
+  if (cached !== undefined || gitRootCache.has(cwd)) return cached;
+  let root: string | undefined;
   try {
-    return execFileSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], {
+    root = execFileSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1000,
     }).trim() || undefined;
   } catch {
-    return undefined;
+    root = undefined;
   }
+  gitRootCache.set(cwd, root);
+  return root;
 }
 
 interface ParseState {

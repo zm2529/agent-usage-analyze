@@ -4,7 +4,7 @@ import type { Message } from '@/lib/types';
 
 const PAGE_SIZE = 50;
 
-export function useMessages(sessionId: string | undefined) {
+export function useMessages(sessionId: string | undefined, enabled = true) {
   return useInfiniteQuery({
     queryKey: ['messages', sessionId],
     queryFn: ({ pageParam = 0 }: { pageParam: number }) =>
@@ -15,6 +15,6 @@ export function useMessages(sessionId: string | undefined) {
       if (lastPage.length < PAGE_SIZE) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: !!sessionId,
+    enabled: !!sessionId && enabled,
   });
 }

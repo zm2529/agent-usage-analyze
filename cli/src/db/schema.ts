@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(session_id, timestamp ASC);
+CREATE INDEX IF NOT EXISTS idx_messages_global_timestamp ON messages(timestamp ASC, session_id);
 
 -- ============================================================
 -- Insights (written by dashboard server, not CLI)
@@ -128,6 +129,6 @@ CREATE TABLE IF NOT EXISTS usage_stats (
 );
 `;
 
-export const CURRENT_SCHEMA_VERSION = 30;
+export const CURRENT_SCHEMA_VERSION = 33;
 
 export { runMigrations } from './migrate.js';

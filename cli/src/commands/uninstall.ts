@@ -141,6 +141,8 @@ export function removeProductOwnedFiles(options: {
   const stateTargets = new Set([
     ...PRODUCT_DIRS.map((name) => path.join(homeDir, name)),
     configDir,
+    path.join(homeDir, 'Library', 'LaunchAgents', 'local.agent-usage-analyze.dashboard.plist'),
+    path.join(homeDir, 'Library', 'LaunchAgents', 'local.agent-analytics.dashboard.plist'),
   ]);
 
   for (const target of stateTargets) {

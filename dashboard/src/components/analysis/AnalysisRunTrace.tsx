@@ -58,11 +58,13 @@ function RunDetails({ run, hasCurrentConversationEvidence = false }: {
       </summary>
 
       <div className="mt-3 space-y-3 border-t pt-3 text-xs">
-        <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
           <div><dt className="text-muted-foreground">{t('analysisRun.promptVersion', 'Prompt version')}</dt><dd className="font-mono">{run.promptVersion}</dd></div>
           <div><dt className="text-muted-foreground">{t('analysisRun.duration', 'Duration')}</dt><dd>{run.durationMs == null ? '—' : `${(run.durationMs / 1000).toFixed(1)}s`}</dd></div>
           <div><dt className="text-muted-foreground">{t('analysisRun.inputTokens', 'Input tokens')}</dt><dd>{run.inputTokens ?? '—'}</dd></div>
           <div><dt className="text-muted-foreground">{t('analysisRun.outputTokens', 'Output tokens')}</dt><dd>{run.outputTokens ?? '—'}</dd></div>
+          <div><dt className="text-muted-foreground">{language === 'zh-CN' ? '缓存写入' : 'Cache writes'}</dt><dd>{run.cacheCreationTokens ?? '—'}</dd></div>
+          <div><dt className="text-muted-foreground">{language === 'zh-CN' ? '缓存命中' : 'Cache reads'}</dt><dd>{run.cacheReadTokens ?? '—'}</dd></div>
         </dl>
 
         <details>
@@ -116,4 +118,43 @@ export function AnalysisRunTrace({ sessionId, analysisType, hasCurrentConversati
       </div>
     </section>
   );
+}
+
+const BEHAVIOR_PHASES = [
+  ['behavior_research', '研究', 'Research'],
+  ['session', '会话分析', 'Session analysis'],
+  ['behavior_coach', '建议形成', 'Recommendation synthesis'],
+  ['behavior_report', '报告汇总', 'Report assembly'],
+] as const;
+
+export function BehaviorAnalysisRunTimeline({ running = false }: { running?: boolean }) {
+  const { language, t } = useLanguage();
+  const queries = [
+    useAnalysisRuns({ analysisType: 'behavior_research', limit: 3, poll: running }),
+    useAnalysisRuns({ analysisType: 'session', limit: 3, poll: running }),
+    useAnalysisRuns({ analysisType: 'behavior_coach', limit: 3, poll: running }),
+    useAnalysisRuns({ analysisType: 'behavior_report', limit: 3, poll: running }),
+  ];
+  return <section className="border-y">
+    <div className="border-b py-5">
+      <h3 className="text-sm font-semibold">{t('analysisRun.title', 'LLM analysis record')}</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t('analysisRun.description', 'Shows how analysis started, the prompt and input sent to the selected model, and the exact structured result returned. These details remain local.')}
+      </p>
+    </div>
+    {BEHAVIOR_PHASES.map(([type, zhLabel, enLabel], index) => {
+      const query = queries[index]!;
+      return <div key={type} className="border-b py-4 last:border-b-0">
+        <div className="mb-2 flex items-center gap-3">
+          <span className="vibe-mono text-[10px] tabular-nums text-[#365D8D]">{String(index + 1).padStart(2, '0')}</span>
+          <h4 className="text-sm font-medium">{language === 'zh-CN' ? zhLabel : enLabel}</h4>
+          {query.isLoading && <span className="text-xs text-muted-foreground">{t('common.loading', 'Loading…')}</span>}
+          {!query.isLoading && query.data?.length === 0 && <span className="text-xs text-muted-foreground">
+            {running ? (language === 'zh-CN' ? '等待此阶段' : 'Waiting for this stage') : t('analysisRun.empty', 'No LLM analysis has run yet.')}
+          </span>}
+        </div>
+        <div className="space-y-2 pl-8">{query.data?.map((run) => <RunDetails key={run.id} run={run} />)}</div>
+      </div>;
+    })}
+  </section>;
 }

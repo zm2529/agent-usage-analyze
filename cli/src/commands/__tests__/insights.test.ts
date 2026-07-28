@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrate.js';
+import { CURRENT_SCHEMA_VERSION } from '../../db/schema.js';
 
 // ── Shared mocks ──────────────────────────────────────────────────────────────
 
@@ -153,7 +154,9 @@ describe('V8 migration — session_message_count column', () => {
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;
 
-    expect(rows.map(r => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
+    expect(rows.map(r => r.version)).toEqual(
+      Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => index + 1),
+    );
     db.close();
   });
 

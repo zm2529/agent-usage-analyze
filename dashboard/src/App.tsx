@@ -39,12 +39,8 @@ function RoutePrefetch() {
         loadPracticeLibraryPage(),
       ]);
     };
-    if ('requestIdleCallback' in window) {
-      const id = window.requestIdleCallback(preload, { timeout: 2_500 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const id = globalThis.setTimeout(preload, 1_000);
-    return () => globalThis.clearTimeout(id);
+    const id = window.requestAnimationFrame(preload);
+    return () => window.cancelAnimationFrame(id);
   }, []);
   return null;
 }

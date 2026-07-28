@@ -224,6 +224,8 @@ export interface SemanticAnalysisRun {
   estimatedInputTokens: number;
   inputTokens: number | null;
   outputTokens: number | null;
+  cacheCreationTokens: number | null;
+  cacheReadTokens: number | null;
   costUsd: number | null;
 }
 
@@ -397,6 +399,7 @@ export interface Session {
   compact_count: number;
   auto_compact_count: number;
   slash_commands: string | null; // JSON-encoded string[] — decode with parseJsonField<string[]>(x, [])
+  insight_count?: number;
   observed_skill_usage?: Array<{
     name: string;
     userInvocations: number;
@@ -446,6 +449,8 @@ export interface AnalysisRunRecord {
   outputJson: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  cacheCreationTokens: number | null;
+  cacheReadTokens: number | null;
   durationMs: number | null;
   createdAt: string;
 }

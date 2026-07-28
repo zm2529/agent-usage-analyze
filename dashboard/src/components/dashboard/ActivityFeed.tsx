@@ -94,7 +94,7 @@ function SessionFeedItem({ session, language, t }: { session: Session; language:
 
   return (
     <Link to={`/sessions?session=${session.id}`} className="block group">
-      <div className="py-1.5 px-1 hover:bg-accent transition-all duration-200 rounded-sm">
+      <div className="rounded-sm px-1 py-1.5 transition-[background-color] duration-200 hover:bg-accent">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="shrink-0 h-5 w-5 rounded bg-primary/10 group-hover:bg-primary/15 flex items-center justify-center transition-colors">
@@ -134,7 +134,7 @@ function InsightFeedItem({ insight, language, t }: { insight: Insight; language:
 
   return (
     <Link to={`/sessions?session=${insight.session_id}`} className="block group">
-      <div className="py-1.5 px-1 hover:bg-accent transition-all duration-200 rounded-sm">
+      <div className="rounded-sm px-1 py-1.5 transition-[background-color] duration-200 hover:bg-accent">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className={`shrink-0 h-5 w-5 rounded flex items-center justify-center transition-colors ${colorClass}`}>

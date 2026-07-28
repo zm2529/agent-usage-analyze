@@ -6,6 +6,10 @@ interface SessionFilters {
   sourceTool?: string;
   limit?: number;
   offset?: number;
+  q?: string;
+  from?: string;
+  to?: string;
+  analysisStatus?: 'analyzed' | 'unanalyzed';
 }
 
 export function useSessions(filters?: SessionFilters) {
@@ -15,6 +19,16 @@ export function useSessions(filters?: SessionFilters) {
     staleTime: 30_000,
     refetchInterval: 5_000,
     refetchOnWindowFocus: true,
+  });
+}
+
+export function useSessionsPage(filters?: SessionFilters) {
+  return useQuery({
+    queryKey: ['sessions-page', filters],
+    queryFn: () => fetchSessions(filters),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: false,
   });
 }
 

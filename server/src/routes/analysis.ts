@@ -18,6 +18,43 @@ import { runInsightsCommand } from 'agent-usage-analyze/commands/insights';
 
 const app = new Hono();
 
+app.get('/usage/summary', (c) => {
+  const db = getDb();
+  const sessionUsage = db.prepare(`SELECT
+      COUNT(*) AS calls,
+      COALESCE(SUM(input_tokens), 0) AS inputTokens,
+      COALESCE(SUM(output_tokens), 0) AS outputTokens,
+      COALESCE(SUM(cache_creation_tokens), 0) AS cacheCreationTokens,
+      COALESCE(SUM(cache_read_tokens), 0) AS cacheReadTokens,
+      CASE
+        WHEN SUM(estimated_cost_usd) > 0 THEN SUM(estimated_cost_usd)
+        ELSE NULL
+      END AS estimatedCostUsd,
+      MAX(analyzed_at) AS updatedAt
+    FROM analysis_usage`).get() as Record<string, number | string | null>;
+  const reportUsage = db.prepare(`SELECT
+      COUNT(*) AS calls,
+      COALESCE(SUM(input_tokens), 0) AS inputTokens,
+      COALESCE(SUM(output_tokens), 0) AS outputTokens,
+      COALESCE(SUM(cache_creation_tokens), 0) AS cacheCreationTokens,
+      COALESCE(SUM(cache_read_tokens), 0) AS cacheReadTokens,
+      MAX(created_at) AS updatedAt
+    FROM analysis_runs
+    WHERE session_id IS NULL AND provider IS NOT NULL
+      AND status IN ('completed', 'failed', 'rejected')`).get() as Record<string, number | string | null>;
+  return c.json({
+    calls: Number(sessionUsage.calls) + Number(reportUsage.calls),
+    inputTokens: Number(sessionUsage.inputTokens) + Number(reportUsage.inputTokens),
+    outputTokens: Number(sessionUsage.outputTokens) + Number(reportUsage.outputTokens),
+    cacheCreationTokens: Number(sessionUsage.cacheCreationTokens) + Number(reportUsage.cacheCreationTokens),
+    cacheReadTokens: Number(sessionUsage.cacheReadTokens) + Number(reportUsage.cacheReadTokens),
+    estimatedCostUsd: sessionUsage.estimatedCostUsd == null
+      ? null
+      : Number(sessionUsage.estimatedCostUsd),
+    updatedAt: [sessionUsage.updatedAt, reportUsage.updatedAt].filter(Boolean).sort().at(-1) ?? null,
+  });
+});
+
 // POST /api/analysis/automatic-session
 // Uses the same default-on execution policy shown in Settings (Codex subscription first).
 app.post('/automatic-session', async (c) => {

@@ -134,7 +134,7 @@ function DimensionScores({ scores }: { scores: PQDimensionScores }) {
             </div>
             <div className="h-1.5 rounded-full bg-muted overflow-hidden">
               {value !== null && <div
-                className={`h-full rounded-full transition-all ${
+                className={`h-full rounded-full transition-[width,background-color] ${
                   value >= 80 ? 'bg-green-500' :
                   value >= 60 ? 'bg-yellow-500' :
                   value >= 40 ? 'bg-orange-500' : 'bg-red-500'

@@ -63,7 +63,7 @@ export function ProgressRing({
         strokeDashoffset={offset}
         strokeLinecap="round"
         transform={`rotate(-90 ${center} ${center})`}
-        className={cn('transition-all duration-500', STROKE_COLORS[getScoreTier(value)])}
+        className={cn('transition-[stroke,stroke-dashoffset] duration-500', STROKE_COLORS[getScoreTier(value)])}
       />
       <text
         x={center}

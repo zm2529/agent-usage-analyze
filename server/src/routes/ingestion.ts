@@ -5,6 +5,8 @@ import { importCodexHistory } from 'agent-usage-analyze/commands/import-codex';
 import { runSync } from 'agent-usage-analyze/commands/sync';
 import { discoverRecordedTaskDeliveries } from 'agent-usage-analyze/canonical/deliveries';
 import { repairInjectedSessionTitles } from 'agent-usage-analyze/canonical/session-titles';
+import { startAutomaticHistoryAnalysis } from 'agent-usage-analyze/analysis/history-backfill';
+import { spawnAutomaticBehaviorReport } from 'agent-usage-analyze/analysis/behavior-report-scheduler';
 
 const app = new Hono();
 let historySyncRunning = false;
@@ -87,6 +89,8 @@ app.post('/sync-history', async (c) => {
     const canonical = await importCodexHistory();
     const deliveries = discoverRecordedTaskDeliveries(getDb());
     const after = reconcileHistoryProjection();
+    const analysis = startAutomaticHistoryAnalysis();
+    spawnAutomaticBehaviorReport();
     return c.json({
       status: 'completed' as const,
       startedAt,
@@ -96,6 +100,7 @@ app.post('/sync-history', async (c) => {
       canonical,
       deliveries,
       projection: after,
+      analysis: { enabled: analysis.enabled, queued: analysis.queued },
     });
   } catch (error) {
     return c.json({

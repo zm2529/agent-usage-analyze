@@ -19,8 +19,8 @@ export function ThemeToggle() {
         <Moon className="h-4 w-4" />
       )}
       <span>{resolvedTheme === 'dark'
-        ? t('theme.light', '浅色模式')
-        : t('theme.dark', '深色模式')}</span>
+        ? t('theme.light', 'Light mode')
+        : t('theme.dark', 'Dark mode')}</span>
     </button>
   );
 }

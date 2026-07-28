@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getDb } from 'agent-usage-analyze/db/client';
 import {
-  agentAppliedSkillNames,
+  skillNameFromPath,
   userInvokedSkillNames,
 } from 'agent-usage-analyze/analysis/skill-usage';
 
@@ -103,19 +103,6 @@ function toolFamily(name: string): string {
   return '其他';
 }
 
-function safeToolNames(raw: string | null): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item) => {
-      if (!item || typeof item !== 'object') return [];
-      const name = (item as { name?: unknown }).name;
-      return typeof name === 'string' && name ? [name] : [];
-    });
-  } catch { return []; }
-}
-
 // Dashboard overview stats for a given time range.
 app.get('/dashboard', (c) => {
   const db = getDb();
@@ -208,26 +195,59 @@ app.get('/overview', (c) => {
     if (point) point.subagents += 1;
   }
 
-  const messages = db.prepare(`SELECT session_id AS sessionId, type, content, tool_calls AS toolCalls, timestamp
-    FROM messages WHERE timestamp >= ? AND (type = 'user' OR tool_calls IS NOT NULL)`).all(start.toISOString()) as Array<{
-      sessionId: string; type: string; content: string; toolCalls: string | null; timestamp: string;
+  // User prompts can contain very large context snapshots. Only read prompts
+  // that can contain an explicit Skill marker; tool rows are read separately.
+  const userSkillMessages = db.prepare(`SELECT session_id AS sessionId,
+      substr(content, 1, 32768) AS content, timestamp
+    FROM messages
+    WHERE timestamp >= ? AND type = 'user'
+      AND (
+        instr(substr(content, 1, 32768), 'SKILL.md') > 0
+        OR substr(content, 1, 32768) GLOB '*[$][a-z]*'
+      )`).all(start.toISOString()) as Array<{
+      sessionId: string; content: string; timestamp: string;
     }>;
+  const agentSkillValues = db.prepare(`SELECT session_id AS sessionId,
+      substr(skill_input.value, 1, 32768) AS inputValue, timestamp
+    FROM messages, json_tree(messages.tool_calls) AS skill_input
+    WHERE timestamp >= ? AND tool_calls IS NOT NULL AND json_valid(tool_calls)
+      AND skill_input.type = 'text' AND instr(skill_input.value, 'SKILL.md') > 0`).all(start.toISOString()) as Array<{
+      sessionId: string; inputValue: string; timestamp: string;
+    }>;
+  const toolNameRows = db.prepare(`SELECT json_extract(tool.value, '$.name') AS name,
+      COUNT(*) AS calls
+    FROM messages, json_each(messages.tool_calls) AS tool
+    WHERE timestamp >= ? AND tool_calls IS NOT NULL AND json_valid(tool_calls)
+    GROUP BY name`).all(start.toISOString()) as Array<{ name: string | null; calls: number }>;
   const skillCounts = new Map<string, number>();
   const skillSessions = new Map<string, Set<string>>();
   const toolCounts = new Map<string, number>();
   const userSkillsBySession = new Map<string, Set<string>>();
-  for (const message of messages) {
-    if (!sessionIds.has(message.sessionId) || message.type !== 'user') continue;
+  for (const message of userSkillMessages) {
+    if (!sessionIds.has(message.sessionId)) continue;
     const names = userSkillsBySession.get(message.sessionId) ?? new Set<string>();
-    for (const skill of userInvokedSkillNames(message.content)) names.add(skill);
+    const skills = userInvokedSkillNames(message.content);
+    for (const skill of skills) {
+      names.add(skill);
+      const point = byKey.get(bucketKey(message.timestamp, range));
+      if (point) {
+        point.skillInvocations += 1;
+        point.skillBreakdown[skill] = (point.skillBreakdown[skill] ?? 0) + 1;
+      }
+      skillCounts.set(skill, (skillCounts.get(skill) ?? 0) + 1);
+      const covered = skillSessions.get(skill) ?? new Set<string>();
+      covered.add(message.sessionId);
+      skillSessions.set(skill, covered);
+    }
     userSkillsBySession.set(message.sessionId, names);
   }
-  for (const message of messages) {
+  for (const message of agentSkillValues) {
     if (!sessionIds.has(message.sessionId)) continue;
-    const skills = message.type === 'user'
-      ? userInvokedSkillNames(message.content)
-      : agentAppliedSkillNames(message.toolCalls)
-        .filter((name) => !(userSkillsBySession.get(message.sessionId)?.has(name) ?? false));
+    const observed = skillNameFromPath(message.inputValue);
+    const skills = observed
+      && !(userSkillsBySession.get(message.sessionId)?.has(observed) ?? false)
+      ? [observed]
+      : [];
     if (skills.length > 0) {
       const point = byKey.get(bucketKey(message.timestamp, range));
       if (point) point.skillInvocations += skills.length;
@@ -239,10 +259,11 @@ app.get('/overview', (c) => {
         skillSessions.set(skill, covered);
       }
     }
-    for (const tool of safeToolNames(message.toolCalls)) {
-      const family = toolFamily(tool);
-      toolCounts.set(family, (toolCounts.get(family) ?? 0) + 1);
-    }
+  }
+  for (const tool of toolNameRows) {
+    if (!tool.name) continue;
+    const family = toolFamily(tool.name);
+    toolCounts.set(family, (toolCounts.get(family) ?? 0) + tool.calls);
   }
 
   const promptRows = db.prepare(`SELECT session_id AS sessionId, timestamp, metadata

@@ -20,6 +20,10 @@ describe('FirstRunGuide', () => {
     expect(screen.getByText(/organize Agent sessions saved on this computer/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('Confirm the hook once in Codex')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy /hooks' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(screen.getByText('Check preparation progress')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));

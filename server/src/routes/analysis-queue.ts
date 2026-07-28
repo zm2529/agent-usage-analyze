@@ -21,23 +21,37 @@ app.get('/', (c) => {
 });
 
 app.post('/retry', (c) => {
-  const retrying = (getDb().prepare(`SELECT COUNT(*) AS count
-    FROM analysis_queue q
-    WHERE q.status = 'awaiting-capability'
-      AND q.runner_type = 'auto'
+  const db = getDb();
+  const retrying = db.prepare(`UPDATE analysis_queue AS q
+    SET status = 'settling',
+        not_before = datetime('now'),
+        attempt_count = 0,
+        error_message = NULL,
+        diagnostic = NULL,
+        started_at = NULL
+    WHERE q.runner_type = 'auto'
       AND q.source_tool = 'codex-cli'
-      AND EXISTS (
-        SELECT 1 FROM messages m
-        WHERE m.session_id = 'codex:' || q.session_id
-      )
       AND (
-        (SELECT MAX(completed_at) FROM analysis_queue
-          WHERE status = 'completed' AND completed_at IS NOT NULL) IS NULL
-        OR datetime(enqueued_at) > datetime((
-          SELECT MAX(completed_at) FROM analysis_queue
-          WHERE status = 'completed' AND completed_at IS NOT NULL
-        ))
-      )`).get() as { count: number }).count;
+        (
+          q.status = 'awaiting-capability'
+          AND EXISTS (
+            SELECT 1 FROM messages m
+            WHERE m.session_id = 'codex:' || q.session_id
+          )
+          AND (
+            (SELECT MAX(completed_at) FROM analysis_queue
+              WHERE status = 'completed' AND completed_at IS NOT NULL) IS NULL
+            OR datetime(enqueued_at) > datetime((
+              SELECT MAX(completed_at) FROM analysis_queue
+              WHERE status = 'completed' AND completed_at IS NOT NULL
+            ))
+          )
+        )
+        OR (
+          q.status = 'failed'
+          AND q.error_message LIKE '%input-evidence-too-large%'
+        )
+      )`).run().changes;
   if (retrying > 0) spawnSettledAnalysisWorker();
   return c.json({
     accepted: retrying > 0,

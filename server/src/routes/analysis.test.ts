@@ -87,6 +87,42 @@ describe('Analysis routes', () => {
     mockRunInsightsCommand.mockReset();
   });
 
+  describe('GET /api/analysis/usage/summary', () => {
+    it('reports uncached input, output, cache writes, and cache reads', async () => {
+      seedProject('p-usage', 'usage');
+      seedSession('s-usage', 'p-usage');
+      testDb.prepare(`INSERT INTO analysis_usage (
+        session_id, analysis_type, provider, model, input_tokens, output_tokens,
+        cache_creation_tokens, cache_read_tokens, estimated_cost_usd
+      ) VALUES (?, 'session', 'openai', 'test', 120, 30, 10, 80, 0.01)`).run('s-usage');
+      const response = await createApp().request('/api/analysis/usage/summary');
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        calls: 1,
+        inputTokens: 120,
+        outputTokens: 30,
+        cacheCreationTokens: 10,
+        cacheReadTokens: 80,
+      });
+    });
+
+    it('keeps cost unavailable when no provider pricing was recorded', async () => {
+      seedProject('p-no-cost', 'no-cost');
+      seedSession('s-no-cost', 'p-no-cost');
+      testDb.prepare(`INSERT INTO analysis_usage (
+        session_id, analysis_type, provider, model, input_tokens, output_tokens,
+        cache_creation_tokens, cache_read_tokens, estimated_cost_usd
+      ) VALUES (?, 'session', 'codex-native', 'codex-default', 120, 30, 0, 80, 0)`)
+        .run('s-no-cost');
+
+      const response = await createApp().request('/api/analysis/usage/summary');
+      expect(await response.json()).toMatchObject({
+        calls: 1,
+        estimatedCostUsd: null,
+      });
+    });
+  });
+
   describe('POST /api/analysis/automatic-session', () => {
     it('uses the automatic runner and forwards an explicit force request', async () => {
       seedProject('p-auto', 'auto');

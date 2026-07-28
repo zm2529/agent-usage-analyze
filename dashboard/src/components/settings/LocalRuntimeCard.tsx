@@ -14,7 +14,9 @@ export function LocalRuntimeCard() {
     <section className="border-t border-foreground bg-card">
       <div className="border-b p-5">
         <h2 className="flex items-center gap-2 text-lg font-semibold"><HardDrive className="h-5 w-5" />{t('runtime.title', 'Local runtime and data')}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">只读状态与隐私导出；日常使用不需要在这里操作。</p>
+        <p className="mt-1 text-xs text-muted-foreground">{language === 'zh-CN'
+          ? '安装完成后可以关闭终端；本地服务会在后台运行并随系统启动。'
+          : 'You can close the terminal after setup; the local service keeps running and starts with your system.'}</p>
       </div>
       <div className="space-y-3 p-5 text-sm">
         {runtime.isLoading && <p className="text-muted-foreground">{t('runtime.loading', 'Loading local runtime…')}</p>}

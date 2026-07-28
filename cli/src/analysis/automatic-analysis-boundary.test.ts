@@ -66,7 +66,7 @@ describe('automatic analysis evidence bounds', () => {
     expect(() => boundary.assertSafeInput()).toThrow(/input-evidence-unavailable/i);
   });
 
-  it('rejects when the newest complete turn exceeds the event cap', () => {
+  it('keeps a bounded sample when the newest complete turn exceeds the event cap', () => {
     const oversizedTurn = [
       message(0, 'user'),
       ...Array.from(
@@ -76,7 +76,11 @@ describe('automatic analysis evidence bounds', () => {
     ];
     const boundary = buildAutomaticAnalysisBoundary(oversizedTurn);
 
-    expect(() => boundary.assertSafeInput()).toThrow(/input-evidence-too-large/i);
+    boundary.assertSafeInput();
+    const included = boundary.formattedEvidence.match(/"evidenceVersion":/g)?.length ?? 0;
+    expect(included).toBeGreaterThan(1);
+    expect(included).toBeLessThanOrEqual(AUTOMATIC_EVIDENCE_MAX_EVENTS);
+    expect(boundary.formattedEvidence).toContain('"evidenceRef":"User#0"');
   });
 
   it('encodes structural delimiters so evidence cannot close its data boundary', () => {
@@ -110,7 +114,7 @@ describe('automatic analysis evidence bounds', () => {
     }
   });
 
-  it('counts automatic metadata inside the same packet byte limit', () => {
+  it('bounds automatic metadata inside the same packet byte limit', () => {
     const boundary = buildAutomaticAnalysisBoundary([], {
       projectName: 'safe-project', summary: null,
       sessionMeta: {
@@ -120,6 +124,21 @@ describe('automatic analysis evidence bounds', () => {
       },
     });
 
-    expect(() => boundary.assertSafeInput()).toThrow(/input-evidence-too-large/i);
+    boundary.assertSafeInput();
+    expect(Buffer.byteLength(boundary.formattedEvidence)).toBeLessThanOrEqual(AUTOMATIC_EVIDENCE_MAX_BYTES);
+    expect(boundary.formattedEvidence).toContain('[content truncated for bounded analysis]');
+  });
+
+  it('keeps a bounded sample when the newest complete turn is larger than the byte cap', () => {
+    const user = message(0, 'user');
+    const assistant = message(1, 'assistant');
+    user.content = `request ${'x'.repeat(AUTOMATIC_EVIDENCE_MAX_BYTES * 2)}`;
+    assistant.content = `result ${'y'.repeat(AUTOMATIC_EVIDENCE_MAX_BYTES * 2)}`;
+    const boundary = buildAutomaticAnalysisBoundary([user, assistant]);
+
+    boundary.assertSafeInput();
+    expect(Buffer.byteLength(boundary.formattedEvidence)).toBeLessThanOrEqual(AUTOMATIC_EVIDENCE_MAX_BYTES);
+    expect(boundary.formattedEvidence).toContain('"evidenceRef":"User#0"');
+    expect(boundary.formattedEvidence).toContain('"evidenceRef":"Assistant#0"');
   });
 });

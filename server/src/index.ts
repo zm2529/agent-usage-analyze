@@ -34,6 +34,7 @@ import codexUsageRouter from './routes/codex-usage.js';
 import runtimeStatusRouter from './routes/runtime-status.js';
 import practicesRouter, { startKnowledgeResearchScheduler } from './routes/practices.js';
 import improvementsRouter from './routes/improvements.js';
+import translateRouter from './routes/translate.js';
 import { startCodexSessionWatcher } from './codex-session-watcher.js';
 
 export interface ServerOptions {
@@ -99,6 +100,7 @@ export function createApp(): Hono {
   app.route('/api/runtime-status', runtimeStatusRouter);
   app.route('/api/practices', practicesRouter);
   app.route('/api/improvements', improvementsRouter);
+  app.route('/api/translate', translateRouter);
 
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true, version: '0.1.0' }));
