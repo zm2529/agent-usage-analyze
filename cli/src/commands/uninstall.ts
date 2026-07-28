@@ -14,6 +14,15 @@ const CODEX_ARTIFACT_PREFIXES = [
   'hooks.json.agent-analytics-',
   'hooks.json.agent-usage-analyze-',
 ] as const;
+const MACOS_SERVICE_LABELS = [
+  'local.agent-usage-analyze.dashboard',
+  'local.agent-analytics.dashboard',
+] as const;
+const TEMP_ARTIFACTS = [
+  '/tmp/run-agent-usage-dashboard.sh',
+  '/tmp/agent-usage-analyze-dashboard.log',
+  '/tmp/agent-usage-analyze-dashboard-error.log',
+] as const;
 
 export interface UninstallResult {
   removedPaths: string[];
@@ -109,6 +118,15 @@ export function stopProductProcesses(): number[] {
   return stopped;
 }
 
+export function stopProductServices(): void {
+  if (process.platform !== 'darwin' || typeof process.getuid !== 'function') return;
+  const domain = `gui/${process.getuid()}`;
+  for (const label of MACOS_SERVICE_LABELS) {
+    spawnSync('launchctl', ['bootout', `${domain}/${label}`], { stdio: 'ignore' });
+    spawnSync('launchctl', ['remove', label], { stdio: 'ignore' });
+  }
+}
+
 export function removeProductOwnedFiles(options: {
   homeDir?: string;
   configDir?: string;
@@ -142,10 +160,12 @@ export function removeProductOwnedFiles(options: {
 
   removeEmptyJsonObject(path.join(codexRoot, 'hooks.json'), removedPaths);
   removeEmptyJsonObject(path.join(homeDir, '.claude', 'settings.json'), removedPaths);
+  for (const artifact of TEMP_ARTIFACTS) removePath(artifact, removedPaths);
   return removedPaths;
 }
 
 export async function uninstallProduct(): Promise<UninstallResult> {
+  stopProductServices();
   const stoppedProcessIds = stopProductProcesses();
   await uninstallHookCommand({ source: 'all' });
   closeDb();
