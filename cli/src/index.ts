@@ -9,6 +9,7 @@ import { installHookCommand, uninstallHookCommand } from './commands/install-hoo
 import { openCommand } from './commands/open.js';
 import { dashboardCommand } from './commands/dashboard.js';
 import { resetCommand } from './commands/reset.js';
+import { uninstallCommand } from './commands/uninstall.js';
 import { statsCommand } from './commands/stats/index.js';
 import { configCommand } from './commands/config.js';
 import { telemetryCommand } from './commands/telemetry.js';
@@ -238,6 +239,7 @@ program
   .action(dashboardCommand);
 
 program.addCommand(resetCommand);
+program.addCommand(uninstallCommand);
 program.addCommand(statsCommand);
 program.addCommand(configCommand);
 program.addCommand(telemetryCommand);

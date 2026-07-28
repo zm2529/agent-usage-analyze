@@ -135,6 +135,9 @@ agent-usage-analyze start --no-hook
 
 # 本次启动不回填历史
 agent-usage-analyze start --no-import
+
+# 卸载 Hook、停止本地服务并永久删除本产品的本地数据
+agent-usage-analyze uninstall
 ```
 
 高级的队列、模型执行策略和故障恢复说明见 [Codex 自动分析](docs/codex-zero-config-analysis.md)。实践研究与改进追踪的数据边界见 [实践研究与改进追踪](docs/practice-research-and-improvement-tracking.md)。本地数据的导出、归档、恢复与重建见 [本地数据生命周期](docs/local-data-lifecycle.md)。

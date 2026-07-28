@@ -14,3 +14,11 @@ agent-usage-analyze import-codex
 ```
 
 `reset` moves the product-owned database and sync state into a timestamped backup instead of permanently deleting them. It refuses an incomplete archive while another WAL reader is active. It does not modify imported history files or Git repositories. Restore the reported backup paths for recovery, or run `import-codex` to rebuild canonical projections from the original local sources.
+
+## Permanently uninstall local data
+
+```sh
+agent-usage-analyze uninstall
+```
+
+This stops the local service and removes Agent Usage Analyzer hooks, product-owned local data, and the global npm command. Source Codex/Claude sessions and Git repositories are preserved.
