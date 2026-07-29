@@ -56,6 +56,10 @@ app.get('/', (c) => {
     conditions.push('NOT EXISTS (SELECT 1 FROM insights insight WHERE insight.session_id = sessions.id)');
   }
   conditions.push('deleted_at IS NULL');
+  conditions.push(`EXISTS (SELECT 1 FROM messages message
+    WHERE message.session_id = sessions.id AND message.type = 'user')`);
+  conditions.push(`EXISTS (SELECT 1 FROM messages message
+    WHERE message.session_id = sessions.id AND message.type = 'assistant')`);
   const where = `WHERE ${conditions.join(' AND ')}`;
   const pageLimit = Math.min(parseIntParam(limit, 50), 500);
   const rows = db.prepare(`
@@ -78,12 +82,8 @@ app.get('/', (c) => {
       (SELECT COUNT(*) FROM insights insight
         WHERE insight.session_id = candidates.id) AS insight_count
     FROM candidates
-    WHERE EXISTS (SELECT 1 FROM messages message
-      WHERE message.session_id = candidates.id AND message.type = 'user')
-      AND EXISTS (SELECT 1 FROM messages message
-        WHERE message.session_id = candidates.id AND message.type = 'assistant')
     ORDER BY ended_at DESC, started_at DESC
-  `).all(...params, pageLimit + 10, parseIntParam(offset, 0));
+  `).all(...params, pageLimit + 1, parseIntParam(offset, 0));
   const hasMore = rows.length > pageLimit;
   return c.json({ sessions: hasMore ? rows.slice(0, pageLimit) : rows, hasMore });
 });

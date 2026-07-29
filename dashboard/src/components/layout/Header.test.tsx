@@ -40,7 +40,7 @@ describe('primary navigation', () => {
     );
 
     expect(screen.getByText('最近事件已收到')).toBeInTheDocument();
-    expect(screen.getByText('正在导入')).toBeInTheDocument();
+    expect(screen.getByText('已处理 4/8 个来源')).toBeInTheDocument();
     expect(screen.getByText('等待分析能力')).toBeInTheDocument();
     expect(screen.getByText('当前报告可用')).toBeInTheDocument();
   });

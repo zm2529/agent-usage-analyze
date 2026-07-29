@@ -97,7 +97,9 @@ export function Header() {
           <Link to={stages?.ingestion.action?.href ?? '/settings'} className={stageClass(stages?.ingestion.state)}>
             <i aria-hidden />
             <b>{chinese ? '导入' : 'Import'}</b>
-            <span>{stages?.ingestion.label ?? (chinese ? '读取中' : 'Loading')}</span>
+            <span>{stages?.ingestion.state === 'running'
+              ? stages.ingestion.detail
+              : stages?.ingestion.label ?? (chinese ? '读取中' : 'Loading')}</span>
           </Link>
           <span className="vibe-pipe-arrow" aria-hidden>→</span>
           <Link to={stages?.semanticAnalysis.action?.href ?? '/settings'} className={stageClass(stages?.semanticAnalysis.state)}>

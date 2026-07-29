@@ -1,7 +1,48 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runImportCodexCommand } from './import-codex.js';
+import { retryDatabaseBusy, runImportCodexCommand } from './import-codex.js';
 
 describe('runImportCodexCommand', () => {
+  it('retries a transient database lock before starting automatic analysis', async () => {
+    const calls: string[] = [];
+    let attempt = 0;
+
+    await runImportCodexCommand({ analyzeAfterImport: true }, {
+      importHistory: () => retryDatabaseBusy(async () => {
+        attempt += 1;
+        calls.push(`import-${attempt}`);
+        if (attempt === 1) {
+          throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+        }
+        return {
+          runId: 'run-1', adapter: 'codex-rollout', insertedEvents: 4, advancedSources: 1,
+          coverage: { discovered: 1, parsed: 1, skipped: 0, failed: 0, unknown: 0 },
+          status: 'completed' as const,
+        };
+      }, { wait: async () => undefined }),
+      startHistoryAnalysis: () => {
+        calls.push('session-analysis');
+        return {
+          enabled: true, effectiveRunner: 'codex-native', reason: 'codex-chatgpt-auth',
+          queued: 1, logPath: '/tmp/analysis.log',
+        };
+      },
+      startBehaviorReport: () => { calls.push('behavior-report'); },
+      writeSummary: vi.fn(),
+    });
+
+    expect(calls).toEqual(['import-1', 'import-2', 'session-analysis', 'behavior-report']);
+  });
+
+  it('does not retry a non-locking import failure', async () => {
+    const operation = vi.fn(async () => {
+      throw new Error('invalid rollout');
+    });
+
+    await expect(retryDatabaseBusy(operation, { wait: async () => undefined }))
+      .rejects.toThrow('invalid rollout');
+    expect(operation).toHaveBeenCalledOnce();
+  });
+
   it('starts session and cross-session LLM analysis after the initial import', async () => {
     const calls: string[] = [];
     const writeSummary = vi.fn();

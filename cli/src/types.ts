@@ -365,6 +365,10 @@ export interface KnowledgeResearchConfig {
   authorizedAt?: string;
 }
 
+export interface ProductUpdateConfig {
+  autoUpdate?: boolean;
+}
+
 export interface ProviderModelOption {
   id: string;
   name: string;
@@ -393,6 +397,7 @@ export interface ClaudeInsightConfig {
     analysis?: AnalysisExecutionConfig;
     capabilities?: AnalysisCapabilityConfig;
     knowledgeResearch?: KnowledgeResearchConfig;
+    updates?: ProductUpdateConfig;
   };
   telemetry?: boolean;              // default false (local-first opt-in)
 }

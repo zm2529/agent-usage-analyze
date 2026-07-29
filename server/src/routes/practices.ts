@@ -11,6 +11,7 @@ const app = new Hono();
 
 interface GenerationState {
   running: boolean;
+  queued: boolean;
   scope: KnowledgeSnapshotScope | null;
   startedAt: string | null;
   lastCompletedAt: string | null;
@@ -19,6 +20,7 @@ interface GenerationState {
 
 const generation: GenerationState = {
   running: false,
+  queued: false,
   scope: null,
   startedAt: null,
   lastCompletedAt: null,
@@ -110,6 +112,7 @@ export function triggerKnowledgeResearch(
 ): boolean {
   if (generation.running) return false;
   generation.running = true;
+  generation.queued = false;
   generation.scope = scope;
   generation.startedAt = new Date().toISOString();
   generation.lastError = null;
@@ -130,16 +133,76 @@ export function triggerKnowledgeResearch(
 
 function maybeStartWeeklyResearch(): boolean {
   const authorization = researchAuthorization();
-  if (!authorization.enabled || !authorization.authorizedAt || generation.running) return false;
-  if (!isWeeklyKnowledgeRefreshDue(getDb())) return false;
+  if (!authorization.enabled || !authorization.authorizedAt || generation.running) {
+    generation.queued = false;
+    return false;
+  }
+  if (!isWeeklyKnowledgeRefreshDue(getDb())) {
+    generation.queued = false;
+    generation.scope = null;
+    return false;
+  }
+  if (localPipelineIsWriting()) {
+    generation.queued = true;
+    generation.scope = 'weekly';
+    generation.startedAt = null;
+    generation.lastError = null;
+    return false;
+  }
   return triggerKnowledgeResearch('weekly', weeklyResearchTopics());
 }
 
+const PIPELINE_BUSY_RETRY_MS = 30_000;
+let weeklyResearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function localPipelineIsWriting(): boolean {
+  const db = getDb();
+  const activeAnalysis = db.prepare(`SELECT 1 FROM analysis_queue
+    WHERE status = 'processing'
+      AND datetime(started_at) >= datetime('now', '-1 hour')
+    LIMIT 1`).get();
+  if (activeAnalysis) return true;
+  return Boolean(db.prepare(`SELECT 1 FROM ingestion_runs
+    WHERE status = 'running'
+      AND datetime(started_at) >= datetime('now', '-1 hour')
+    LIMIT 1`).get());
+}
+
+function cancelScheduledWeeklyResearch(): void {
+  if (weeklyResearchTimer) clearTimeout(weeklyResearchTimer);
+  weeklyResearchTimer = null;
+  if (!generation.running) {
+    generation.queued = false;
+    generation.scope = null;
+  }
+}
+
+function scheduleWeeklyResearch(delayMs = 0): void {
+  if (weeklyResearchTimer) return;
+  weeklyResearchTimer = setTimeout(() => {
+    weeklyResearchTimer = null;
+    try {
+      const started = maybeStartWeeklyResearch();
+      if (!started && generation.queued) scheduleWeeklyResearch(PIPELINE_BUSY_RETRY_MS);
+    } catch (error) {
+      generation.queued = false;
+      generation.scope = null;
+      generation.lastError = error instanceof Error ? error.message : '知识检索调度失败';
+    }
+  }, delayMs);
+  weeklyResearchTimer.unref();
+}
+
 export function startKnowledgeResearchScheduler(): { close: () => void } {
-  const timer = setInterval(() => { maybeStartWeeklyResearch(); }, 6 * 60 * 60 * 1000);
+  const timer = setInterval(() => { scheduleWeeklyResearch(); }, 6 * 60 * 60 * 1000);
   timer.unref();
-  maybeStartWeeklyResearch();
-  return { close: () => clearInterval(timer) };
+  scheduleWeeklyResearch();
+  return {
+    close: () => {
+      clearInterval(timer);
+      cancelScheduledWeeklyResearch();
+    },
+  };
 }
 
 app.get('/status', (c) => {
@@ -179,7 +242,8 @@ app.post('/authorization', async (c) => {
       knowledgeResearch: { enabled: true, authorizedAt },
     },
   });
-  maybeStartWeeklyResearch();
+  generation.lastError = null;
+  scheduleWeeklyResearch();
   return c.json({ enabled: true, authorizedAt }, 201);
 });
 
@@ -202,7 +266,12 @@ app.patch('/authorization', async (c) => {
       knowledgeResearch: value.enabled ? { enabled: true, authorizedAt: authorizedAt! } : { enabled: false },
     },
   });
-  if (value.enabled) maybeStartWeeklyResearch();
+  if (value.enabled) {
+    generation.lastError = null;
+    scheduleWeeklyResearch();
+  } else {
+    cancelScheduledWeeklyResearch();
+  }
   return c.json({ enabled: value.enabled, authorizedAt });
 });
 
@@ -226,6 +295,7 @@ app.post('/refresh', async (c) => {
   }
   const scope: KnowledgeSnapshotScope = typeof topic === 'string' ? 'topic' : 'weekly';
   const rawTopics = typeof topic === 'string' ? [topic] : weeklyResearchTopics();
+  cancelScheduledWeeklyResearch();
   if (!triggerKnowledgeResearch(scope, rawTopics)) {
     return c.json({ error: 'Knowledge research is already running' }, 409);
   }

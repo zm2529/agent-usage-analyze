@@ -21,8 +21,8 @@ const copy = {
     },
     {
       eyebrow: 'Codex Hook',
-      title: '在 Codex 中确认一次 Hook',
-      description: '打开 Codex，在输入框键入 /hooks，确认 Agent Usage Analyzer 的处理器为已启用。完成后，新会话会自动进入这里。',
+      title: '开启 Codex Hook',
+      description: '允许 Agent Usage Analyzer 接收会话结束事件。Codex App 和 CLI 的开启入口不同，请按你正在使用的方式操作。',
       target: null,
       icon: TerminalSquare,
       hook: true,
@@ -30,7 +30,7 @@ const copy = {
     {
       eyebrow: '数据准备',
       title: '查看准备进度',
-      description: '顶部会显示已经读取了多少会话。数据较多时可能需要几分钟，你可以继续浏览其他页面。',
+      description: '顶部导入节点会显示当前处理阶段；导入进行中时会显示已处理和总来源数。你可以继续浏览其他页面。',
       target: 'pipeline',
       icon: Route,
     },
@@ -67,8 +67,8 @@ const copy = {
     },
     {
       eyebrow: 'CODEX HOOK',
-      title: 'Confirm the hook once in Codex',
-      description: 'Open Codex, enter /hooks, and confirm that the Agent Usage Analyzer handler is enabled. New sessions will then appear here automatically.',
+      title: 'Enable the Codex hook',
+      description: 'Allow Agent Usage Analyzer to receive session-end events. Codex App and CLI expose this permission in different places.',
       target: null,
       icon: TerminalSquare,
       hook: true,
@@ -76,7 +76,7 @@ const copy = {
     {
       eyebrow: 'DATA PREPARATION',
       title: 'Check preparation progress',
-      description: 'The top bar shows how many sessions have been read. A large history may take a few minutes while you continue browsing.',
+      description: 'The Import stage in the top bar shows the current phase and, while importing, the processed and total source counts.',
       target: 'pipeline',
       icon: Route,
     },
@@ -106,6 +106,15 @@ const copy = {
 } as const;
 
 export const FIRST_RUN_GUIDE_STORAGE_KEY = 'agent-usage-analyze:first-run-guide:v1';
+export const FIRST_RUN_GUIDE_OPEN_EVENT = 'agent-usage-analyze:open-first-run-guide';
+
+export function firstRunGuideStorageKey(installationId: string): string {
+  return `${FIRST_RUN_GUIDE_STORAGE_KEY}:${installationId}`;
+}
+
+export function requestFirstRunGuide(): void {
+  window.dispatchEvent(new Event(FIRST_RUN_GUIDE_OPEN_EVENT));
+}
 
 function targetRect(target: string | null): SpotlightRect | null {
   if (!target) return null;
@@ -124,12 +133,16 @@ function targetRect(target: string | null): SpotlightRect | null {
 export function FirstRunGuide({
   open,
   onClose,
+  hookState,
   researchEnabled = false,
+  researchPending = false,
   onResearchEnabledChange,
 }: {
   open: boolean;
   onClose: () => void;
+  hookState?: 'healthy' | 'running' | 'waiting' | 'stale' | 'failed' | 'not-configured';
   researchEnabled?: boolean;
+  researchPending?: boolean;
   onResearchEnabledChange?: (enabled: boolean) => void;
 }) {
   const { language } = useLanguage();
@@ -140,6 +153,7 @@ export function FirstRunGuide({
   const step = steps[stepIndex];
   const Icon = step.icon;
   const isLast = stepIndex === steps.length - 1;
+  const hookReady = hookState === 'healthy';
 
   const labels = useMemo(() => language === 'zh-CN' ? {
     dialog: '首次使用指引',
@@ -230,17 +244,33 @@ export function FirstRunGuide({
         <p className="mt-3 text-sm leading-6 text-muted-foreground">{step.description}</p>
         {'hook' in step && step.hook && (
           <div className="mt-5 border-y py-4">
-            <div className="grid grid-cols-[28px_1fr] gap-x-3 gap-y-3 text-xs">
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground text-background">1</span><span className="self-center">{language === 'zh-CN' ? '打开 Codex 的任一任务' : 'Open any Codex task'}</span>
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground text-background">2</span><code className="self-center border bg-muted px-2 py-1 font-mono">/hooks</code>
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground text-background">3</span><span className="self-center">{language === 'zh-CN' ? '确认处理器已启用' : 'Confirm the handler is enabled'}</span>
-            </div>
-            <button type="button" className="mt-4 inline-flex min-h-10 items-center gap-2 border px-3 text-xs font-semibold hover:bg-muted" onClick={() => {
-              void navigator.clipboard.writeText('/hooks').then(() => {
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1_500);
-              });
-            }}><Copy className="h-3.5 w-3.5" />{copied ? labels.copied : labels.copyHook}</button>
+            {hookReady ? (
+              <p className="flex items-center gap-3 text-xs">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[#28666E] text-white"><Check className="h-4 w-4" /></span>
+                <span>{language === 'zh-CN' ? 'Hook 已开启，并已收到真实会话事件，无需继续操作。' : 'The hook is enabled and a real session event has been received.'}</span>
+              </p>
+            ) : <>
+              <div className="space-y-4 text-xs">
+                <div>
+                  <strong className="block">{language === 'zh-CN' ? 'Codex App' : 'Codex App'}</strong>
+                  <p className="mt-1 leading-5 text-muted-foreground">{language === 'zh-CN'
+                    ? '打开 Hook 管理界面，开启 Agent Usage Analyzer。'
+                    : 'Open Hook management and enable Agent Usage Analyzer.'}</p>
+                </div>
+                <div>
+                  <strong className="block">{language === 'zh-CN' ? 'Codex CLI' : 'Codex CLI'}</strong>
+                  <p className="mt-1 leading-5 text-muted-foreground">{language === 'zh-CN'
+                    ? '在任一任务中输入 /hooks，选择 Agent Usage Analyzer，并允许该处理器运行。'
+                    : 'Enter /hooks in any task, select Agent Usage Analyzer, and allow the handler to run.'}</p>
+                </div>
+              </div>
+              <button type="button" className="mt-4 inline-flex min-h-10 items-center gap-2 border px-3 text-xs font-semibold hover:bg-muted" onClick={() => {
+                void navigator.clipboard.writeText('/hooks').then(() => {
+                  setCopied(true);
+                  window.setTimeout(() => setCopied(false), 1_500);
+                });
+              }}><Copy className="h-3.5 w-3.5" />{copied ? labels.copied : labels.copyHook}</button>
+            </>}
           </div>
         )}
         {'consent' in step && step.consent && (
@@ -248,9 +278,13 @@ export function FirstRunGuide({
             <span className="text-sm font-medium">{language === 'zh-CN' ? '允许公开实践研究' : 'Allow public practice research'}</span>
             <Switch
               checked={researchEnabled}
+              disabled={researchPending}
               onCheckedChange={(checked) => onResearchEnabledChange?.(checked)}
               aria-label={language === 'zh-CN' ? '允许公开实践研究' : 'Allow public practice research'}
             />
+            {researchPending && <span className="sr-only" role="status">
+              {language === 'zh-CN' ? '正在保存设置' : 'Saving setting'}
+            </span>}
           </label>
         )}
 

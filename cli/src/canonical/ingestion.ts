@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { rebuildTaskProjection } from './tasks.js';
 import { IdentityConflictError } from './tasks.js';
 import { recordObserverOverheadDiagnostic, tryRecordObserverOverhead } from './observer-overhead.js';
+import { acquireIngestionLease } from './ingestion-lease.js';
 
 export type SourceKind = 'synthetic-codex' | 'codex-rollout' | 'codex-hook' | 'git';
 export type EraMode = 'historical-backfill' | 'continuous-observation';
@@ -466,7 +467,7 @@ function mergeDiagnostics(
   return [...merged.values()].sort((left, right) => left.code.localeCompare(right.code));
 }
 
-export async function ingestSourceAdapter(
+async function ingestSourceAdapterUnlocked(
   adapter: SourceAdapter,
   db: Database.Database,
   options: IngestionOptions = {},
@@ -879,6 +880,19 @@ export async function ingestSourceAdapter(
 
   recordImportOverhead();
   return { runId, adapter: adapter.name, insertedEvents, advancedSources, coverage, status };
+}
+
+export async function ingestSourceAdapter(
+  adapter: SourceAdapter,
+  db: Database.Database,
+  options: IngestionOptions = {},
+): Promise<IngestionSummary> {
+  const ingestionLease = await acquireIngestionLease(db.name);
+  try {
+    return await ingestSourceAdapterUnlocked(adapter, db, options);
+  } finally {
+    ingestionLease.release();
+  }
 }
 
 export interface IngestionHealth {

@@ -78,4 +78,37 @@ describe('practice library API', () => {
       }],
     });
   });
+
+  it('queues automatic research while local analysis is writing', async () => {
+    getDb().prepare(`INSERT INTO analysis_queue
+      (source_tool, session_id, status, runner_type, generation, started_at)
+      VALUES ('codex-cli', 'active-analysis', 'processing', 'auto', 1, datetime('now'))`).run();
+    const app = createApp();
+
+    const enabled = await app.request('/api/practices/authorization', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enabled.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const status = await app.request('/api/practices/status');
+    expect(await status.json()).toMatchObject({
+      due: true,
+      generation: {
+        running: false,
+        queued: true,
+        scope: 'weekly',
+        lastError: null,
+      },
+    });
+
+    const disabled = await app.request('/api/practices/authorization', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(disabled.status).toBe(200);
+  });
 });

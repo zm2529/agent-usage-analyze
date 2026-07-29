@@ -1,4 +1,7 @@
 import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runMigrations } from '../db/migrate.js';
 import {
@@ -65,6 +68,48 @@ class FixtureAdapter implements SourceAdapter {
 }
 
 describe('canonical ingestion', () => {
+  it('serializes concurrent ingestion runs before either can rebuild projections', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'agent-analytics-ingestion-'));
+    const databasePath = join(root, 'data.db');
+    const firstDb = new Database(databasePath);
+    const secondDb = new Database(databasePath);
+    runMigrations(firstDb);
+    runMigrations(secondDb);
+    let releaseDiscovery!: () => void;
+    let firstDiscoveryStarted!: () => void;
+    const firstDiscovery = new Promise<void>((resolve) => { firstDiscoveryStarted = resolve; });
+    const discoveryGate = new Promise<void>((resolve) => { releaseDiscovery = resolve; });
+    let secondDiscovered = false;
+    const firstAdapter = new FixtureAdapter();
+    firstAdapter.discover = async () => {
+      firstDiscoveryStarted();
+      await discoveryGate;
+      return [artifact];
+    };
+    const secondAdapter = new FixtureAdapter();
+    secondAdapter.discover = async () => {
+      secondDiscovered = true;
+      return [artifact];
+    };
+
+    try {
+      const first = ingestSourceAdapter(firstAdapter, firstDb);
+      await firstDiscovery;
+      const second = ingestSourceAdapter(secondAdapter, secondDb);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(secondDiscovered).toBe(false);
+
+      releaseDiscovery();
+      await expect(first).resolves.toMatchObject({ status: 'completed' });
+      await expect(second).resolves.toMatchObject({ status: 'completed' });
+      expect(secondDiscovered).toBe(true);
+    } finally {
+      firstDb.close();
+      secondDb.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('imports a source idempotently and exposes coverage through the public health query', async () => {
     const db = new Database(':memory:');
     runMigrations(db);

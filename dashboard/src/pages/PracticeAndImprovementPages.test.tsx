@@ -56,7 +56,7 @@ describe('new product areas', () => {
       isError: false,
       data: {
         authorization: { enabled: false, authorizedAt: null },
-        generation: { running: false, scope: null, startedAt: null, lastCompletedAt: null, lastError: null },
+        generation: { running: false, queued: false, scope: null, startedAt: null, lastCompletedAt: null, lastError: null },
         latestSnapshot: null,
       },
     });
@@ -69,6 +69,34 @@ describe('new product areas', () => {
 
     expect(screen.getByText('自动更新已关闭，可在设置中开启')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '确认边界并授权' })).not.toBeInTheDocument();
+  });
+
+  it('explains that public research is queued behind local writes', () => {
+    practiceHooks.useKnowledgeStatus.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        authorization: { enabled: true, authorizedAt: '2026-07-29T00:00:00.000Z' },
+        generation: {
+          running: false,
+          queued: true,
+          scope: 'weekly',
+          startedAt: null,
+          lastCompletedAt: null,
+          lastError: null,
+        },
+        latestSnapshot: null,
+      },
+    });
+    practiceHooks.useKnowledgePractices.mockReturnValue({ isLoading: false, isError: false, data: { practices: [] } });
+    practiceHooks.useRefreshKnowledgeResearch.mockReturnValue(idleMutation);
+    practiceHooks.useTrackKnowledgePractice.mockReturnValue(idleMutation);
+
+    renderWithQueryClient(<PracticeLibraryPage />);
+
+    expect(screen.getByText(/完成后会自动开始公开研究/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '刷新' })).toBeDisabled();
+    expect(screen.queryByText(/上次研究失败/)).not.toBeInTheDocument();
   });
 
   it('keeps implementation details out of the empty state', () => {

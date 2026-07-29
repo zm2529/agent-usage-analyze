@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, AnalysisRunRecord, BehaviorReportState, DashboardStats, OverviewAnalytics, OverviewRange, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, HistorySyncResult, PatternOverview, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, CodexAccountUsage } from '@/lib/types';
+import type { Project, Session, Message, Insight, AnalysisRunRecord, BehaviorReportState, DashboardStats, OverviewAnalytics, OverviewRange, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, HistorySyncResult, PatternOverview, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, CodexAccountUsage, ProductUpdateStatus } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -351,6 +351,27 @@ export function fetchLlmConfig() {
 
 export function fetchRuntimeConfig() {
   return request<RuntimeConfig>('/config/runtime');
+}
+
+export function fetchProductUpdateStatus() {
+  return request<ProductUpdateStatus>('/updates/status');
+}
+
+export function checkForProductUpdates() {
+  return request<ProductUpdateStatus>('/updates/check', { method: 'POST' });
+}
+
+export function saveProductUpdateSettings(autoUpdate: boolean) {
+  return request<ProductUpdateStatus>('/updates/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ autoUpdate }),
+  });
+}
+
+export function applyProductUpdate() {
+  return request<{ accepted: boolean; status: ProductUpdateStatus }>('/updates/apply', {
+    method: 'POST',
+  });
 }
 
 export function saveLlmConfig(body: {
@@ -855,6 +876,7 @@ export interface KnowledgeStatus {
   due: boolean;
   generation: {
     running: boolean;
+    queued: boolean;
     scope: 'weekly' | 'topic' | null;
     startedAt: string | null;
     lastCompletedAt: string | null;

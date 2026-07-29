@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db/client.js';
-import { recordAnalysisRun } from './analysis-run-db.js';
+import { recordAnalysisRun, recordAnalysisRunWithRetry } from './analysis-run-db.js';
 import { CodexNativeRunner } from './codex-native-runner.js';
 import type { AnalysisRunner, RunAnalysisResult } from './runner-types.js';
 
@@ -203,7 +203,31 @@ export function assertSafeResearchLabel(label: string): string {
   return normalized;
 }
 
-function recordFailedRun(
+const RESEARCH_WRITE_RETRY_ATTEMPTS = 8;
+const RESEARCH_WRITE_RETRY_DELAY_MS = 250;
+
+function isSqliteWriteConflict(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+  return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED'
+    || /database is locked/i.test(error instanceof Error ? error.message : String(error));
+}
+
+async function retryResearchWrite<T>(write: () => T): Promise<T> {
+  for (let attempt = 1; attempt <= RESEARCH_WRITE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return write();
+    } catch (error) {
+      if (!isSqliteWriteConflict(error) || attempt === RESEARCH_WRITE_RETRY_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(
+        resolve,
+        RESEARCH_WRITE_RETRY_DELAY_MS * attempt,
+      ));
+    }
+  }
+  throw new Error('unreachable research write retry state');
+}
+
+async function recordFailedRun(
   analysisType: string,
   promptVersion: string,
   systemPrompt: string,
@@ -211,16 +235,21 @@ function recordFailedRun(
   inputSummary: Record<string, unknown>,
   error: unknown,
   db: Database.Database,
-): void {
-  recordAnalysisRun({
-    analysisType,
-    status: 'failed',
-    unavailableReason: error instanceof Error ? error.message.slice(0, 500) : 'Unknown research failure',
-    promptVersion,
-    systemPrompt,
-    inputPrompt,
-    inputSummary,
-  }, db);
+): Promise<void> {
+  try {
+    await recordAnalysisRunWithRetry({
+      analysisType,
+      status: 'failed',
+      unavailableReason: error instanceof Error ? error.message.slice(0, 500) : 'Unknown research failure',
+      promptVersion,
+      systemPrompt,
+      inputPrompt,
+      inputSummary,
+    }, db, { attempts: 3, delayMs: 50 });
+  } catch {
+    // Keep the original provider/validation error. Failure telemetry is
+    // secondary and must not replace the reason the research actually failed.
+  }
 }
 
 export async function createSafeResearchLabels(
@@ -238,7 +267,7 @@ export async function createSafeResearchLabels(
       jsonSchema: SAFE_TOPIC_SCHEMA,
     });
   } catch (error) {
-    recordFailedRun(
+    await recordFailedRun(
       'knowledge_topic_redaction', KNOWLEDGE_TOPIC_PROMPT_VERSION,
       TOPIC_SYSTEM_PROMPT, null, { topicCount: rawTopics.length }, error, db,
     );
@@ -248,14 +277,14 @@ export async function createSafeResearchLabels(
   const output = parseObject<SafeTopicOutput>(result.rawJson, 'Safe research topic output');
   if (!output.safe || !Array.isArray(output.labels) || output.labels.length === 0) {
     const error = new Error('No privacy-safe public research topic remained after redaction');
-    recordFailedRun(
+    await recordFailedRun(
       'knowledge_topic_redaction', KNOWLEDGE_TOPIC_PROMPT_VERSION,
       TOPIC_SYSTEM_PROMPT, null, { topicCount: rawTopics.length }, error, db,
     );
     throw error;
   }
   const labels = [...new Set(output.labels.map(assertSafeResearchLabel))].slice(0, 6);
-  recordAnalysisRun({
+  await recordAnalysisRunWithRetry({
     analysisType: 'knowledge_topic_redaction',
     status: 'completed',
     provider: result.provider,
@@ -268,7 +297,10 @@ export async function createSafeResearchLabels(
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
     durationMs: result.durationMs,
-  }, db);
+  }, db, {
+    attempts: RESEARCH_WRITE_RETRY_ATTEMPTS,
+    delayMs: RESEARCH_WRITE_RETRY_DELAY_MS,
+  });
   return labels;
 }
 
@@ -312,7 +344,7 @@ export async function runKnowledgeResearch(options: {
       jsonSchema: RESEARCH_SCHEMA,
     });
   } catch (error) {
-    recordFailedRun(
+    await recordFailedRun(
       'knowledge_research', KNOWLEDGE_RESEARCH_PROMPT_VERSION,
       RESEARCH_SYSTEM_PROMPT, inputPrompt, { scope: options.scope, labels }, error, db,
     );
@@ -324,25 +356,25 @@ export async function runKnowledgeResearch(options: {
   const sourceCount = new Set(
     output.practices.flatMap((practice) => practice.sourceRefs.map((source) => source.url)),
   ).size;
-  const researchRunId = recordAnalysisRun({
-    analysisType: 'knowledge_research',
-    status: 'completed',
-    provider: result.provider,
-    model: result.model,
-    promptVersion: KNOWLEDGE_RESEARCH_PROMPT_VERSION,
-    systemPrompt: RESEARCH_SYSTEM_PROMPT,
-    inputPrompt,
-    inputSummary: { scope: options.scope, labels, sourceCount, practiceCount: output.practices.length },
-    outputJson: result.rawJson,
-    inputTokens: result.inputTokens,
-    outputTokens: result.outputTokens,
-    durationMs: result.durationMs,
-  }, db);
   const snapshotId = `knowledge-snapshot:${randomUUID()}`;
   const createdAt = new Date().toISOString();
   const topic = options.scope === 'topic' ? labels.join(' · ') : null;
 
-  db.transaction(() => {
+  const persistResearch = db.transaction(() => {
+    const researchRunId = recordAnalysisRun({
+      analysisType: 'knowledge_research',
+      status: 'completed',
+      provider: result.provider,
+      model: result.model,
+      promptVersion: KNOWLEDGE_RESEARCH_PROMPT_VERSION,
+      systemPrompt: RESEARCH_SYSTEM_PROMPT,
+      inputPrompt,
+      inputSummary: { scope: options.scope, labels, sourceCount, practiceCount: output.practices.length },
+      outputJson: result.rawJson,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      durationMs: result.durationMs,
+    }, db);
     db.prepare(`INSERT INTO knowledge_snapshots (
       id, scope, topic, snapshot_version, prompt_version, status, research_run_id,
       source_count, practice_count, query_summary_json, output_json, created_at
@@ -365,7 +397,9 @@ export async function runKnowledgeResearch(options: {
         JSON.stringify(practice.conflicts), createdAt,
       );
     });
-  })();
+    return researchRunId;
+  });
+  const researchRunId = await retryResearchWrite(() => persistResearch.immediate());
 
   return {
     id: snapshotId,

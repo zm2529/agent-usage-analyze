@@ -6,6 +6,7 @@ import {
   refreshKnowledgeResearch,
   setKnowledgeResearchAuthorization,
   trackKnowledgePractice,
+  type KnowledgeStatus,
   type KnowledgePractice,
 } from '@/lib/api';
 
@@ -45,7 +46,34 @@ export function useSetKnowledgeResearchAuthorization() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: setKnowledgeResearchAuthorization,
-    onSuccess: () => {
+    onMutate: async (enabled) => {
+      await client.cancelQueries({ queryKey: ['knowledgeStatus'] });
+      const previous = client.getQueryData<KnowledgeStatus>(['knowledgeStatus']);
+      if (previous) {
+        client.setQueryData<KnowledgeStatus>(['knowledgeStatus'], {
+          ...previous,
+          authorization: {
+            enabled,
+            authorizedAt: enabled ? previous.authorization.authorizedAt ?? new Date().toISOString() : null,
+          },
+          due: enabled ? previous.due : false,
+        });
+      }
+      return { previous };
+    },
+    onSuccess: (authorization) => {
+      client.setQueryData<KnowledgeStatus>(['knowledgeStatus'], (current) => current ? {
+        ...current,
+        authorization,
+        due: authorization.enabled ? current.due : false,
+      } : current);
+    },
+    onError: (_error, _enabled, context) => {
+      if (context?.previous) {
+        client.setQueryData(['knowledgeStatus'], context.previous);
+      }
+    },
+    onSettled: () => {
       void client.invalidateQueries({ queryKey: ['knowledgeStatus'] });
       void client.invalidateQueries({ queryKey: ['knowledgePractices'] });
     },

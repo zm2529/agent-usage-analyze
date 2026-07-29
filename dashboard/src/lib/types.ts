@@ -27,24 +27,10 @@ export interface IngestionHealth {
 }
 
 export interface HistorySyncResult {
-  status: 'completed';
+  status: 'started';
   startedAt: string;
-  completedAt: string;
-  forceRepair: boolean;
-  sessions: {
-    syncedCount: number;
-    messageCount: number;
-    errorCount: number;
-    updatedExistingCount: number;
-  };
-  deliveries: { repositories: number; deliveries: number; failed: number };
-  projection: {
-    staleBefore: number;
-    sessions: number;
-    usableSessions: number;
-    emptySessions: number;
-    invalidatedInsights: number;
-  };
+  pid?: number;
+  logPath: string;
 }
 
 export interface PatternOverview {
@@ -915,6 +901,7 @@ export interface AnalysisExecutionState {
 }
 
 export interface RuntimeConfig {
+  installationId: string;
   dataDirectory: string;
   listenAddress: string;
   sources: Array<{ kind: string; count: number }>;
@@ -926,4 +913,23 @@ export interface RuntimeConfig {
   dataActions: {
     exportPath: string; archiveCommand: string; rebuildCommand: string; scope: string; recovery: string;
   };
+}
+
+export type ProductInstallationMode = 'source' | 'npm-global' | 'npx' | 'unsupported';
+
+export interface ProductUpdateStatus {
+  packageName: 'agent-usage-analyze';
+  currentVersion: string;
+  latestVersion: string | null;
+  pendingVersion: string | null;
+  updateAvailable: boolean;
+  checking: boolean;
+  updating: boolean;
+  autoUpdate: boolean;
+  installationMode: ProductInstallationMode;
+  canUpdate: boolean;
+  lastCheckedAt: string | null;
+  lastUpdatedAt: string | null;
+  restartRequired: boolean;
+  error: string | null;
 }

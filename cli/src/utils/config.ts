@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { randomUUID } from 'crypto';
 import type { ClaudeInsightConfig, SyncState } from '../types.js';
 
 const CONFIG_DIR_ENV = 'AGENT_USAGE_ANALYZE_CONFIG_DIR';
@@ -25,6 +26,10 @@ function getConfigFilePath(): string {
 
 function getSyncStateFilePath(): string {
   return path.join(resolveConfigDir(), 'sync-state.json');
+}
+
+function getInstallationIdFilePath(): string {
+  return path.join(resolveConfigDir(), 'installation-id');
 }
 
 /**
@@ -79,6 +84,8 @@ export function saveConfig(config: ClaudeInsightConfig): void {
         ? { capabilities: config.dashboard.capabilities } : {}),
       ...(config.dashboard.knowledgeResearch !== undefined
         ? { knowledgeResearch: config.dashboard.knowledgeResearch } : {}),
+      ...(config.dashboard.updates !== undefined
+        ? { updates: config.dashboard.updates } : {}),
     };
   }
   if (config.telemetry !== undefined) {
@@ -130,6 +137,27 @@ export function isConfigured(): boolean {
  */
 export function getConfigDir(): string {
   return resolveConfigDir();
+}
+
+/**
+ * Return the opaque ID for this local product installation.
+ * Removing the product data creates a new ID so browser onboarding state does
+ * not leak across clean reinstalls.
+ */
+export function getInstallationId(): string {
+  const file = getInstallationIdFilePath();
+  try {
+    if (fs.existsSync(file)) {
+      const existing = fs.readFileSync(file, 'utf8').trim();
+      if (existing) return existing;
+    }
+  } catch {
+    // Recreate a missing or unreadable identifier below.
+  }
+  ensureConfigDir();
+  const installationId = randomUUID();
+  fs.writeFileSync(file, installationId, { mode: 0o600 });
+  return installationId;
 }
 
 /**

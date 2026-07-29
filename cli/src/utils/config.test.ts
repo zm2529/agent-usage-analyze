@@ -23,6 +23,7 @@ const {
   saveSyncState,
   isConfigured,
   getConfigDir,
+  getInstallationId,
   getClaudeDir,
   getSyncStatePath,
 } = await import('./config.js');
@@ -68,6 +69,21 @@ describe('config utilities', () => {
     it('continues accepting the legacy config override', () => {
       process.env.AGENT_ANALYTICS_CONFIG_DIR = '/task-home/.agent-analytics';
       expect(getConfigDir()).toBe('/task-home/.agent-analytics');
+    });
+  });
+
+  describe('getInstallationId', () => {
+    it('creates an opaque identifier inside the product data directory', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+
+      const installationId = getInstallationId();
+
+      expect(installationId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        `${EXPECTED_CONFIG_DIR}/installation-id`,
+        installationId,
+        { mode: 0o600 },
+      );
     });
   });
 
@@ -158,6 +174,20 @@ describe('config utilities', () => {
       const [, writtenContent] = vi.mocked(fs.writeFileSync).mock.calls[0];
       const parsed = JSON.parse(writtenContent as string);
       expect(parsed.dashboard).toEqual({ port: 7890 });
+    });
+
+    it('preserves the automatic product update preference', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+
+      saveConfig({
+        sync: { excludeProjects: [] },
+        dashboard: { updates: { autoUpdate: true } },
+      });
+
+      const [, writtenContent] = vi.mocked(fs.writeFileSync).mock.calls[0];
+      expect(JSON.parse(writtenContent as string).dashboard.updates).toEqual({
+        autoUpdate: true,
+      });
     });
 
     it('includes optional telemetry field when present', () => {

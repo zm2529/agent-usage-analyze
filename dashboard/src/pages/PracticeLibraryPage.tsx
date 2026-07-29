@@ -82,7 +82,7 @@ export default function PracticeLibraryPage() {
       <form className="flex w-full max-w-xl gap-2" onSubmit={(event) => { event.preventDefault(); refresh.mutate(topic.trim() || undefined); }}>
         <label className="sr-only" htmlFor="practice-topic">{cn ? '研究主题' : 'Research topic'}</label>
         <input id="practice-topic" className="h-11 min-w-0 flex-1 border bg-background px-3 text-sm" value={topic} onChange={(event) => setTopic(event.target.value)} placeholder={cn ? '按主题刷新，例如：多 Agent 委派' : 'Refresh by topic, e.g. multi-agent delegation'} />
-        <button type="submit" disabled={!knowledge?.authorization.enabled || refresh.isPending || knowledge?.generation.running} className="flex h-11 items-center gap-2 border border-foreground bg-foreground px-4 text-xs font-semibold text-background disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${(refresh.isPending || knowledge?.generation.running) ? 'animate-spin' : ''}`} />{cn ? '刷新' : 'Refresh'}</button>
+        <button type="submit" disabled={!knowledge?.authorization.enabled || refresh.isPending || knowledge?.generation.running || knowledge?.generation.queued} className="flex h-11 items-center gap-2 border border-foreground bg-foreground px-4 text-xs font-semibold text-background disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${(refresh.isPending || knowledge?.generation.running) ? 'animate-spin' : ''}`} />{cn ? '刷新' : 'Refresh'}</button>
       </form>
     </header>
 
@@ -96,6 +96,7 @@ export default function PracticeLibraryPage() {
       <span>{cn ? '实践内容暂未完成中文转换。' : 'Practice content could not be translated yet.'}</span>
       <button type="button" className="font-semibold underline" onClick={() => { void localizedPractices.refetch(); }}>{cn ? '重试' : 'Retry'}</button>
     </div>}
+    {knowledge?.generation.queued && <p className="border-b px-4 py-3 text-xs text-muted-foreground">{cn ? '本地导入或任务分析正在写入数据；完成后会自动开始公开研究。' : 'Local import or task analysis is writing data. Public research will start automatically when it finishes.'}</p>}
     {knowledge?.generation.lastError && <p className="border-b border-amber-500 bg-amber-50 px-4 py-3 text-xs text-amber-900">{cn ? '上次研究失败' : 'Last research run failed'}: {knowledge.generation.lastError}</p>}
 
     <section className="mt-6 border-y border-foreground bg-card">

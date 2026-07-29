@@ -22,6 +22,7 @@ vi.mock('agent-usage-analyze/utils/config', () => ({
   loadConfig: vi.fn(() => null),
   saveConfig: vi.fn(),
   getConfigDir: () => '/tmp/agent-analytics-test',
+  getInstallationId: () => 'installation-test-id',
 }));
 
 vi.mock('../llm/client.js', () => ({
@@ -107,6 +108,7 @@ describe('Config routes', () => {
       const response = await createApp().request('/api/config/runtime');
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({
+        installationId: 'installation-test-id',
         dataDirectory: '/tmp/agent-analytics-test',
         listenAddress: '127.0.0.1:7890',
         sources: [{ kind: 'synthetic-codex', count: 1 }],

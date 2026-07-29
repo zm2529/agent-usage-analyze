@@ -1,6 +1,6 @@
 {
   "name": "agent-usage-analyze",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local-first usage, behavior, and improvement analytics for coding agents",
   "type": "module",
   "main": "dist/index.js",
@@ -31,6 +31,7 @@
     "./utils/config": "./dist/utils/config.js",
     "./utils/codex-hooks": "./dist/utils/codex-hooks.js",
     "./utils/browser": "./dist/utils/browser.js",
+    "./utils/update-service": "./dist/utils/update-service.js",
     "./constants/llm-providers": "./dist/constants/llm-providers.js",
     "./utils/pricing": "./dist/utils/pricing.js",
     "./utils/telemetry": "./dist/utils/telemetry.js",

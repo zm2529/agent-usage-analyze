@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
 import { getDb } from 'agent-usage-analyze/db/client';
-import { getConfigDir, loadConfig, saveConfig } from 'agent-usage-analyze/utils/config';
+import {
+  getConfigDir,
+  getInstallationId,
+  loadConfig,
+  saveConfig,
+} from 'agent-usage-analyze/utils/config';
 import type { AnalysisCapabilityConfig, AnalysisExecutionMode, ClaudeInsightConfig, LLMProviderConfig } from 'agent-usage-analyze/types';
 import { loadLLMConfig, testLLMConfig } from '../llm/client.js';
 import { discoverOllamaModels } from '../llm/providers/ollama.js';
@@ -54,6 +59,7 @@ app.get('/runtime', (c) => {
     } | undefined;
 
   return c.json({
+    installationId: getInstallationId(),
     dataDirectory: getConfigDir(),
     listenAddress: `127.0.0.1:${port}`,
     sources,

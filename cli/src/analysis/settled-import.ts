@@ -111,24 +111,31 @@ function resettleGrowth(
   basisBefore: string,
   basisAfter: string,
 ): SettledImportResult {
-  const notBefore = new Date(deps.now().getTime() + deps.idleSeconds * 1_000).toISOString();
   const changed = db.transaction(() => {
     const current = db.prepare(
-      `SELECT 1 FROM analysis_queue
+      `SELECT attempt_count AS attemptCount FROM analysis_queue
        WHERE source_tool = ? AND session_id = ? AND generation = ?
          AND status = 'processing' AND source_basis = ?`,
-    ).get(claimed.sourceTool, claimed.sessionId, claimed.generation, basisBefore);
+    ).get(claimed.sourceTool, claimed.sessionId, claimed.generation, basisBefore) as {
+      attemptCount: number;
+    } | undefined;
     if (!current) return false;
+    // A source that repeatedly grows during a costly import must not restart at
+    // the same cadence forever. A genuine new Hook frontier resets this counter.
+    const growthAttempt = Math.min(5, current.attemptCount + 1);
+    const delaySeconds = deps.idleSeconds * (2 ** Math.max(0, growthAttempt - 1));
+    const notBefore = new Date(deps.now().getTime() + delaySeconds * 1_000).toISOString();
     deps.invalidateProjection();
     return db.prepare(
       `UPDATE analysis_queue
        SET status = 'settling', generation = generation + 1, source_basis = ?,
            not_before = ?, diagnostic = 'source-grew-during-import', started_at = NULL,
-           attempt_count = 0, error_message = NULL
+           attempt_count = ?, error_message = NULL
        WHERE source_tool = ? AND session_id = ? AND generation = ?
          AND status = 'processing' AND source_basis = ?`,
     ).run(
-      basisAfter, notBefore, claimed.sourceTool, claimed.sessionId, claimed.generation, basisBefore,
+      basisAfter, notBefore, growthAttempt,
+      claimed.sourceTool, claimed.sessionId, claimed.generation, basisBefore,
     ).changes === 1;
   }).immediate();
   return changed

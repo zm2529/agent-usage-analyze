@@ -1,6 +1,6 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { saveConfig, getConfigDir, isConfigured } from '../utils/config.js';
+import { saveConfig, getConfigDir, getInstallationId, isConfigured } from '../utils/config.js';
 import { getDb } from '../db/client.js';
 import { trackEvent, captureError, classifyError } from '../utils/telemetry.js';
 import type { ClaudeInsightConfig } from '../types.js';
@@ -31,6 +31,7 @@ export function ensureLocalSetup(): LocalSetupResult {
     saveConfig(config);
   }
 
+  getInstallationId();
   getDb();
   return { configCreated, configDir: getConfigDir() };
 }

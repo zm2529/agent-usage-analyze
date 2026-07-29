@@ -13,15 +13,26 @@ export function useRuntimeStatus() {
       const stateLabels = cn
         ? { healthy: '正常', running: '处理中', waiting: '等待中', stale: '需要处理', failed: '失败', 'not-configured': '未配置' }
         : { healthy: 'Ready', running: 'In progress', waiting: 'Waiting', stale: 'Needs attention', failed: 'Failed', 'not-configured': 'Not configured' };
-      const stages = Object.fromEntries(Object.entries(data.stages).map(([key, stage]) => [key, {
-        ...stage,
-        label: stateLabels[stage.state],
-        detail: stage.backlog > 0
-          ? (cn ? `${stage.backlog} 项待处理` : `${stage.backlog} pending`)
-          : stage.failures > 0
-            ? (cn ? `${stage.failures} 项未完成，点击查看原因` : `${stage.failures} incomplete; open for details`)
-            : (cn ? '无需操作' : 'No action needed'),
-      }])) as typeof data.stages;
+      const stages = Object.fromEntries(Object.entries(data.stages).map(([key, stage]) => {
+        const ingestionProgress = key === 'ingestion'
+          ? stage.detail.match(/(\d+)\/(\d+)/)
+          : null;
+        return [key, {
+          ...stage,
+          // The server owns the operational label and detail. Replacing them with
+          // a generic state hid import counts and actionable failure diagnostics.
+          label: cn ? stage.label : stateLabels[stage.state],
+          detail: cn
+            ? stage.detail
+            : ingestionProgress
+              ? `${ingestionProgress[1]}/${ingestionProgress[2]} sources processed`
+              : stage.backlog > 0
+                ? `${stage.backlog} pending`
+                : stage.failures > 0
+                  ? `${stage.failures} incomplete; open for details`
+                  : 'No action needed',
+        }];
+      })) as typeof data.stages;
       return { ...data, stages };
     },
   });

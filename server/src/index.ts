@@ -35,6 +35,7 @@ import runtimeStatusRouter from './routes/runtime-status.js';
 import practicesRouter, { startKnowledgeResearchScheduler } from './routes/practices.js';
 import improvementsRouter from './routes/improvements.js';
 import translateRouter from './routes/translate.js';
+import updatesRouter, { startProductUpdateScheduler } from './routes/updates.js';
 import { startCodexSessionWatcher } from './codex-session-watcher.js';
 
 export interface ServerOptions {
@@ -101,6 +102,7 @@ export function createApp(): Hono {
   app.route('/api/practices', practicesRouter);
   app.route('/api/improvements', improvementsRouter);
   app.route('/api/translate', translateRouter);
+  app.route('/api/updates', updatesRouter);
 
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true, version: '0.1.0' }));
@@ -128,6 +130,7 @@ export async function startServer(
   const app = createApp();
   const codexSessionWatcher = startCodexSessionWatcher();
   const knowledgeResearchScheduler = startKnowledgeResearchScheduler();
+  const productUpdateScheduler = startProductUpdateScheduler();
 
   // Static file serving — only if the dashboard has been built.
   // serveStatic requires a path relative to process.cwd(), not an absolute path.
@@ -167,6 +170,7 @@ export async function startServer(
   const shutdown = async () => {
     codexSessionWatcher?.close();
     knowledgeResearchScheduler.close();
+    productUpdateScheduler.close();
     await Promise.race([
       shutdownTelemetry(),
       new Promise<void>((resolve) => setTimeout(resolve, 3000)),

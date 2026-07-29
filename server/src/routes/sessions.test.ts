@@ -123,6 +123,33 @@ describe('Sessions routes', () => {
       expect((await createApp().request('/api/sessions/sess-empty')).status).toBe(404);
     });
 
+    it('filters unusable rows before pagination so older activity remains reachable', async () => {
+      seedProject('proj-1', 'alpha');
+      for (let index = 0; index < 12; index += 1) {
+        const id = `stale-${index}`;
+        seedSession(id, 'proj-1', {
+          started_at: `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00Z`,
+          ended_at: `2026-07-${String(index + 1).padStart(2, '0')}T11:00:00Z`,
+        });
+        testDb.prepare('DELETE FROM messages WHERE session_id = ?').run(id);
+      }
+      seedSession('older-1', 'proj-1', {
+        started_at: '2025-06-15T10:00:00Z', ended_at: '2025-06-15T11:00:00Z',
+      });
+      seedSession('older-2', 'proj-1', {
+        started_at: '2025-06-14T10:00:00Z', ended_at: '2025-06-14T11:00:00Z',
+      });
+      seedSession('older-3', 'proj-1', {
+        started_at: '2025-06-13T10:00:00Z', ended_at: '2025-06-13T11:00:00Z',
+      });
+
+      const body = await (await createApp().request('/api/sessions?limit=2')).json();
+
+      expect(body.sessions.map((session: { id: string }) => session.id))
+        .toEqual(['older-1', 'older-2']);
+      expect(body.hasMore).toBe(true);
+    });
+
     it('filters by projectId', async () => {
       seedProject('proj-1', 'alpha');
       seedProject('proj-2', 'beta');

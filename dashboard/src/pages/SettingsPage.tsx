@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, ChevronDown, Cpu, Loader2, RefreshCw, Coins } from 'lucide-react';
+import { CheckCircle, ChevronDown, CircleHelp, Cpu, Loader2, RefreshCw, Coins } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLlmConfig, useSaveLlmConfig } from '@/hooks/useConfig';
 import { testLlmConfig } from '@/lib/api';
@@ -14,6 +14,8 @@ import { useAnalysisQueue } from '@/hooks/useAnalysisQueue';
 import { HistorySyncButton } from '@/components/dashboard/HistorySyncButton';
 import { useAnalysisUsageSummary } from '@/hooks/useAnalysisUsageSummary';
 import { useLanguage } from '@/i18n/LanguageProvider';
+import { requestFirstRunGuide } from '@/components/onboarding/FirstRunGuide';
+import { ProductUpdateCard } from '@/components/settings/ProductUpdateCard';
 
 function tokenLabel(value: number, language: 'en' | 'zh-CN'): string {
   return new Intl.NumberFormat(language === 'zh-CN' ? 'zh-CN' : 'en-US', {
@@ -194,6 +196,10 @@ export default function SettingsPage() {
       <p className="vibe-mono text-[10px] tracking-[.18em] text-[#28666E]">LOCAL SYSTEM SETTINGS</p>
       <h1 className="mt-3 text-4xl font-semibold tracking-[-.035em]">{cn ? '设置' : 'Settings'}</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{cn ? '管理自动处理、模型服务、公开实践研究和本地数据。' : 'Manage automatic processing, model services, public practice research, and local data.'}</p>
+      <Button variant="outline" size="sm" className="mt-4 gap-2" onClick={requestFirstRunGuide}>
+        <CircleHelp className="h-4 w-4" />
+        {cn ? '重新查看首次引导' : 'View first-run guide again'}
+      </Button>
     </header>
 
     <div className="grid gap-7 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -256,6 +262,7 @@ export default function SettingsPage() {
 
     <PipelineStatusPanel />
     <AnalysisUsageCard />
+    <ProductUpdateCard />
     <LocalRuntimeCard />
   </div>;
 }

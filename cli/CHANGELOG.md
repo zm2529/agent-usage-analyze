@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.3
+
+- Made first-run onboarding follow the local product installation instead of stale browser state, with clearer Codex Hook setup guidance.
+- Moved history synchronization and follow-up analysis fully into background workers so the WebUI remains usable during large imports.
+- Added bounded SQLite lock coordination and deferred public-practice research while local ingestion or analysis is writing.
+- Added npm release checks, manual updates, and opt-in automatic updates with safe source, npx, and global-install boundaries.
+- Improved runtime, activity, ingestion, and analysis status messages for slow, queued, and recoverable work.
+
+## 0.1.2
+
+- Added the simplified Chinese product experience, first-run guidance, local background service, and complete uninstall flow.
+- Consolidated automatic session analysis, cross-task reporting, improvement tracking, and public-practice research.
+- Published the first Trusted Publishing release with deterministic package, provenance, and install smoke gates.
+
 ## 0.1.1
 
 - Reworked the dashboard around analysis evidence, improvement tracking, and a searchable public-practice library.

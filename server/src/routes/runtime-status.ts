@@ -301,6 +301,15 @@ function knowledgeStage(): RuntimeStage {
     action: { label: '查看实践库', href: '/practices' },
     detail: generation.startedAt ? `开始于 ${generation.startedAt}` : '正在检索公开来源',
   };
+  if (generation.queued) return {
+    state: 'waiting',
+    label: '等待本地任务完成',
+    lastSuccessAt: latest?.createdAt ?? null,
+    backlog: 1,
+    failures: 0,
+    action: { label: '查看实践库', href: '/practices' },
+    detail: '导入或任务分析完成后将自动开始公开检索',
+  };
   if (generation.lastError) return {
     state: 'failed',
     label: '最近检索失败',

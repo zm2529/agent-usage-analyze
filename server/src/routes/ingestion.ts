@@ -1,3 +1,7 @@
+import { spawn } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { getDb } from 'agent-usage-analyze/db/client';
 import { readIngestionHealth } from 'agent-usage-analyze/canonical/ingestion';
@@ -7,9 +11,11 @@ import { discoverRecordedTaskDeliveries } from 'agent-usage-analyze/canonical/de
 import { repairInjectedSessionTitles } from 'agent-usage-analyze/canonical/session-titles';
 import { startAutomaticHistoryAnalysis } from 'agent-usage-analyze/analysis/history-backfill';
 import { spawnAutomaticBehaviorReport } from 'agent-usage-analyze/analysis/behavior-report-scheduler';
+import { getConfigDir } from 'agent-usage-analyze/utils/config';
 
 const app = new Hono();
 let historySyncRunning = false;
+const HISTORY_SYNC_WORKER = fileURLToPath(new URL('../history-sync-worker.js', import.meta.url));
 
 export function reconcileHistoryProjection() {
   const db = getDb();
@@ -73,6 +79,58 @@ export function reconcileHistoryProjection() {
 
 app.get('/health', (c) => c.json(readIngestionHealth(getDb())));
 
+export async function runHistorySync(forceRequested = false) {
+  const startedAt = new Date().toISOString();
+  const before = reconcileHistoryProjection();
+  const force = forceRequested || before.staleBefore > 0;
+  // Manual history sync is the product-level refresh action, so it covers all
+  // locally supported Agent sources. The optional force flag reparses every
+  // source file and repairs projections created by older parser versions.
+  const sessions = await runSync({ quiet: true, force });
+  const canonical = await importCodexHistory();
+  const deliveries = discoverRecordedTaskDeliveries(getDb());
+  const after = reconcileHistoryProjection();
+  const analysis = startAutomaticHistoryAnalysis();
+  spawnAutomaticBehaviorReport();
+  return {
+    status: 'completed' as const,
+    startedAt,
+    completedAt: new Date().toISOString(),
+    forceRepair: force,
+    sessions,
+    canonical,
+    deliveries,
+    projection: after,
+    analysis: { enabled: analysis.enabled, queued: analysis.queued },
+  };
+}
+
+function startHistorySyncWorker(force: boolean): { pid: number | undefined; logPath: string } {
+  const configDir = getConfigDir();
+  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  const logPath = join(configDir, 'history-sync.log');
+  const logFd = openSync(logPath, 'a', 0o600);
+  try {
+    const child = spawn(
+      process.execPath,
+      [HISTORY_SYNC_WORKER, ...(force ? ['--force'] : [])],
+      { detached: true, stdio: ['ignore', logFd, logFd] },
+    );
+    let finished = false;
+    const release = () => {
+      if (finished) return;
+      finished = true;
+      historySyncRunning = false;
+    };
+    child.once('exit', release);
+    child.once('error', release);
+    child.unref();
+    return { pid: child.pid, logPath };
+  } finally {
+    closeSync(logFd);
+  }
+}
+
 app.post('/sync-history', async (c) => {
   if (historySyncRunning) return c.json({ error: 'History sync is already running' }, 409);
   let body: { force?: boolean } = {};
@@ -80,37 +138,21 @@ app.post('/sync-history', async (c) => {
   historySyncRunning = true;
   const startedAt = new Date().toISOString();
   try {
-    const before = reconcileHistoryProjection();
-    const force = body.force === true || before.staleBefore > 0;
-    // Manual history sync is the product-level refresh action, so it covers all
-    // locally supported Agent sources. The optional force flag reparses every
-    // source file and repairs projections created by older parser versions.
-    const sessions = await runSync({ quiet: true, force });
-    const canonical = await importCodexHistory();
-    const deliveries = discoverRecordedTaskDeliveries(getDb());
-    const after = reconcileHistoryProjection();
-    const analysis = startAutomaticHistoryAnalysis();
-    spawnAutomaticBehaviorReport();
+    const worker = startHistorySyncWorker(body.force === true);
     return c.json({
-      status: 'completed' as const,
+      status: 'started' as const,
       startedAt,
-      completedAt: new Date().toISOString(),
-      forceRepair: force,
-      sessions,
-      canonical,
-      deliveries,
-      projection: after,
-      analysis: { enabled: analysis.enabled, queued: analysis.queued },
-    });
+      pid: worker.pid,
+      logPath: worker.logPath,
+    }, 202);
   } catch (error) {
+    historySyncRunning = false;
     return c.json({
       status: 'failed' as const,
       startedAt,
       completedAt: new Date().toISOString(),
-      error: error instanceof Error ? error.message : 'History sync failed',
+      error: error instanceof Error ? error.message : 'History sync failed to start',
     }, 500);
-  } finally {
-    historySyncRunning = false;
   }
 });
 

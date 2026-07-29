@@ -130,8 +130,8 @@ describe('processSettledImport', () => {
       attempt_count, error_message FROM analysis_queue`).get())
       .toEqual({
         status: 'settling', generation: 2, source_basis: 'rollout-sha256:after',
-        not_before: '2026-07-22T03:02:30.000Z', diagnostic: 'source-grew-during-import',
-        attempt_count: 0, error_message: null,
+        not_before: '2026-07-22T03:07:00.000Z', diagnostic: 'source-grew-during-import',
+        attempt_count: 3, error_message: null,
       });
     db.close();
   });

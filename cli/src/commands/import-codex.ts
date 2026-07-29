@@ -25,6 +25,40 @@ export interface BackgroundImportOptions {
   analyzeAfterImport?: boolean;
 }
 
+interface DatabaseBusyRetryOptions {
+  attempts?: number;
+  wait?: (milliseconds: number) => Promise<void>;
+  onRetry?: (attempt: number, attempts: number) => void;
+}
+
+function isDatabaseBusy(error: unknown): boolean {
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+  const message = error instanceof Error ? error.message : String(error);
+  return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED'
+    || /database is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(message);
+}
+
+export async function retryDatabaseBusy<T>(
+  operation: () => Promise<T>,
+  options: DatabaseBusyRetryOptions = {},
+): Promise<T> {
+  const attempts = Math.max(1, options.attempts ?? 3);
+  const wait = options.wait ?? ((milliseconds) =>
+    new Promise<void>((resolvePromise) => setTimeout(resolvePromise, milliseconds)));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isDatabaseBusy(error) || attempt === attempts) throw error;
+      options.onRetry?.(attempt + 1, attempts);
+      await wait(attempt * 1_000);
+    }
+  }
+  throw new Error('unreachable database retry state');
+}
+
 interface ImportCodexCommandDependencies {
   importHistory: typeof importCodexHistory;
   startHistoryAnalysis: () => HistoryBackfillResult;
@@ -42,10 +76,19 @@ const defaultCommandDependencies: ImportCodexCommandDependencies = {
 };
 
 export async function importCodexHistory(options: ImportCodexOptions = {}) {
-  return ingestSourceAdapter(
-    new CodexRolloutAdapter(options.home),
-    getDb(),
-    { onProgress: options.onProgress },
+  return retryDatabaseBusy(
+    () => ingestSourceAdapter(
+      new CodexRolloutAdapter(options.home),
+      getDb(),
+      { onProgress: options.onProgress },
+    ),
+    {
+      onRetry: (attempt, attempts) => {
+        process.stderr.write(
+          `Codex history import is waiting for the local database (${attempt}/${attempts}).\n`,
+        );
+      },
+    },
   );
 }
 
