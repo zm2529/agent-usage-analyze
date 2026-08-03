@@ -84,6 +84,27 @@ describe('ProductUpdateCard', () => {
     expect(screen.getByRole('button', { name: /check for updates/i })).toBeEnabled();
   });
 
+  it('explains when an old npx service is still active and provides the exact switch command', async () => {
+    api.fetchProductUpdateStatus.mockResolvedValue({
+      ...baseStatus,
+      installationMode: 'npx',
+      canUpdate: false,
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    renderCard();
+
+    expect(await screen.findByText(/still running from a temporary npx instance/i)).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /update the app automatically/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /copy switch command/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      'npm install --global agent-usage-analyze && agent-usage-analyze start',
+    ));
+  });
+
   it('reports that an installed update needs a restart without interrupting the page', async () => {
     api.fetchProductUpdateStatus.mockResolvedValue({
       ...baseStatus,

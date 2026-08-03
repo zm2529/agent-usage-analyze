@@ -105,7 +105,7 @@ export function Header() {
           <Link to={stages?.semanticAnalysis.action?.href ?? '/settings'} className={stageClass(stages?.semanticAnalysis.state)}>
             <i aria-hidden />
             <b>{chinese ? '任务分析' : 'Task analysis'}</b>
-            <span>{stages?.semanticAnalysis.label ?? (chinese ? '读取中' : 'Loading')}</span>
+            <span>{stages?.semanticAnalysis.detail || stages?.semanticAnalysis.label || (chinese ? '读取中' : 'Loading')}</span>
           </Link>
           <span className="vibe-pipe-arrow" aria-hidden>→</span>
           <Link to={stages?.behaviorReport.action?.href ?? '/analysis'} className={stageClass(stages?.behaviorReport.state)}>

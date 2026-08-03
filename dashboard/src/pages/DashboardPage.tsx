@@ -234,15 +234,21 @@ export default function DashboardPage() {
     healthLoading={healthLoading}
     cn={cn}
   />;
+  const ingestionProgress = health?.status === 'running'
+    ? <section className="mb-6" aria-label={cn ? '历史整理进度' : 'History import progress'}>
+      <IngestionProgressCard health={health} />
+    </section>
+    : null;
 
   if (overview.isLoading) {
-    return <div className="vibe-page pb-16">{priority}<section className="mt-7" aria-busy="true"><h2 className="vibe-serif text-2xl">{cn ? '使用统计' : 'Usage statistics'}</h2><p className="mt-1 text-xs text-muted-foreground">{cn ? '已有记录先显示，其余内容正在整理。' : 'Available records are shown while the remaining statistics load.'}</p><div className="overview-metrics mt-4" aria-hidden>{Array.from({ length: 8 }, (_, index) => <div key={index} className="overview-metric flex flex-col"><DashboardSkeleton className="h-2.5 w-16" /><DashboardSkeleton className="mt-4 h-7 w-14" /><DashboardSkeleton className="mt-3 h-2.5 w-3/4" /></div>)}</div></section></div>;
+    return <div className="vibe-page pb-16">{ingestionProgress}{priority}<section className="mt-7" aria-busy="true"><h2 className="vibe-serif text-2xl">{cn ? '使用统计' : 'Usage statistics'}</h2><p className="mt-1 text-xs text-muted-foreground">{cn ? '已有记录先显示，其余内容正在整理。' : 'Available records are shown while the remaining statistics load.'}</p><div className="overview-metrics mt-4" aria-hidden>{Array.from({ length: 8 }, (_, index) => <div key={index} className="overview-metric flex flex-col"><DashboardSkeleton className="h-2.5 w-16" /><DashboardSkeleton className="mt-4 h-7 w-14" /><DashboardSkeleton className="mt-3 h-2.5 w-3/4" /></div>)}</div></section></div>;
   }
   if (overview.isError || !data) {
-    return <div className="vibe-page pb-16">{priority}<p className="mt-7 border-y border-destructive py-5 text-sm text-destructive">{cn ? '详细统计暂时不可用，请稍后刷新。' : 'Detailed statistics are temporarily unavailable. Refresh shortly.'}</p></div>;
+    return <div className="vibe-page pb-16">{ingestionProgress}{priority}<p className="mt-7 border-y border-destructive py-5 text-sm text-destructive">{cn ? '详细统计暂时不可用，请稍后刷新。' : 'Detailed statistics are temporarily unavailable. Refresh shortly.'}</p></div>;
   }
 
   return <div className="vibe-page pb-16">
+    {ingestionProgress}
     {priority}
     <header className="mt-8 border-b border-foreground/80 pb-6 pt-8">
       <div className="flex flex-wrap items-start justify-between gap-5">
@@ -262,12 +268,6 @@ export default function DashboardPage() {
         </div>
       </div>
     </header>
-
-    {health?.status === 'running' && (
-      <section className="border-b py-4">
-        <IngestionProgressCard health={health} />
-      </section>
-    )}
 
     <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b py-2 text-[10px] text-muted-foreground">
       <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${health?.status === 'completed' ? 'bg-[#28666E]' : 'bg-[#BF7A45]'}`} />{cn ? '统计来自已导入的会话记录' : 'Statistics use imported session records'}</span>

@@ -11,7 +11,7 @@ vi.mock('@/hooks/useRuntimeStatus', () => ({
       stages: {
         hook: { state: 'healthy', label: '最近事件已收到', lastSuccessAt: '2026-07-26T00:00:00.000Z', backlog: 0, failures: 0, action: { label: '查看记录', href: '/sessions' }, detail: '' },
         ingestion: { state: 'running', label: '正在导入', lastSuccessAt: null, backlog: 4, failures: 0, action: { label: '查看导入', href: '/settings' }, detail: '已处理 4/8 个来源' },
-        semanticAnalysis: { state: 'waiting', label: '等待分析能力', lastSuccessAt: null, backlog: 1, failures: 0, action: { label: '查看队列', href: '/settings' }, detail: '' },
+        semanticAnalysis: { state: 'waiting', label: '任务分析排队中', lastSuccessAt: null, backlog: 7, failures: 0, action: { label: '查看队列', href: '/settings' }, detail: '等待稳定 1 · 排队 6 · 分析中 0' },
         behaviorReport: { state: 'healthy', label: '当前报告可用', lastSuccessAt: '2026-07-26T00:00:00.000Z', backlog: 0, failures: 0, action: { label: '查看分析', href: '/analysis' }, detail: '' },
         knowledgeResearch: { state: 'healthy', label: '实践快照已更新', lastSuccessAt: '2026-07-26T00:00:00.000Z', backlog: 0, failures: 0, action: { label: '查看实践库', href: '/practices' }, detail: '' },
       },
@@ -41,7 +41,7 @@ describe('primary navigation', () => {
 
     expect(screen.getByText('最近事件已收到')).toBeInTheDocument();
     expect(screen.getByText('已处理 4/8 个来源')).toBeInTheDocument();
-    expect(screen.getByText('等待分析能力')).toBeInTheDocument();
+    expect(screen.getByText('等待稳定 1 · 排队 6 · 分析中 0')).toBeInTheDocument();
     expect(screen.getByText('当前报告可用')).toBeInTheDocument();
   });
 });

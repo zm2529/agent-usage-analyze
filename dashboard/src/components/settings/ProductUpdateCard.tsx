@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Download, Loader2, PackageCheck, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Copy, Download, Loader2, PackageCheck, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -61,6 +61,17 @@ export function ProductUpdateCard() {
   const apply = useApplyProductUpdate();
   const data = status.data;
   const busy = Boolean(data?.checking || data?.updating || check.isPending || apply.isPending);
+  const globalInstallCommand = 'npm install --global agent-usage-analyze && agent-usage-analyze start';
+
+  const copyGlobalInstallCommand = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(globalInstallCommand);
+      toast.success(cn ? '切换命令已复制' : 'Switch command copied');
+    } catch {
+      toast.error(cn ? '无法复制，请手动复制命令' : 'Could not copy; copy the command manually');
+    }
+  };
 
   return <section className="border-t border-foreground bg-card">
     <div className="flex flex-wrap items-start gap-4 border-b p-5">
@@ -124,6 +135,27 @@ export function ProductUpdateCard() {
           {installationHelp(data.installationMode, cn)}
         </p>
       </div>
+
+      {data.installationMode === 'npx' && <div className="border border-[#BF7A45]/60 bg-[#BF7A45]/5 p-4 text-sm">
+        <div className="flex gap-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#BF7A45]" />
+          <div className="min-w-0 flex-1">
+            <strong>{cn ? '当前页面仍由 npx 临时实例运行' : 'This page is still running from a temporary npx instance'}</strong>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {cn
+                ? '即使已经执行过 npm 安装，旧的 npx 后台服务也不会自动切换。请用全局安装命令重新启动；页面恢复后此开关即可使用。'
+                : 'An existing npx background service does not switch automatically after npm install. Restart it from the global install; this control will then become available.'}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <code className="max-w-full overflow-x-auto border bg-background px-2 py-1.5 text-[11px]">{globalInstallCommand}</code>
+              <Button type="button" variant="outline" size="sm" onClick={() => { void copyGlobalInstallCommand(); }}>
+                <Copy className="mr-2 h-3.5 w-3.5" />
+                {cn ? '复制切换命令' : 'Copy switch command'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>}
 
       <label className="flex items-start justify-between gap-4 border-y py-4">
         <span>
