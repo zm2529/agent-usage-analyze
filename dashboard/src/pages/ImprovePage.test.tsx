@@ -80,6 +80,19 @@ describe('ImprovePage', () => {
     expect(screen.getByRole('button', { name: 'Generate LLM report' })).toBeEnabled();
   });
 
+  it('renders a summary-only dataset when representative episode details are omitted', async () => {
+    const { representativeEpisodes: _episodes, ...summaryOnlyDataset } = eligibleState.dataset;
+    api.fetchBehaviorReport.mockResolvedValue({
+      ...eligibleState,
+      dataset: { ...summaryOnlyDataset, representativeSample: { count: 60 } },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('尚未生成使用分析')).toBeInTheDocument();
+    expect(screen.getByText('60')).toBeInTheDocument();
+  });
+
   it('does not start a report while the structural evidence threshold is unmet', async () => {
     api.fetchBehaviorReport.mockResolvedValue({
       ...eligibleState,

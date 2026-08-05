@@ -546,7 +546,7 @@ export interface BehaviorReportState {
     };
     activity: Record<string, number>;
     promptSignals: Record<string, number>;
-    representativeEpisodes: Array<{
+    representativeEpisodes?: Array<{
       sessionRef: string;
       cohort: { projectRef: string; projectLabel: string; lengthBand: 'short' | 'medium' | 'long' };
       activity: { durationMinutes: number; userMessages: number; assistantMessages: number; toolCalls: number; compactCount: number };
@@ -569,6 +569,9 @@ export interface BehaviorReportState {
         skillUsage: Array<Record<string, unknown>>;
       }>;
     }>;
+    representativeSample?: {
+      count: number;
+    };
     runtimeUsage: {
       models: Array<{ name: string; turns: number; sessions: number; sessionRefs: string[] }>;
       reasoningEfforts: Array<{ name: string; turns: number; sessions: number; sessionRefs: string[] }>;

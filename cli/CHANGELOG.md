@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- Kept `agent-usage-analyze start` usable on macOS when legacy LaunchAgent registration fails: the Dashboard now falls back to a detached current-session process instead of aborting after setup and history import.
+- Fixed the Analysis page for summary-only datasets, so a privacy-bounded representative-sample count no longer causes a render error.
+
 ## 0.1.4
 
 - Added a natural-week Agent report with per-agent activity, Token usage, analysis coverage, and same-period week-over-week comparisons.

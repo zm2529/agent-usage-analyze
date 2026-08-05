@@ -207,7 +207,7 @@ export async function runStart(
     console.log(chalk.green(`  ✓ Dashboard ready: ${url}`));
     console.log(chalk.dim(service.persistent
       ? '    The terminal can now be closed. The dashboard will start automatically when you sign in.'
-      : '    The dashboard is running in the background; automatic login start is currently available on macOS.'));
+      : '    The dashboard is running in the background for this session; rerun `agent-usage-analyze start` after sign-in if needed.'));
     console.log('');
   } else {
     await dependencies.launchDashboard({

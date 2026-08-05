@@ -39,6 +39,14 @@ async function waitUntilReady(port: number): Promise<void> {
   throw new Error(`Dashboard service did not become ready on port ${port}`);
 }
 
+function startDetachedDashboard(entry: string, port: number): void {
+  const child = spawn(process.execPath, [entry, 'dashboard', '--port', String(port), '--no-open'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
 export async function ensureDashboardService(port: number): Promise<{ persistent: boolean }> {
   const alreadyRunning = await isCodexAnalyticsDashboard(port);
   if (alreadyRunning && process.platform !== 'darwin') return { persistent: false };
@@ -72,7 +80,13 @@ export async function ensureDashboardService(port: number): Promise<{ persistent
     spawnSync('launchctl', ['bootout', `${domain}/${DASHBOARD_SERVICE_LABEL}`], { stdio: 'ignore' });
     const bootstrap = spawnSync('launchctl', ['bootstrap', domain, plist], { encoding: 'utf8' });
     if (bootstrap.status !== 0) {
-      throw new Error(bootstrap.stderr?.trim() || 'Could not register the dashboard login service.');
+      // macOS may reject an otherwise valid legacy LaunchAgent during bootstrap
+      // (for example, with EIO while Background Task Management registers it).
+      // Keep `start` usable for the current session instead of failing after all
+      // setup and import work has already completed.
+      startDetachedDashboard(entry, port);
+      await waitUntilReady(port);
+      return { persistent: false };
     }
     spawnSync('launchctl', ['enable', `${domain}/${DASHBOARD_SERVICE_LABEL}`], { stdio: 'ignore' });
     spawnSync('launchctl', ['kickstart', '-k', `${domain}/${DASHBOARD_SERVICE_LABEL}`], { stdio: 'ignore' });
@@ -80,11 +94,7 @@ export async function ensureDashboardService(port: number): Promise<{ persistent
     return { persistent: true };
   }
 
-  const child = spawn(process.execPath, [entry, 'dashboard', '--port', String(port), '--no-open'], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref();
+  startDetachedDashboard(entry, port);
   await waitUntilReady(port);
   return { persistent: false };
 }
