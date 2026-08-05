@@ -42,6 +42,69 @@ interface TimelinePoint {
   promptScore: number | null;
 }
 
+interface WeeklyAgentRow {
+  sourceTool: string;
+  sessions: number;
+  projects: number;
+  messages: number;
+  toolCalls: number;
+  durationMinutes: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  analyzedSessions: number;
+}
+
+function startOfLocalWeek(now: Date): Date {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const day = start.getDay();
+  start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+  return start;
+}
+
+function percentChange(current: number, previous: number): number | null {
+  if (previous === 0) return current === 0 ? 0 : null;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+function sourceToolLabel(sourceTool: string): string {
+  if (sourceTool === 'codex-cli') return 'Codex';
+  if (sourceTool === 'claude-code') return 'Claude Code';
+  if (sourceTool === 'cursor') return 'Cursor';
+  return sourceTool;
+}
+
+function processedTokens(row: Pick<WeeklyAgentRow, 'inputTokens' | 'outputTokens' | 'cacheCreationTokens' | 'cacheReadTokens'>): number {
+  return row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens;
+}
+
+function weeklyAgentRows(start: Date, end: Date): WeeklyAgentRow[] {
+  return getDb().prepare(`
+    SELECT COALESCE(NULLIF(s.source_tool, ''), 'unknown') AS sourceTool,
+      COUNT(*) AS sessions,
+      COUNT(DISTINCT s.project_id) AS projects,
+      COALESCE(SUM(s.message_count), 0) AS messages,
+      COALESCE(SUM(s.tool_call_count), 0) AS toolCalls,
+      CAST(COALESCE(SUM(CASE WHEN s.ended_at IS NOT NULL THEN
+        MAX(0, (julianday(s.ended_at) - julianday(s.started_at)) * 1440) ELSE 0 END), 0) AS INTEGER) AS durationMinutes,
+      COALESCE(SUM(s.total_input_tokens), 0) AS inputTokens,
+      COALESCE(SUM(s.total_output_tokens), 0) AS outputTokens,
+      COALESCE(SUM(s.cache_creation_tokens), 0) AS cacheCreationTokens,
+      COALESCE(SUM(s.cache_read_tokens), 0) AS cacheReadTokens,
+      COUNT(sf.session_id) AS analyzedSessions
+    FROM sessions s
+    LEFT JOIN session_facets sf ON sf.session_id = s.id
+    WHERE s.deleted_at IS NULL AND s.started_at >= ? AND s.started_at < ?
+    GROUP BY COALESCE(NULLIF(s.source_tool, ''), 'unknown')
+    ORDER BY sessions DESC,
+      COALESCE(SUM(s.total_input_tokens), 0) + COALESCE(SUM(s.total_output_tokens), 0)
+        + COALESCE(SUM(s.cache_creation_tokens), 0) + COALESCE(SUM(s.cache_read_tokens), 0) DESC,
+      sourceTool
+  `).all(start.toISOString(), end.toISOString()) as WeeklyAgentRow[];
+}
+
 function rangeStart(range: Range, now: Date): Date | null {
   if (range === 'all') return null;
   if (range === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -390,6 +453,106 @@ app.get('/overview', (c) => {
     toolFamilies: [...toolCounts.entries()].map(([family, calls]) => ({ family, calls }))
       .sort((a, b) => b.calls - a.calls),
     durationBands,
+  });
+});
+
+// Natural-week report grouped by coding agent. The comparison window is the
+// same elapsed portion of the previous week so an in-progress week is not
+// compared with seven complete days.
+app.get('/weekly-report', (c) => {
+  const now = new Date();
+  const weekStart = startOfLocalWeek(now);
+  const previousStart = new Date(weekStart);
+  previousStart.setDate(previousStart.getDate() - 7);
+  const previousEnd = new Date(now);
+  previousEnd.setDate(previousEnd.getDate() - 7);
+  const currentRows = weeklyAgentRows(weekStart, now);
+  const previousRows = weeklyAgentRows(previousStart, previousEnd);
+  const previousBySource = new Map(previousRows.map((row) => [row.sourceTool, row]));
+  const totalSessions = currentRows.reduce((sum, row) => sum + row.sessions, 0);
+  const agents = currentRows.map((row) => {
+    const previous = previousBySource.get(row.sourceTool);
+    const totalTokens = processedTokens(row);
+    const previousTokens = previous ? processedTokens(previous) : 0;
+    return {
+      ...row,
+      totalTokens,
+      analysisCoverage: row.sessions ? Math.round((row.analyzedSessions / row.sessions) * 100) : 0,
+      sharePercent: totalSessions ? Math.round((row.sessions / totalSessions) * 100) : 0,
+      previousSessions: previous?.sessions ?? 0,
+      previousTokens,
+      sessionDeltaPercent: percentChange(row.sessions, previous?.sessions ?? 0),
+      tokenDeltaPercent: percentChange(totalTokens, previousTokens),
+    };
+  });
+  const totals = {
+    sessions: totalSessions,
+    projects: 0,
+    messages: currentRows.reduce((sum, row) => sum + row.messages, 0),
+    toolCalls: currentRows.reduce((sum, row) => sum + row.toolCalls, 0),
+    durationMinutes: currentRows.reduce((sum, row) => sum + row.durationMinutes, 0),
+    totalTokens: currentRows.reduce((sum, row) => sum + processedTokens(row), 0),
+    analyzedSessions: currentRows.reduce((sum, row) => sum + row.analyzedSessions, 0),
+  };
+  const projectRow = getDb().prepare(`SELECT COUNT(DISTINCT project_id) AS projects
+    FROM sessions WHERE deleted_at IS NULL AND started_at >= ? AND started_at < ?`)
+    .get(weekStart.toISOString(), now.toISOString()) as { projects: number };
+  totals.projects = projectRow.projects;
+  const previousTotals = {
+    sessions: previousRows.reduce((sum, row) => sum + row.sessions, 0),
+    totalTokens: previousRows.reduce((sum, row) => sum + processedTokens(row), 0),
+  };
+  const highlights: Array<{
+    kind: 'primary' | 'positive' | 'attention'; title: string; detail: string; titleEn: string; detailEn: string;
+  }> = [];
+  if (agents.length === 0) {
+    highlights.push({
+      kind: 'attention', title: '本周暂无可用记录', detail: '完成导入后，周报会自动按 Agent 汇总。',
+      titleEn: 'No records yet this week', detailEn: 'The report will group usage by agent after import completes.',
+    });
+  } else {
+    const top = agents[0];
+    const topLabel = sourceToolLabel(top.sourceTool);
+    highlights.push({
+      kind: 'primary',
+      title: `${topLabel} 是本周主力 Agent`,
+      detail: `${top.sessions} 个会话，占本周记录的 ${top.sharePercent}%。`,
+      titleEn: `${topLabel} is the primary agent this week`,
+      detailEn: `${top.sessions} sessions, ${top.sharePercent}% of this week's records.`,
+    });
+    const sessionDelta = percentChange(totals.sessions, previousTotals.sessions);
+    if (sessionDelta !== null && sessionDelta !== 0) {
+      highlights.push({
+        kind: sessionDelta > 0 ? 'positive' : 'attention',
+        title: `使用频次较上周同期${sessionDelta > 0 ? '增加' : '减少'} ${Math.abs(sessionDelta)}%`,
+        detail: `本周 ${totals.sessions} 个会话，上周同期 ${previousTotals.sessions} 个。`,
+        titleEn: `Usage frequency ${sessionDelta > 0 ? 'increased' : 'decreased'} ${Math.abs(sessionDelta)}% week over week`,
+        detailEn: `${totals.sessions} sessions this week versus ${previousTotals.sessions} in the same period last week.`,
+      });
+    }
+    const coverage = totals.sessions ? Math.round((totals.analyzedSessions / totals.sessions) * 100) : 0;
+    highlights.push({
+      kind: coverage >= 80 ? 'positive' : 'attention',
+      title: `分析覆盖率 ${coverage}%`,
+      detail: coverage >= 80 ? '本周大部分会话已有结构化分析。' : '仍有会话尚未分析，结论可能不完整。',
+      titleEn: `Analysis coverage is ${coverage}%`,
+      detailEn: coverage >= 80 ? 'Most sessions this week have structured analysis.' : 'Some sessions remain unanalyzed, so conclusions may be incomplete.',
+    });
+  }
+  return c.json({
+    generatedAt: now.toISOString(),
+    week: { startsAt: weekStart.toISOString(), endsAt: now.toISOString() },
+    previousWeek: { startsAt: previousStart.toISOString(), endsAt: previousEnd.toISOString() },
+    totals: {
+      ...totals,
+      analysisCoverage: totals.sessions ? Math.round((totals.analyzedSessions / totals.sessions) * 100) : 0,
+      previousSessions: previousTotals.sessions,
+      previousTokens: previousTotals.totalTokens,
+      sessionDeltaPercent: percentChange(totals.sessions, previousTotals.sessions),
+      tokenDeltaPercent: percentChange(totals.totalTokens, previousTotals.totalTokens),
+    },
+    agents,
+    highlights,
   });
 });
 

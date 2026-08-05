@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchCodexAccountUsage, fetchDashboardStats, fetchOverviewAnalytics } from '@/lib/api';
+import { fetchCodexAccountUsage, fetchDashboardStats, fetchOverviewAnalytics, fetchWeeklyReport } from '@/lib/api';
 import type { OverviewRange } from '@/lib/types';
 
 type Range = '7d' | '30d' | '90d' | 'all';
@@ -28,5 +28,14 @@ export function useOverviewAnalytics(range: OverviewRange) {
     refetchInterval: 30_000,
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
+  });
+}
+
+export function useWeeklyReport() {
+  return useQuery({
+    queryKey: ['analytics', 'weekly-report'],
+    queryFn: fetchWeeklyReport,
+    refetchInterval: 60_000,
+    staleTime: 5 * 60_000,
   });
 }

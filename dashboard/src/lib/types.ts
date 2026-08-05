@@ -493,6 +493,12 @@ export interface BehaviorReport {
     observation: string;
     savingMechanism: string;
     applicability: string;
+    wasteType?: 'cache-instability' | 'redundant-context' | 'retry-repair-loop'
+      | 'tool-result-bloat' | 'model-mismatch' | 'coordination-overhead'
+      | 'over-reasoning' | 'repeated-task-reasoning' | 'other';
+    signalLayer?: 'L0' | 'L1' | 'L2' | 'L3';
+    attribution?: 'harness-waste' | 'capability-limit' | 'unknown';
+    confidence?: 'high' | 'medium' | 'low';
     evidenceRefs: string[];
   }>;
   skillOpportunities: Array<{
@@ -730,6 +736,55 @@ export interface OverviewAnalytics {
   reasoningEffortUsage: Array<{ name: string; turns: number; sessions: number }>;
   toolFamilies: Array<{ family: string; calls: number }>;
   durationBands: Array<{ label: string; count: number }>;
+}
+
+export interface WeeklyReportAgent {
+  sourceTool: string;
+  sessions: number;
+  projects: number;
+  messages: number;
+  toolCalls: number;
+  durationMinutes: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  totalTokens: number;
+  analyzedSessions: number;
+  analysisCoverage: number;
+  sharePercent: number;
+  previousSessions: number;
+  previousTokens: number;
+  sessionDeltaPercent: number | null;
+  tokenDeltaPercent: number | null;
+}
+
+export interface WeeklyReport {
+  generatedAt: string;
+  week: { startsAt: string; endsAt: string };
+  previousWeek: { startsAt: string; endsAt: string };
+  totals: {
+    sessions: number;
+    projects: number;
+    messages: number;
+    toolCalls: number;
+    durationMinutes: number;
+    totalTokens: number;
+    analyzedSessions: number;
+    analysisCoverage: number;
+    previousSessions: number;
+    previousTokens: number;
+    sessionDeltaPercent: number | null;
+    tokenDeltaPercent: number | null;
+  };
+  agents: WeeklyReportAgent[];
+  highlights: Array<{
+    kind: 'primary' | 'positive' | 'attention';
+    title: string;
+    detail: string;
+    titleEn: string;
+    detailEn: string;
+  }>;
 }
 
 export interface CodexRateLimitWindow {

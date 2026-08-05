@@ -23,9 +23,9 @@ vi.mock('./ThemeToggle', () => ({ ThemeToggle: () => null }));
 vi.mock('./LanguageToggle', () => ({ LanguageToggle: () => null }));
 
 describe('primary navigation', () => {
-  it('keeps the primary navigation focused on the five product areas', () => {
+  it('includes the weekly report in the primary product navigation', () => {
     expect(NAV_ITEMS.map(({ href, label }) => [href, label])).toEqual([
-      ['/dashboard', '总览'], ['/analysis', '分析'], ['/improvements', '改进追踪'],
+      ['/dashboard', '总览'], ['/weekly', '周报'], ['/analysis', '分析'], ['/improvements', '改进追踪'],
       ['/practices', '实践库'], ['/sessions', '活动记录'],
     ]);
   });

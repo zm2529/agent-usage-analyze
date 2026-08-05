@@ -107,6 +107,17 @@ describe('cross-session behavior report', () => {
     db.close();
   });
 
+  it('calculates cache-read share from input token classes only', () => {
+    const db = fixtureDb();
+    db.prepare(`UPDATE sessions SET total_input_tokens = 400, total_output_tokens = 100,
+      cache_creation_tokens = 100, cache_read_tokens = 200`).run();
+
+    const dataset = buildBehaviorReportDataset(db, new Date('2026-07-22T00:00:00.000Z'));
+
+    expect(dataset.tokenEfficiency.cacheReadShare).toBe(0.5);
+    db.close();
+  });
+
   it('discovers dynamic dimensions from representative episodes before coaching the final profile', async () => {
     const db = fixtureDb();
     const now = new Date('2026-07-22T00:00:00.000Z');
@@ -202,7 +213,7 @@ describe('cross-session behavior report', () => {
     expect(runAnalysis).toHaveBeenCalledTimes(3);
     expect(db.prepare(`SELECT status, prompt_version AS promptVersion FROM analysis_runs
       WHERE analysis_type = 'behavior_report' ORDER BY created_at DESC LIMIT 1`).get())
-      .toEqual({ status: 'completed', promptVersion: 'behavior-report-v10' });
+      .toEqual({ status: 'completed', promptVersion: 'behavior-report-v11' });
     expect(db.prepare(`SELECT analysis_type AS analysisType, status FROM analysis_runs
       WHERE analysis_type IN ('behavior_research', 'behavior_coach')
       ORDER BY analysis_type`).all()).toEqual([

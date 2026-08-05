@@ -202,6 +202,54 @@ describe('Analytics routes', () => {
     });
   });
 
+  describe('GET /api/analytics/weekly-report', () => {
+    it('returns an empty natural-week report before any sessions are imported', async () => {
+      const res = await createApp().request('/api/analytics/weekly-report');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(new Date(body.week.startsAt).getDay()).toBe(1);
+      expect(body.totals).toMatchObject({ sessions: 0, projects: 0, totalTokens: 0, analysisCoverage: 0 });
+      expect(body.agents).toEqual([]);
+      expect(body.highlights[0].title).toContain('暂无可用记录');
+    });
+
+    it('groups this week by agent and compares the same period last week', async () => {
+      const now = new Date();
+      const currentStarted = new Date(now.getTime() - 60_000).toISOString();
+      const currentEnded = now.toISOString();
+      const previousStarted = new Date(now.getTime() - 7 * 86_400_000 - 60_000).toISOString();
+      const previousEnded = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+      testDb.prepare(`INSERT INTO projects (id, name, path, last_activity) VALUES (?, ?, ?, ?)`).run('p1', 'One', '/one', currentEnded);
+      testDb.prepare(`INSERT INTO projects (id, name, path, last_activity) VALUES (?, ?, ?, ?)`).run('p2', 'Two', '/two', currentEnded);
+      const insertSession = testDb.prepare(`INSERT INTO sessions (
+        id, project_id, project_name, project_path, started_at, ended_at,
+        message_count, tool_call_count, source_tool, total_input_tokens, total_output_tokens,
+        cache_creation_tokens, cache_read_tokens, synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      insertSession.run('current-codex', 'p1', 'One', '/one', currentStarted, currentEnded, 10, 4, 'codex-cli', 1_000, 200, 100, 500, currentEnded);
+      insertSession.run('current-claude', 'p2', 'Two', '/two', currentStarted, currentEnded, 6, 2, 'claude-code', 400, 100, 0, 0, currentEnded);
+      insertSession.run('previous-codex', 'p1', 'One', '/one', previousStarted, previousEnded, 5, 1, 'codex-cli', 500, 100, 0, 300, previousEnded);
+      testDb.prepare(`INSERT INTO session_facets (
+        session_id, outcome_satisfaction, friction_points, effective_patterns
+      ) VALUES ('current-codex', 'high', '[]', '[]')`).run();
+
+      const body = await (await createApp().request('/api/analytics/weekly-report')).json();
+      expect(body.totals).toMatchObject({
+        sessions: 2, projects: 2, messages: 16, toolCalls: 6, totalTokens: 2_300,
+        analyzedSessions: 1, analysisCoverage: 50, previousSessions: 1, sessionDeltaPercent: 100,
+      });
+      expect(body.agents).toHaveLength(2);
+      expect(body.agents[0]).toMatchObject({
+        sourceTool: 'codex-cli', sessions: 1, previousSessions: 1, totalTokens: 1_800,
+        analysisCoverage: 100, sharePercent: 50, sessionDeltaPercent: 0, tokenDeltaPercent: 100,
+      });
+      expect(body.agents[1]).toMatchObject({
+        sourceTool: 'claude-code', sessions: 1, previousSessions: 0, totalTokens: 500,
+        analysisCoverage: 0, sessionDeltaPercent: null,
+      });
+    });
+  });
+
   describe('GET /api/analytics/usage', () => {
     it('returns null stats when no usage data exists', async () => {
       const app = createApp();

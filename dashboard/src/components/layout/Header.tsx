@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router';
-import { BookOpenText, Footprints, LibraryBig, Sprout, Target } from 'lucide-react';
+import { BookOpenText, CalendarRange, Footprints, LibraryBig, Sprout, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from './ThemeToggle';
 import { LanguageToggle } from './LanguageToggle';
@@ -9,6 +9,7 @@ import { ProductMark, SettingsMark } from './BrandIcons';
 
 export const NAV_ITEMS = [
   { href: '/dashboard', label: '总览', fallback: 'Overview', icon: BookOpenText, exact: true },
+  { href: '/weekly', label: '周报', fallback: 'Weekly', icon: CalendarRange, exact: false },
   { href: '/analysis', label: '分析', fallback: 'Analysis', icon: Sprout, exact: false },
   { href: '/improvements', label: '改进追踪', fallback: 'Tracking', icon: Target, exact: false },
   { href: '/practices', label: '实践库', fallback: 'Practices', icon: LibraryBig, exact: false },

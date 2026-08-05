@@ -2,7 +2,7 @@
 // Base URL is relative in production (SPA served by the same server).
 // In Vite dev mode, the proxy forwards /api -> localhost:7890.
 
-import type { Project, Session, Message, Insight, AnalysisRunRecord, BehaviorReportState, DashboardStats, OverviewAnalytics, OverviewRange, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, HistorySyncResult, PatternOverview, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, CodexAccountUsage, ProductUpdateStatus } from '@/lib/types';
+import type { Project, Session, Message, Insight, AnalysisRunRecord, BehaviorReportState, DashboardStats, OverviewAnalytics, OverviewRange, WeeklyReport, LLMConfig, RuntimeConfig, ExportTemplate, FacetRow, IngestionHealth, HistorySyncResult, PatternOverview, WorkTaskNode, WorkTaskDetail, TrendComparison, Delivery, DeliveryDetail, TaskDeliveryCandidate, BuildermarkGateState, GitAiSidecarState, SemanticAnalysisPreview, SemanticClaim, SemanticAnalysisRun, ScorecardVersion, ScorecardResult, ObserverOverhead, CodexAccountUsage, ProductUpdateStatus } from '@/lib/types';
 
 const BASE = '/api';
 
@@ -211,6 +211,10 @@ export function fetchDashboardStats(range: '7d' | '30d' | '90d' | 'all' = '7d') 
 
 export function fetchOverviewAnalytics(range: OverviewRange = '7d') {
   return request<OverviewAnalytics>(`/analytics/overview?range=${range}`);
+}
+
+export function fetchWeeklyReport() {
+  return request<WeeklyReport>('/analytics/weekly-report');
 }
 
 export function fetchCodexAccountUsage() {

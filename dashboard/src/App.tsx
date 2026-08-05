@@ -15,6 +15,7 @@ const SessionsPage = lazy(loadSessionsPage);
 const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
+const WeeklyReportPage = lazy(() => import('@/pages/WeeklyReportPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const ExportPage = lazy(() => import('@/pages/ExportPage'));
 const JournalPage = lazy(() => import('@/pages/JournalPage'));
@@ -52,6 +53,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/deliveries': 'Deliveries',
   '/insights': 'Insights',
   '/analytics': 'Analytics',
+  '/weekly': 'Weekly Report',
   '/patterns': 'Patterns',
   '/scorecards': 'Scorecards',
   '/analysis': 'Analysis',
@@ -89,6 +91,7 @@ function RouteEffects() {
       Overview: '总览', Sessions: '活动记录', Tasks: '任务与交付', Deliveries: '交付证据',
       Insights: '洞察', Analytics: '统计', Patterns: '行为模式', Scorecards: '评分卡',
       Analysis: '分析', Export: '导出', Journal: '日志', Settings: '设置',
+      'Weekly Report': '周报',
       'Improvement Tracking': '改进追踪', 'Practice Library': '实践库',
     } as Record<string, string>)[page] ?? page : page;
     const product = language === 'zh-CN' ? 'Agent 使用分析' : 'Agent Usage Analytics';
@@ -133,6 +136,7 @@ export default function App() {
           <Route path="/deliveries/:id" element={<DeliveryDetailPage />} />
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/weekly" element={<WeeklyReportPage />} />
           <Route path="/patterns" element={<PatternsPage />} />
           <Route path="/scorecards" element={<ScorecardsPage />} />
           <Route path="/analysis" element={<AnalysisPage />} />

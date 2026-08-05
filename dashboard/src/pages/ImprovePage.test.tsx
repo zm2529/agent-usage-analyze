@@ -52,6 +52,11 @@ const profileReport = {
     benefitHypothesis: '减少可逆动作的人为中断。', applicability: ['多阶段任务'], limitations: ['缺少结果对照'], confidence: 'medium', evidenceRefs: [],
   }],
   skillAssessments: [],
+  tokenEfficiencyFindings: [{
+    title: '重复上下文候选', observation: '多个会话出现重复输入。', savingMechanism: '缩小重复范围。',
+    applicability: '重复任务', wasteType: 'redundant-context', signalLayer: 'L2', attribution: 'unknown',
+    confidence: 'medium', evidenceRefs: ['codex:session-1'],
+  }],
   developmentPlan: {
     northStar: '建立能自主闭环的个人工程系统', operatingRules: ['可逆动作一次授权'],
     improvementPlans: [{ title: '授权边界改进', hypothesis: '减少短跟进。', eligibleCohort: '多阶段任务', observableOutcome: '人工介入次数', guardrail: '高风险动作仍询问', reviewAfter: '10 个任务', relationshipToPrevious: 'parallel', sequencingReason: '首个计划', evidenceRefs: [] }],
@@ -147,6 +152,8 @@ describe('ImprovePage', () => {
     expect(screen.getByRole('link', { name: '前往改进追踪 →' })).toHaveAttribute('href', '/improvements');
     expect(screen.getAllByText('用户指定').length).toBeGreaterThan(0);
     expect(screen.getAllByText('自动启用').length).toBeGreaterThan(0);
+    expect(screen.getByText('语义判断')).toBeInTheDocument();
+    expect(screen.getByText(/尚不能归因/)).toBeInTheDocument();
     expect(screen.queryByText('根据本次分析生成，不是固定内容。')).not.toBeInTheDocument();
     expect(screen.queryByText('目前无法确定的部分：')).not.toBeInTheDocument();
     expect(screen.queryByText('工作方式观察')).not.toBeInTheDocument();

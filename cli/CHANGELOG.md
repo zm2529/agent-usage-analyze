@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+- Added a natural-week Agent report with per-agent activity, Token usage, analysis coverage, and same-period week-over-week comparisons.
+- Moved background history-import progress to the top of Overview and exposed task-analysis queue counts in the global status bar.
+- Made stale npx runtime detection explicit in update settings and provided the exact command for switching to an update-capable global npm installation.
+- Tightened Token-efficiency reporting with input-only cache-share semantics, explicit evidence layers, bounded attribution, and confidence labels.
+
 ## 0.1.3
 
 - Made first-run onboarding follow the local product installation instead of stale browser state, with clearer Codex Hook setup guidance.
