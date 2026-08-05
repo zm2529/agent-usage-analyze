@@ -622,7 +622,7 @@ export interface BehaviorReportState {
       cacheReadShare: number; tokensPerUserMessage: number; sessionsWithCompaction: number;
       longSessions: number; p90UserMessages: number; measurementNote: string;
     };
-  };
+  } | null;
   eligibilityReason: string | null;
   run: AnalysisRunRecord | null;
   latestAttempt: AnalysisRunRecord | null;

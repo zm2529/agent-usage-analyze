@@ -44,6 +44,22 @@ describe('behavior report and analysis run APIs', () => {
     });
   });
 
+  it('keeps the dashboard request responsive while history import is writing', async () => {
+    getDb().prepare(`INSERT INTO ingestion_runs (
+      id, adapter_name, started_at, status
+    ) VALUES (?, ?, ?, ?)`)
+      .run('ingestion:active', 'codex-cli', '2026-08-05 14:00:00', 'running');
+
+    const response = await createApp().request('/api/behavior-report');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      dataset: null,
+      eligibilityReason: 'history-import-running',
+      generation: { running: false },
+    });
+  });
+
   it('does not display an old-format report when a current generation attempt fails', async () => {
     const insert = getDb().prepare(`INSERT INTO analysis_runs (
       id, analysis_type, status, unavailable_reason, provider, model,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Kept Dashboard startup responsive during large Codex history imports: the Analysis page now shows an explicit pending state instead of synchronously reading the full event corpus and blocking the local health check.
+
 ## 0.1.5
 
 - Kept `agent-usage-analyze start` usable on macOS when legacy LaunchAgent registration fails: the Dashboard now falls back to a detached current-session process instead of aborting after setup and history import.

@@ -93,6 +93,24 @@ describe('ImprovePage', () => {
     expect(screen.getByText('60')).toBeInTheDocument();
   });
 
+  it('shows a clear pending state while history import is running', async () => {
+    api.fetchBehaviorReport.mockResolvedValue({
+      dataset: null,
+      eligibilityReason: 'history-import-running',
+      run: null,
+      latestAttempt: null,
+      report: null,
+      needsRegeneration: false,
+      automation: { enabled: true, due: false, reason: 'insufficient-evidence', policy: 'hook-after-settle', intervalHours: 24 },
+      generation: { running: false, startedAt: null },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('历史整理仍在进行中；完成后即可生成分析。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generate LLM report' })).toBeDisabled();
+  });
+
   it('does not start a report while the structural evidence threshold is unmet', async () => {
     api.fetchBehaviorReport.mockResolvedValue({
       ...eligibleState,

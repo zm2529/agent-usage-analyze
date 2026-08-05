@@ -4,25 +4,67 @@ import { listAnalysisRuns } from 'agent-usage-analyze/analysis/analysis-run-db';
 import {
   BEHAVIOR_REPORT_PROMPT_VERSION,
   behaviorReportUnavailableReason,
-  buildBehaviorReportDataset,
 } from 'agent-usage-analyze/analysis/behavior-report';
 import type { BehaviorReportDataset } from 'agent-usage-analyze/analysis/behavior-report';
 import {
   getAutomaticBehaviorReportState,
   spawnManualBehaviorReport,
 } from 'agent-usage-analyze/analysis/behavior-report-scheduler';
+import { loadConfig } from 'agent-usage-analyze/utils/config';
 
 const app = new Hono();
 let activeBehaviorReportJob: Promise<void> | null = null;
 let activeBehaviorReportStartedAt: string | null = null;
 let activeBehaviorReportSnapshot: ReturnType<typeof latestState> | null = null;
 let lastServedBehaviorReportSnapshot: ReturnType<typeof latestState> | null = null;
-let datasetCache: { key: string; value: BehaviorReportDataset } | null = null;
 
 export function getBehaviorReportGenerationStatus() {
   return {
     running: activeBehaviorReportJob !== null,
     startedAt: activeBehaviorReportStartedAt,
+  };
+}
+
+function historyImportIsRunning(db: ReturnType<typeof getDb>): boolean {
+  return Boolean(db.prepare(`SELECT 1 FROM ingestion_runs
+    WHERE status = 'running'
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1`).get());
+}
+
+function deferredDatasetState(
+  run: ReturnType<typeof listAnalysisRuns>[number] | null,
+  latestAttempt: ReturnType<typeof listAnalysisRuns>[number] | null,
+  latestAttemptIsCurrentVersion: boolean,
+  importRunning: boolean,
+) {
+  const latestAttemptFailed = latestAttemptIsCurrentVersion
+    && (latestAttempt?.status === 'failed' || latestAttempt?.status === 'rejected');
+  const enabled = loadConfig()?.dashboard?.capabilities?.automaticBehaviorReport !== false;
+  return {
+    // Dataset construction reads large local event payloads. It belongs in the
+    // dedicated report worker, never on the dashboard's request event loop.
+    dataset: null,
+    eligibilityReason: importRunning ? 'history-import-running' : null,
+    run,
+    latestAttempt,
+    report: null,
+    needsRegeneration: Boolean(run) || latestAttemptFailed,
+    automation: {
+      enabled,
+      due: false,
+      reason: enabled ? 'insufficient-evidence' : 'disabled',
+      policy: 'hook-after-settle' as const,
+      intervalHours: 24 as const,
+      latestAttemptAt: latestAttempt?.createdAt ?? null,
+      latestSuccessfulAt: null,
+      latestEvidenceAt: null,
+      nextEligibleAt: null,
+    },
+    generation: {
+      running: activeBehaviorReportJob !== null,
+      startedAt: activeBehaviorReportStartedAt,
+    },
   };
 }
 
@@ -49,19 +91,15 @@ function latestState() {
       && cachedInput?.tokenEfficiency
       && cachedLeverage?.skills?.items?.every((item) => Array.isArray(item.weeklyInvocations)),
   );
+  if (!hasCurrentEvidenceSnapshot) {
+    return deferredDatasetState(run, latestAttempt, latestAttemptIsCurrentVersion, historyImportIsRunning(db));
+  }
   const evidenceVersion = db.prepare(`SELECT
       COALESCE(MAX(completed_at), '') AS completedAt,
       COALESCE(MAX(processed_source_count), 0) AS processedSources
     FROM ingestion_runs`).get() as { completedAt: string; processedSources: number };
   const datasetKey = `${evidenceVersion.completedAt}:${evidenceVersion.processedSources}`;
-  const dataset = hasCurrentEvidenceSnapshot
-    ? structuredClone(cachedInput) as unknown as BehaviorReportDataset
-    : datasetCache?.key === datasetKey
-      ? structuredClone(datasetCache.value)
-      : buildBehaviorReportDataset(db, new Date());
-  if (!hasCurrentEvidenceSnapshot && datasetCache?.key !== datasetKey) {
-    datasetCache = { key: datasetKey, value: structuredClone(dataset) };
-  }
+  const dataset = structuredClone(cachedInput) as unknown as BehaviorReportDataset;
   if (hasCurrentEvidenceSnapshot) {
     const latestSession = db.prepare(`SELECT MAX(ended_at) AS latestSessionAt FROM sessions`)
       .get() as { latestSessionAt: string | null };

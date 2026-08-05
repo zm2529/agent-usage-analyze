@@ -1,6 +1,6 @@
 {
   "name": "agent-usage-analyze",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Local-first usage, behavior, and improvement analytics for coding agents",
   "type": "module",
   "main": "dist/index.js",
